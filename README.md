@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" width="400" alt="Isartor Logo" />
+</p>
+
 # 🏛️ Isartor
 
 **Algorithmic AI Orchestration Gateway**
