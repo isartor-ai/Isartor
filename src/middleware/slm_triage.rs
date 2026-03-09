@@ -65,10 +65,7 @@ struct ChatCompletionResponse {
 ///    the SLM to generate the answer directly (short-circuit).
 /// 3. If the task is **COMPLEX** or the SLM is unreachable, the request
 ///    continues to Layer 3 (external LLM fallback).
-pub async fn slm_triage_middleware(
-    request: Request,
-    next: Next,
-) -> Response {
+pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
     let span = info_span!("layer2_slm", slm.complexity_score = tracing::field::Empty);
     async move {
         let state = request
@@ -148,13 +145,13 @@ pub async fn slm_triage_middleware(
                     .trim()
                     .to_uppercase();
                 tracing::info!(classification = %answer, "Layer 2: SLM classification result");
-                
+
                 let is_simp = answer.contains("SIMPLE");
                 tracing::Span::current().record(
                     "slm.complexity_score",
                     if is_simp { "SIMPLE" } else { "COMPLEX" },
                 );
-                
+
                 is_simp
             }
             Err(e) => {
@@ -235,14 +232,14 @@ pub async fn slm_triage_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{routing::post, Router, middleware as axum_mw};
+    use axum::{middleware as axum_mw, routing::post, Router};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
-    use wiremock::{MockServer, Mock, ResponseTemplate};
     use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use crate::clients::slm::SlmClient;
-    use crate::config::{AppConfig, CacheMode, Layer2Settings, EmbeddingSidecarSettings};
+    use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
     use crate::models::ChatResponse;
     use crate::state::{AppLlmAgent, ExactCache};
     use crate::vector_cache::VectorCache;
@@ -308,21 +305,29 @@ mod tests {
 
     fn triage_app(state: Arc<AppState>) -> Router {
         Router::new()
-            .route("/api/chat", post(|| async {
-                (StatusCode::OK, axum::Json(ChatResponse {
-                    layer: 3,
-                    message: "layer 3 response".into(),
-                    model: Some("gpt-4o".into()),
-                }))
-            }))
+            .route(
+                "/api/chat",
+                post(|| async {
+                    (
+                        StatusCode::OK,
+                        axum::Json(ChatResponse {
+                            layer: 3,
+                            message: "layer 3 response".into(),
+                            model: Some("gpt-4o".into()),
+                        }),
+                    )
+                }),
+            )
             .layer(axum_mw::from_fn(slm_triage_middleware))
-            .layer(axum_mw::from_fn(move |mut req: axum::extract::Request, next: axum_mw::Next| {
-                let st = state.clone();
-                async move {
-                    req.extensions_mut().insert(st);
-                    next.run(req).await
-                }
-            }))
+            .layer(axum_mw::from_fn(
+                move |mut req: axum::extract::Request, next: axum_mw::Next| {
+                    let st = state.clone();
+                    async move {
+                        req.extensions_mut().insert(st);
+                        next.run(req).await
+                    }
+                },
+            ))
     }
 
     fn json_body(prompt: &str) -> Body {
@@ -345,10 +350,7 @@ mod tests {
         // Second call: SLM generates the answer
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(chat_completion_json("SIMPLE")),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("SIMPLE")))
             .up_to_n_times(1)
             .expect(1)
             .mount(&mock_server)
@@ -357,8 +359,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(chat_completion_json("The answer is 42")),
+                ResponseTemplate::new(200).set_body_json(chat_completion_json("The answer is 42")),
             )
             .expect(1)
             .mount(&mock_server)
@@ -388,10 +389,7 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(chat_completion_json("COMPLEX")),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("COMPLEX")))
             .expect(1)
             .mount(&mock_server)
             .await;
@@ -442,10 +440,7 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_string("not valid json"),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_string("not valid json"))
             .expect(1)
             .mount(&mock_server)
             .await;
