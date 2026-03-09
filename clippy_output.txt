@@ -1,0 +1,411 @@
+    Checking isartor v0.1.0 (/Users/let7mu/Isartor)
+error: unused import: `std::sync::Arc`
+  --> tests/integration_test.rs:12:5
+   |
+12 | use std::sync::Arc;
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `-D unused-imports` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(unused_imports)]`
+
+error: unused import: `Json`
+  --> tests/integration_test.rs:25:9
+   |
+25 |         Json, Router,
+   |         ^^^^
+
+error: unused variable: `sidecar_url`
+  --> tests/integration_test.rs:35:9
+   |
+35 |     let sidecar_url = sidecar_url.to_string();
+   |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sidecar_url`
+   |
+   = note: `-D unused-variables` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(unused_variables)]`
+
+error: could not compile `isartor` (test "integration_test") due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: struct `ChatMessage` is never constructed
+  --> src/clients/slm.rs:23:12
+   |
+23 | pub struct ChatMessage {
+   |            ^^^^^^^^^^^
+   |
+   = note: `-D dead-code` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: struct `ChatCompletionRequest` is never constructed
+  --> src/clients/slm.rs:30:12
+   |
+30 | pub struct ChatCompletionRequest {
+   |            ^^^^^^^^^^^^^^^^^^^^^
+
+error: struct `ChatChoice` is never constructed
+  --> src/clients/slm.rs:49:12
+   |
+49 | pub struct ChatChoice {
+   |            ^^^^^^^^^^
+
+error: struct `ChatCompletionResponse` is never constructed
+  --> src/clients/slm.rs:59:12
+   |
+59 | pub struct ChatCompletionResponse {
+   |            ^^^^^^^^^^^^^^^^^^^^^^
+
+error: fields `http_client`, `base_url`, and `model_name` are never read
+  --> src/clients/slm.rs:81:5
+   |
+80 | pub struct SlmClient {
+   |            --------- fields in this struct
+81 |     http_client: reqwest::Client,
+   |     ^^^^^^^^^^^
+82 |     base_url: String,
+   |     ^^^^^^^^
+83 |     model_name: String,
+   |     ^^^^^^^^^^
+   |
+   = note: `SlmClient` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+error: constant `CLASSIFY_SYSTEM_PROMPT` is never used
+  --> src/clients/slm.rs:88:7
+   |
+88 | const CLASSIFY_SYSTEM_PROMPT: &str = "\
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+error: methods `classify_intent`, `chat_completion`, `base_url`, `model_name`, and `http_client` are never used
+   --> src/clients/slm.rs:116:18
+    |
+ 93 | impl SlmClient {
+    | -------------- methods in this implementation
+...
+116 |     pub async fn classify_intent(&self, user_p...
+    |                  ^^^^^^^^^^^^^^^
+...
+176 |     pub async fn chat_completion(
+    |                  ^^^^^^^^^^^^^^^
+...
+222 |     pub fn base_url(&self) -> &str {
+    |            ^^^^^^^^
+...
+227 |     pub fn model_name(&self) -> &str {
+    |            ^^^^^^^^^^
+...
+233 |     pub fn http_client(&self) -> &reqwest::Cli...
+    |            ^^^^^^^^^^^
+
+error: field `timeout_seconds` is never read
+  --> src/config.rs:62:9
+   |
+54 | pub struct EmbeddingSidecarSettings {
+   |            ------------------------ field in this struct
+...
+62 |     pub timeout_seconds: u64,
+   |         ^^^^^^^^^^^^^^^
+   |
+   = note: `EmbeddingSidecarSettings` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+error: field `local_slm_model` is never read
+   --> src/config.rs:102:9
+    |
+ 67 | pub struct AppConfig {
+    |            --------- field in this struct
+...
+102 |     pub local_slm_model: String,
+    |         ^^^^^^^^^^^^^^^
+    |
+    = note: `AppConfig` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+error: struct `OllamaRequest` is never constructed
+  --> src/models.rs:25:12
+   |
+25 | pub struct OllamaRequest {
+   |            ^^^^^^^^^^^^^
+
+error: struct `OllamaResponse` is never constructed
+  --> src/models.rs:35:12
+   |
+35 | pub struct OllamaResponse {
+   |            ^^^^^^^^^^^^^^
+
+error: struct `OpenAiMessage` is never constructed
+  --> src/models.rs:60:12
+   |
+60 | pub struct OpenAiMessage {
+   |            ^^^^^^^^^^^^^
+
+error: struct `OpenAiChatRequest` is never constructed
+  --> src/models.rs:67:12
+   |
+67 | pub struct OpenAiChatRequest {
+   |            ^^^^^^^^^^^^^^^^^
+
+error: struct `OpenAiChatChoice` is never constructed
+  --> src/models.rs:80:12
+   |
+80 | pub struct OpenAiChatChoice {
+   |            ^^^^^^^^^^^^^^^^
+
+error: struct `OpenAiChatResponse` is never constructed
+  --> src/models.rs:90:12
+   |
+90 | pub struct OpenAiChatResponse {
+   |            ^^^^^^^^^^^^^^^^^^
+
+error: struct `OpenAiEmbeddingRequest` is never constructed
+  --> src/models.rs:98:12
+   |
+98 | pub struct OpenAiEmbeddingRequest {
+   |            ^^^^^^^^^^^^^^^^^^^^^^
+
+error: struct `OpenAiEmbeddingData` is never constructed
+   --> src/models.rs:105:12
+    |
+105 | pub struct OpenAiEmbeddingData {
+    |            ^^^^^^^^^^^^^^^^^^^
+
+error: struct `OpenAiEmbeddingResponse` is never constructed
+   --> src/models.rs:113:12
+    |
+113 | pub struct OpenAiEmbeddingResponse {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^
+
+error: type alias `OllamaEmbedder` is never used
+  --> src/pipeline/implementations/embedder.rs:34:10
+   |
+34 | pub type OllamaEmbedder = LlamaCppEmbedder;
+   |          ^^^^^^^^^^^^^^
+
+error: type alias `OllamaIntentClassifier` is never used
+  --> src/pipeline/implementations/intent_classifier.rs:77:10
+   |
+77 | pub type OllamaIntentClassifier = LlamaCppInten...
+   |          ^^^^^^^^^^^^^^^^^^^^^^
+
+error: type alias `OllamaLocalExecutor` is never used
+  --> src/pipeline/implementations/local_executor.rs:56:10
+   |
+56 | pub type OllamaLocalExecutor = LlamaCppLocalExe...
+   |          ^^^^^^^^^^^^^^^^^^^
+
+error: type alias `OllamaReranker` is never used
+  --> src/pipeline/implementations/reranker.rs:68:10
+   |
+68 | pub type OllamaReranker = LlamaCppReranker;
+   |          ^^^^^^^^^^^^^^
+
+error: struct `EmbeddedClassifierConfig` is never constructed
+  --> src/services/local_inference.rs:45:12
+   |
+45 | pub struct EmbeddedClassifierConfig {
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: constant `CLASSIFY_SYSTEM_PROMPT` is never used
+  --> src/services/local_inference.rs:87:7
+   |
+87 | const CLASSIFY_SYSTEM_PROMPT: &str = "\
+   |       ^^^^^^^^^^^^^^^^^^^^^^
+
+error: function `format_classify_prompt` is never used
+   --> src/services/local_inference.rs:106:8
+    |
+106 | pub fn format_classify_prompt(prompt: &str) ->...
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+error: function `format_simple_prompt` is never used
+   --> src/services/local_inference.rs:113:8
+    |
+113 | pub fn format_simple_prompt(prompt: &str) -> S...
+    |        ^^^^^^^^^^^^^^^^^^^^
+
+error: function `parse_classify_response` is never used
+   --> src/services/local_inference.rs:131:8
+    |
+131 | pub fn parse_classify_response(raw: &str) -> (...
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+error: struct `EmbeddedClassifier` is never constructed
+   --> src/services/local_inference.rs:180:12
+    |
+180 | pub struct EmbeddedClassifier {
+    |            ^^^^^^^^^^^^^^^^^^
+
+error: multiple associated items are never used
+   --> src/services/local_inference.rs:206:18
+    |
+199 | impl EmbeddedClassifier {
+    | ----------------------- associated items in this implementation
+...
+206 |     pub async fn new(cfg: EmbeddedClassifierCo...
+    |                  ^^^
+...
+278 |     async fn resolve_tokenizer_path(api: &Api)...
+    |              ^^^^^^^^^^^^^^^^^^^^^^
+...
+305 |     fn load_model_weights(model_path: &PathBuf...
+    |        ^^^^^^^^^^^^^^^^^^
+...
+342 |     pub async fn classify(&self, prompt: &str)...
+    |                  ^^^^^^^^
+...
+360 |     pub async fn execute(&self, prompt: &str) ...
+    |                  ^^^^^^^
+...
+369 |     async fn generate(&self, formatted_prompt:...
+    |              ^^^^^^^^
+...
+440 |     fn generate_tokens(
+    |        ^^^^^^^^^^^^^^^
+...
+500 |     fn sample_token(
+    |        ^^^^^^^^^^^^
+
+error: field `slm_client` is never read
+   --> src/state.rs:113:9
+    |
+103 | pub struct AppState {
+    |            -------- field in this struct
+...
+113 |     pub slm_client: Arc<SlmClient>,
+    |         ^^^^^^^^^^
+    |
+    = note: `AppState` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+error: this `impl` can be derived
+   --> src/config.rs:157:1
+    |
+157 | / impl Default for CacheMode {
+158 | |     fn default() -> Self {
+159 | |         CacheMode::Both
+160 | |     }
+161 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#derivable_impls
+    = note: `-D clippy::derivable-impls` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::derivable_impls)]`
+help: replace the manual implementation with a derive attribute and mark the default variant
+    |
+ 12 + #[derive(Default)]
+ 13 | pub enum CacheMode {
+ 14 |     Exact,
+ 15 |     Semantic,
+ 16 ~     #[default]
+ 17 ~     Both,
+    |
+
+error: found call to `str::trim` before `str::split_whitespace`
+   --> src/services/local_inference.rs:136:26
+    |
+136 | ...= rest.trim().split_whitespace().next().unw...
+    |           ^^^^^^^ help: remove `trim()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#trim_split_whitespace
+    = note: `-D clippy::trim-split-whitespace` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::trim_split_whitespace)]`
+
+error: found call to `str::trim` before `str::split_whitespace`
+   --> src/services/local_inference.rs:162:31
+    |
+162 | ...| rest.trim().split_whitespace().next())
+    |           ^^^^^^^ help: remove `trim()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#trim_split_whitespace
+
+error: could not compile `isartor` (bin "isartor") due to 33 previous errors
+error: method `http_client` is never used
+   --> src/clients/slm.rs:233:12
+    |
+ 93 | impl SlmClient {
+    | -------------- method in this implementation
+...
+233 |     pub fn http_client(&self) -> &reqwest::Cli...
+    |            ^^^^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(dead_code)]`
+
+error: fields `tokenizer`, `model`, `device`, `config`, and `eot_token_id` are never read
+   --> src/services/local_inference.rs:182:5
+    |
+180 | pub struct EmbeddedClassifier {
+    |            ------------------ fields in this struct
+181 |     /// The loaded tokenizer for the model.
+182 |     tokenizer: Arc<Tokenizer>,
+    |     ^^^^^^^^^
+...
+187 |     model: Arc<Mutex<ModelWeights>>,
+    |     ^^^^^
+...
+190 |     device: Device,
+    |     ^^^^^^
+...
+193 |     config: EmbeddedClassifierConfig,
+    |     ^^^^^^
+...
+196 |     eot_token_id: u32,
+    |     ^^^^^^^^^^^^
+
+error: multiple associated items are never used
+   --> src/services/local_inference.rs:206:18
+    |
+199 | impl EmbeddedClassifier {
+    | ----------------------- associated items in this implementation
+...
+206 |     pub async fn new(cfg: EmbeddedClassifierCo...
+    |                  ^^^
+...
+278 |     async fn resolve_tokenizer_path(api: &Api)...
+    |              ^^^^^^^^^^^^^^^^^^^^^^
+...
+305 |     fn load_model_weights(model_path: &PathBuf...
+    |        ^^^^^^^^^^^^^^^^^^
+...
+342 |     pub async fn classify(&self, prompt: &str)...
+    |                  ^^^^^^^^
+...
+360 |     pub async fn execute(&self, prompt: &str) ...
+    |                  ^^^^^^^
+...
+369 |     async fn generate(&self, formatted_prompt:...
+    |              ^^^^^^^^
+...
+440 |     fn generate_tokens(
+    |        ^^^^^^^^^^^^^^^
+
+error: this `if` statement can be collapsed
+   --> src/pipeline/stubs.rs:109:13
+    |
+109 | / ...   if sim >= threshold {
+110 | | ...       if best.as_ref().map_or(true, |(_,...
+111 | | ...           best = Some((response.clone(),...
+112 | | ...       }
+113 | | ...   }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+109 ~             if sim >= threshold
+110 ~                 && best.as_ref().map_or(true, |(_, s)| sim > *s) {
+111 |                     best = Some((response.clone(), sim));
+112 ~                 }
+    |
+
+error: this `map_or` can be simplified
+   --> src/pipeline/stubs.rs:110:20
+    |
+110 | ...if best.as_ref().map_or(true, |(_, s)| sim > *s) {
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unnecessary_map_or
+    = note: `-D clippy::unnecessary-map-or` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_map_or)]`
+help: use is_none_or instead
+    |
+110 -                 if best.as_ref().map_or(true, |(_, s)| sim > *s) {
+110 +                 if best.as_ref().is_none_or(|(_, s)| sim > *s) {
+    |
+
+error: could not compile `isartor` (bin "isartor" test) due to 13 previous errors

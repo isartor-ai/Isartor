@@ -156,8 +156,6 @@ pub struct AppConfig {
     pub pipeline_target_latency_ms: u64,
 }
 
-
-
 impl AppConfig {
     /// Build configuration from environment variables prefixed with `ISARTOR_`
     /// (e.g. `ISARTOR_HOST_PORT`, `ISARTOR_GATEWAY_API_KEY`, …).
