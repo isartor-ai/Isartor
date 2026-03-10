@@ -18,6 +18,7 @@
 #   Gateway (v2):  http://localhost:8080/api/v2/chat
 #   Health check:  http://localhost:8080/healthz
 #   Jaeger UI:     http://localhost:16686
+#   Tempo API:     http://localhost:3200
 #   Grafana:       http://localhost:3000
 #   Prometheus:    http://localhost:9090
 #
@@ -104,7 +105,7 @@ services:
 
   # ── OpenTelemetry Collector ──────────────────────────────────────
   # Receives traces + metrics via OTLP gRPC from the gateway,
-  # forwards traces to Jaeger and metrics to Prometheus.
+  # forwards traces to Jaeger + Tempo and metrics to Prometheus.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.96.0
     container_name: isartor-otel-collector
@@ -115,6 +116,8 @@ services:
       - "4317:4317"     # OTLP gRPC
     depends_on:
       jaeger:
+        condition: service_started
+      tempo:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -136,6 +139,24 @@ services:
         limits:
           memory: 256M
 
+  # ── Tempo — TraceQL Backend ──────────────────────────────────────
+  # Grafana Tempo stores traces and serves TraceQL queries for the
+  # Bar Gauge and Heatmap dashboard panels.
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: isartor-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"     # Tempo HTTP API
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   # ── Prometheus — Metrics Storage ─────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.51.0
@@ -144,6 +165,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=7d"
       - "--storage.tsdb.retention.size=512MB"
+      - "--web.enable-remote-write-receiver"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -169,8 +191,8 @@ services:
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
-      # Auto-provision data sources
-      GF_DATASOURCES_DEFAULT_PROMETHEUS_URL: "http://prometheus:9090"
+      # Load Isartor dashboard as the home page
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/etc/grafana/dashboards/isartor_dashboard.json"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -181,6 +203,8 @@ services:
       prometheus:
         condition: service_started
       jaeger:
+        condition: service_started
+      tempo:
         condition: service_started
     restart: unless-stopped
     deploy:
@@ -201,3 +225,5 @@ volumes:
     name: isartor-prometheus-data
   grafana_data:
     name: isartor-grafana-data
+  tempo_data:
+    name: isartor-tempo-data

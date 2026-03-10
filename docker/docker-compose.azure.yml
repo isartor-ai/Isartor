@@ -2,10 +2,20 @@
 #
 # Usage:
 #   cd docker
-#   AZURE_OPENAI_KEY=your-key \
-#   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com \
-#   AZURE_DEPLOYMENT_ID=your-deployment \
 #   docker compose -f docker-compose.azure.yml up --build
+#
+# Required environment (set in .env or shell):
+#   ISARTOR__EXTERNAL_LLM_API_KEY   — Azure OpenAI key
+#   ISARTOR__EXTERNAL_LLM_URL       — https://<resource>.openai.azure.com
+#   ISARTOR__AZURE_DEPLOYMENT_ID    — your deployment name
+#
+# Endpoints:
+#   Gateway:       http://localhost:8080/api/chat
+#   Health check:  http://localhost:8080/healthz
+#   Jaeger UI:     http://localhost:16686
+#   Tempo API:     http://localhost:3200
+#   Grafana:       http://localhost:3000
+#   Prometheus:    http://localhost:9090
 
 services:
   # ── Ollama — Local AI engine (embeddings + SLM) ───────────────────
@@ -50,10 +60,131 @@ services:
     depends_on:
       ollama-init:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     ports:
       - "8080:8080"
+    environment:
+      ISARTOR_LLM_PROVIDER: "azure"
+      ISARTOR_ENABLE_MONITORING: "true"
+      ISARTOR_OTEL_EXPORTER_ENDPOINT: "http://otel-collector:4317"
+      ISARTOR_LOCAL_SLM_URL: "http://ollama:11434/api/generate"
     env_file:
-      - .env
+      - path: .env
+        required: false
+
+  # ═══════════════════════════════════════════════════════════════════
+  # OBSERVABILITY STACK
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── OpenTelemetry Collector ──────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: isartor-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"
+    depends_on:
+      jaeger:
+        condition: service_started
+      tempo:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ── Jaeger — Distributed Tracing UI ──────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    container_name: isartor-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ── Tempo — TraceQL Backend ──────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: isartor-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ── Prometheus — Metrics Storage ─────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: isartor-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+      - "--storage.tsdb.retention.size=512MB"
+      - "--web.enable-remote-write-receiver"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ── Grafana — Dashboards ─────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: isartor-grafana
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/etc/grafana/dashboards/isartor_dashboard.json"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+      tempo:
+        condition: service_started
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 volumes:
   ollama_data:
+  prometheus_data:
+    name: isartor-prometheus-data
+  grafana_data:
+    name: isartor-grafana-data
+  tempo_data:
+    name: isartor-tempo-data
