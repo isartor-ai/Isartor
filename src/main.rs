@@ -52,6 +52,13 @@ async fn main() -> anyhow::Result<()> {
         model = %config.external_llm_model,
         "LLM provider configured"
     );
+    tracing::info!(
+        inference_engine = ?config.inference_engine,
+        azure_deployment_id = %config.azure_deployment_id,
+        external_llm_url = %config.external_llm_url,
+        api_key_len = config.external_llm_api_key.len(),
+        "Engine & provider details"
+    );
 
     // Initialize the in-process sentence embedder for Layer 1 semantic cache.
     // This blocks during startup (~1s) to load the ONNX model into RAM (~33 MB).

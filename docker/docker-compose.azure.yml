@@ -6,9 +6,12 @@
 #   docker compose -f docker-compose.azure.yml up --build
 #
 # Required environment (set in .env or shell):
-#   ISARTOR_EXTERNAL_LLM_API_KEY   — Azure OpenAI key
-#   ISARTOR_EXTERNAL_LLM_URL       — https://<resource>.openai.azure.com
-#   ISARTOR_AZURE_DEPLOYMENT_ID    — your deployment name
+#   ISARTOR__EXTERNAL_LLM_API_KEY   — Azure OpenAI key
+#   ISARTOR__EXTERNAL_LLM_URL       — https://<resource>.openai.azure.com
+#   ISARTOR__AZURE_DEPLOYMENT_ID    — your deployment name
+#
+# NOTE: The config crate uses separator("__"), so ALL env vars need
+#       a double underscore after the ISARTOR prefix.
 #
 # Endpoints:
 #   Gateway:       http://localhost:8080/api/chat
@@ -66,10 +69,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      ISARTOR_LLM_PROVIDER: "azure"
-      ISARTOR_ENABLE_MONITORING: "true"
-      ISARTOR_OTEL_EXPORTER_ENDPOINT: "http://otel-collector:4317"
-      ISARTOR_LOCAL_SLM_URL: "http://ollama:11434/api/generate"
+      ISARTOR__LLM_PROVIDER: "azure"
+      ISARTOR__ENABLE_MONITORING: "true"
+      ISARTOR__OTEL_EXPORTER_ENDPOINT: "http://otel-collector:4317"
+      ISARTOR__LOCAL_SLM_URL: "http://ollama:11434/api/generate"
     env_file:
       - path: .env
         required: false

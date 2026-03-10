@@ -47,16 +47,22 @@ services:
     ports:
       - "8000:8080"
     environment:
+      # ── Important ────────────────────────────────────────────────
+      # The config crate uses separator("__"), so ALL env var keys
+      # must use double-underscore after the ISARTOR prefix:
+      #   ISARTOR__KEY            → top-level field
+      #   ISARTOR__NESTED__FIELD  → nested struct field
+      #
       # ── General ──────────────────────────────────────────────────
-      ISARTOR_INFERENCE_ENGINE: "embedded"
-      ISARTOR_HOST_PORT: "0.0.0.0:8080"
-      ISARTOR_GATEWAY_API_KEY: "changeme"
+      ISARTOR__INFERENCE_ENGINE: "embedded"
+      ISARTOR__HOST_PORT: "0.0.0.0:8080"
+      ISARTOR__GATEWAY_API_KEY: "changeme"
       # ── Layer 1 — Semantic Cache ─────────────────────────────────
-      ISARTOR_CACHE_MODE: "both"
-      ISARTOR_EMBEDDING_MODEL: "all-minilm"
-      ISARTOR_SIMILARITY_THRESHOLD: "0.85"
-      ISARTOR_CACHE_TTL_SECS: "300"
-      ISARTOR_CACHE_MAX_CAPACITY: "10000"
+      ISARTOR__CACHE_MODE: "both"
+      ISARTOR__EMBEDDING_MODEL: "all-minilm"
+      ISARTOR__SIMILARITY_THRESHOLD: "0.85"
+      ISARTOR__CACHE_TTL_SECS: "300"
+      ISARTOR__CACHE_MAX_CAPACITY: "10000"
       # ── Layer 2 — Generation Sidecar (llama.cpp) ─────────────────
       ISARTOR__LAYER2__SIDECAR_URL: "http://slm-generation:8081"
       ISARTOR__LAYER2__MODEL_NAME: "phi-3-mini"
@@ -66,26 +72,25 @@ services:
       ISARTOR__EMBEDDING_SIDECAR__MODEL_NAME: "all-minilm"
       ISARTOR__EMBEDDING_SIDECAR__TIMEOUT_SECONDS: "10"
       # ── Legacy Layer 2 (v1 middleware — points to generation sidecar)
-      ISARTOR_LOCAL_SLM_URL: "http://slm-generation:8081/v1/chat/completions"
-      ISARTOR_LOCAL_SLM_MODEL: "phi-3-mini"
-      # ── Layer 3 — External LLM (override via .env.full) ─────────
-      ISARTOR_LLM_PROVIDER: "${ISARTOR_LLM_PROVIDER:-openai}"
-      ISARTOR_EXTERNAL_LLM_MODEL: "${ISARTOR_EXTERNAL_LLM_MODEL:-gpt-4o-mini}"
-      ISARTOR_EXTERNAL_LLM_API_KEY: "${ISARTOR_EXTERNAL_LLM_API_KEY:-}"
-      ISARTOR_EXTERNAL_LLM_URL: "${ISARTOR_EXTERNAL_LLM_URL:-https://api.openai.com/v1/chat/completions}"
-      # ── Azure (pass-through, only used when provider=azure) ──────
-      ISARTOR_AZURE_DEPLOYMENT_ID: "${ISARTOR_AZURE_DEPLOYMENT_ID:-}"
-      ISARTOR_AZURE_API_VERSION: "${ISARTOR_AZURE_API_VERSION:-2024-08-01-preview}"
+      ISARTOR__LOCAL_SLM_URL: "http://slm-generation:8081/v1/chat/completions"
+      ISARTOR__LOCAL_SLM_MODEL: "phi-3-mini"
+      # ── Layer 3 — External LLM ──────────────────────────────────
+      # Provider, model, API key, URL, and Azure-specific settings are
+      # loaded from .env.full (see env_file below).  The Rust config
+      # crate supplies sensible defaults (openai / gpt-4o-mini) when
+      # the file is absent, so no ${VAR:-default} interpolation is
+      # needed here.  Keeping them out of the environment: block
+      # prevents compose-time expansion from shadowing the env_file.
       # ── Observability ────────────────────────────────────────────
-      ISARTOR_ENABLE_MONITORING: "true"
-      ISARTOR_OTEL_EXPORTER_ENDPOINT: "http://otel-collector:4317"
+      ISARTOR__ENABLE_MONITORING: "true"
+      ISARTOR__OTEL_EXPORTER_ENDPOINT: "http://otel-collector:4317"
       # ── Pipeline v2 Tuning ──────────────────────────────────────
-      ISARTOR_PIPELINE_EMBEDDING_DIM: "384"
-      ISARTOR_PIPELINE_SIMILARITY_THRESHOLD: "0.92"
-      ISARTOR_PIPELINE_RERANK_TOP_K: "5"
-      ISARTOR_PIPELINE_MAX_CONCURRENCY: "256"
-      ISARTOR_PIPELINE_MIN_CONCURRENCY: "4"
-      ISARTOR_PIPELINE_TARGET_LATENCY_MS: "500"
+      ISARTOR__PIPELINE_EMBEDDING_DIM: "384"
+      ISARTOR__PIPELINE_SIMILARITY_THRESHOLD: "0.92"
+      ISARTOR__PIPELINE_RERANK_TOP_K: "5"
+      ISARTOR__PIPELINE_MAX_CONCURRENCY: "256"
+      ISARTOR__PIPELINE_MIN_CONCURRENCY: "4"
+      ISARTOR__PIPELINE_TARGET_LATENCY_MS: "500"
     env_file:
       - path: .env.full
         required: false

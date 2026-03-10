@@ -32,7 +32,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
-use candle_transformers::models::quantized_llama::ModelWeights;
+use candle_transformers::models::quantized_gemma3::ModelWeights;
 use hf_hub::api::tokio::Api;
 use hf_hub::Repo;
 use tokenizers::Tokenizer;
@@ -224,10 +224,9 @@ impl EmbeddedClassifier {
             .await
             .context("failed to download GGUF model file")?;
 
-        // Download tokenizer from the non-quantised source repo.
-        // Quantised GGUF repos typically don't ship tokenizer.json,
-        // so we fetch from the original model repo.
-        let tokenizer_path = Self::resolve_tokenizer_path(&api).await?;
+        // Download tokenizer — tries the GGUF repo first (often includes
+        // tokenizer.json), then falls back to the canonical Google repo.
+        let tokenizer_path = Self::resolve_tokenizer_path(&api, &cfg.repo_id).await?;
 
         tracing::info!(
             model_path = %model_path.display(),
@@ -275,22 +274,37 @@ impl EmbeddedClassifier {
         })
     }
 
-    /// Resolve the tokenizer.json path — tries the quantised repo first,
-    /// then falls back to the canonical `google/gemma-2-2b-it` repo.
-    async fn resolve_tokenizer_path(api: &Api) -> Result<PathBuf> {
-        // First, try the canonical (non-quantised) model repo.
-        let canonical_repo = api.repo(Repo::model("google/gemma-2-2b-it".into()));
-        match canonical_repo.get("tokenizer.json").await {
-            Ok(path) => return Ok(path),
-            Err(e) => {
-                tracing::debug!(
-                    error = %e,
-                    "tokenizer not found in canonical repo, trying fallback"
-                );
+    /// Resolve the tokenizer.json path — tries the quantised GGUF repo first,
+    /// then the canonical `google/gemma-2-2b-it` repo, then a local fallback.
+    async fn resolve_tokenizer_path(api: &Api, gguf_repo_id: &str) -> Result<PathBuf> {
+        // Repos to try, in order.  The GGUF repo is tried first because some
+        // re-uploaders include tokenizer.json. Ungated community mirrors
+        // (e.g. unsloth) are tried before the official Google repo because
+        // the latter is a *gated* model requiring an HF token.
+        let repos_to_try: &[&str] = &[
+            gguf_repo_id,
+            "unsloth/gemma-2-2b-it",     // ungated community mirror
+            "google/gemma-2-2b-it",      // official (gated — needs HF_TOKEN)
+        ];
+
+        for repo_id in repos_to_try {
+            let repo = api.repo(Repo::model((*repo_id).into()));
+            match repo.get("tokenizer.json").await {
+                Ok(path) => {
+                    tracing::info!(repo = %repo_id, "Tokenizer found");
+                    return Ok(path);
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        repo = %repo_id,
+                        error = %e,
+                        "tokenizer.json not found in repo, trying next"
+                    );
+                }
             }
         }
 
-        // Fallback: look in the current working directory.
+        // Last resort: look in the current working directory.
         let local_path = PathBuf::from("tokenizer.json");
         if local_path.exists() {
             tracing::info!("Using local tokenizer.json from working directory");
@@ -298,8 +312,9 @@ impl EmbeddedClassifier {
         }
 
         anyhow::bail!(
-            "Could not locate tokenizer.json. Place it in the working directory \
-             or ensure network access to Hugging Face."
+            "Could not locate tokenizer.json. Tried repos {:?} \
+             and the working directory. Set HF_TOKEN for gated models or place tokenizer.json locally.",
+            repos_to_try
         )
     }
 

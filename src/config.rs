@@ -225,7 +225,14 @@ impl AppConfig {
             .set_default("pipeline_target_latency_ms", 500_i64)?
             // Optional config file -------------------------------------
             .add_source(config::File::with_name("isartor").required(false))
-            // Environment overrides (ISARTOR_ prefix) ------------------
+            // Environment overrides (ISARTOR__ prefix) -----------------
+            // The `config` crate strips the prefix + prefix_separator,
+            // then maps the remaining `__` sequences to nested struct
+            // notation.  Because `separator("__")` also becomes the
+            // default `prefix_separator`, ALL env vars must use double-
+            // underscore after the ISARTOR prefix:
+            //   ISARTOR__LLM_PROVIDER       → llm_provider        (top-level)
+            //   ISARTOR__LAYER2__SIDECAR_URL → layer2.sidecar_url  (nested)
             .add_source(config::Environment::with_prefix("ISARTOR").separator("__"))
             .build()?;
 
@@ -522,5 +529,69 @@ mod tests {
 
         assert_ne!(CacheMode::Exact, CacheMode::Semantic);
         assert_ne!(CacheMode::Semantic, CacheMode::Both);
+    }
+
+    #[test]
+    fn inference_engine_embedded_via_config_crate() {
+        // Ensure the config crate can deserialize "embedded" into InferenceEngineMode::Embedded.
+        let cfg = config::Config::builder()
+            .set_default("host_port", "0.0.0.0:8080").unwrap()
+            .set_default("gateway_api_key", "changeme").unwrap()
+            .set_default("cache_mode", "both").unwrap()
+            .set_default("embedding_model", "all-minilm").unwrap()
+            .set_default("similarity_threshold", 0.85).unwrap()
+            .set_default("cache_ttl_secs", 300_i64).unwrap()
+            .set_default("cache_max_capacity", 10_000_i64).unwrap()
+            .set_default("layer2.sidecar_url", "http://127.0.0.1:8081").unwrap()
+            .set_default("layer2.model_name", "phi-3-mini").unwrap()
+            .set_default("layer2.timeout_seconds", 30_i64).unwrap()
+            .set_default("local_slm_url", "http://localhost:11434/api/generate").unwrap()
+            .set_default("local_slm_model", "llama3").unwrap()
+            .set_default("embedding_sidecar.sidecar_url", "http://127.0.0.1:8082").unwrap()
+            .set_default("embedding_sidecar.model_name", "all-minilm").unwrap()
+            .set_default("embedding_sidecar.timeout_seconds", 10_i64).unwrap()
+            .set_default("llm_provider", "openai").unwrap()
+            .set_default("external_llm_url", "https://api.openai.com/v1/chat/completions").unwrap()
+            .set_default("external_llm_model", "gpt-4o-mini").unwrap()
+            .set_default("external_llm_api_key", "").unwrap()
+            .set_default("azure_deployment_id", "").unwrap()
+            .set_default("azure_api_version", "2024-08-01-preview").unwrap()
+            .set_default("enable_monitoring", false).unwrap()
+            .set_default("otel_exporter_endpoint", "http://localhost:4317").unwrap()
+            .set_default("pipeline_embedding_dim", 384_i64).unwrap()
+            .set_default("pipeline_similarity_threshold", 0.92).unwrap()
+            .set_default("pipeline_rerank_top_k", 5_i64).unwrap()
+            .set_default("pipeline_max_concurrency", 256_i64).unwrap()
+            .set_default("pipeline_min_concurrency", 4_i64).unwrap()
+            .set_default("pipeline_target_latency_ms", 500_i64).unwrap()
+            // Set inference_engine to "embedded" — the key test.
+            .set_override("inference_engine", "embedded").unwrap()
+            .build()
+            .unwrap();
+
+        let config: AppConfig = cfg.try_deserialize().unwrap();
+        assert_eq!(config.inference_engine, InferenceEngineMode::Embedded);
+    }
+
+    /// Verifies that `AppConfig::load()` picks up env vars with the double-
+    /// underscore prefix separator (`ISARTOR__LLM_PROVIDER`) required by the
+    /// config crate when `separator("__")` is used.
+    #[test]
+    fn env_var_double_underscore_prefix() {
+        temp_env::with_vars(
+            vec![
+                ("ISARTOR__INFERENCE_ENGINE", Some("embedded")),
+                ("ISARTOR__LLM_PROVIDER", Some("azure")),
+                ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("test-key-123")),
+                ("ISARTOR__LAYER2__SIDECAR_URL", Some("http://custom:9999")),
+            ],
+            || {
+                let config = AppConfig::load().expect("load must succeed");
+                assert_eq!(config.inference_engine, InferenceEngineMode::Embedded);
+                assert_eq!(config.llm_provider, "azure");
+                assert_eq!(config.external_llm_api_key, "test-key-123");
+                assert_eq!(config.layer2.sidecar_url, "http://custom:9999");
+            },
+        );
     }
 }
