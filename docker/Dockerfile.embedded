@@ -12,11 +12,15 @@
 # ============================================================================
 
 # ── Stage 1: Builder ────────────────────────────────────────────────────────
+# Use rust:latest (Debian Trixie, glibc ≥ 2.39) because the ONNX Runtime
+# prebuilt static library (ort-sys) references glibc 2.39 symbols
+# (__isoc23_strtoll, __cxa_call_terminate).  Both stages must use Trixie.
 FROM rust:latest AS builder
 
 # cmake is needed by aws-lc-sys (rustls) and potentially by candle.
+# pkg-config helps native crates discover system libraries.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends cmake g++ \
+    && apt-get install -y --no-install-recommends cmake g++ pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -34,7 +38,8 @@ RUN touch src/main.rs \
     && cargo build --release
 
 # ── Stage 2: Slim runtime ──────────────────────────────────────────────────
-FROM debian:bookworm-slim
+# Must match the builder's glibc (Trixie ≥ 2.39) for ort-sys compatibility.
+FROM debian:trixie-slim
 
 # wget for health checks, ca-certificates for TLS to Hugging Face / Azure.
 RUN apt-get update \
@@ -50,7 +55,14 @@ ENV ISARTOR_HOST_PORT=0.0.0.0:8080
 EXPOSE 8080
 
 # Run as non-root.
-RUN groupadd -r isartor && useradd -r -g isartor isartor
+RUN groupadd -r isartor && useradd -r -g isartor -m isartor
+
+# fastembed downloads ONNX model files on first run.
+# Create a writable cache directory owned by the non-root user.
+RUN mkdir -p /home/isartor/.fastembed_cache \
+    && chown -R isartor:isartor /home/isartor
+ENV FASTEMBED_CACHE_DIR=/home/isartor/.fastembed_cache
+
 USER isartor
 
 ENTRYPOINT ["isartor"]

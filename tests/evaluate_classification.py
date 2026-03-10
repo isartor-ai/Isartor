@@ -60,18 +60,28 @@ def main():
             else:
                 print(f"FAIL: Prompt {index} (Expected {expected_label}, Got {actual_label})")
 
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.ConnectionError as e:
+            print(f"\nError: Cannot connect to {args.url}")
+            print("Make sure the gateway is running, e.g.:")
+            print("  docker compose -f docker/docker-compose.embedded.yml up --build")
+            sys.exit(1)
+
+        except requests.exceptions.HTTPError as e:
             # If we get a 502 Bad Gateway, it means the SLM correctly classified it as COMPLEX
             # and routed it to OpenAI (Layer 3), but OpenAI rejected it because we have no API key.
             # For the sake of this test, we can treat a 502 as a successful "COMPLEX" identification!
-            if response is not None and response.status_code == 502:
+            resp = e.response
+            if resp is not None and resp.status_code == 502:
                 if expected_label.upper() == "COMPLEX":
                     print(f"PASS: Prompt {index} (Routed to COMPLEX but failed due to missing OpenAI key)")
                     passed_count += 1
                 else:
                     print(f"FAIL: Prompt {index} (Expected {expected_label}, Got COMPLEX/502 Error)")
             else:
-                print(f"FAIL: Prompt {index} (Error calling API: {e})")
+                print(f"FAIL: Prompt {index} (HTTP {resp.status_code if resp else '?'}: {e})")
+
+        except requests.exceptions.RequestException as e:
+            print(f"FAIL: Prompt {index} (Error calling API: {e})")
 
     # Calculate and print final summary
     accuracy = (passed_count / total_cases) * 100
