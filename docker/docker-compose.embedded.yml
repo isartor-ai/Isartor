@@ -106,7 +106,7 @@ services:
         limits:
           memory: 4G
     volumes:
-      - hf_models:/root/.cache/huggingface
+      - hf_models:/home/isartor/.cache/huggingface
 
   # ═══════════════════════════════════════════════════════════════════
   # 3. OBSERVABILITY STACK (lightweight images)

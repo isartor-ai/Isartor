@@ -3,9 +3,9 @@
 // =============================================================================
 // Embedded Classifier — Rust-native intent classification using candle.
 //
-// Loads a Gemma-2-2B-IT quantised GGUF model directly into the process,
-// eliminating the need for an external llama.cpp sidecar. Inference runs
-// on CPU via candle's quantised model support.
+// Loads a Qwen2-1.5B-Instruct quantised GGUF model directly into the
+// process, eliminating the need for an external llama.cpp sidecar.
+// Inference runs on CPU via candle's quantised model support.
 //
 // Architecture Decision:
 //   Instead of calling an external HTTP process, we embed the model
@@ -15,9 +15,8 @@
 //   observability over every inference step.
 //
 // Model:
-//   Gemma-2-2B-IT quantised to Q4_K_M (~1.5 GB) or Q8_0 (~2.5 GB).
-//   The GGUF format is loaded via candle's `quantized_llama::ModelWeights`
-//   which supports the Gemma architecture (LLaMA-family compatible).
+//   Qwen2-1.5B-Instruct quantised to Q4_K_M (~1.1 GB).
+//   The GGUF format is loaded via candle's `quantized_qwen2::ModelWeights`.
 //
 // Thread Safety:
 //   `ModelWeights::forward` requires `&mut self`, so we wrap the model
@@ -32,7 +31,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
-use candle_transformers::models::quantized_gemma3::ModelWeights;
+use candle_transformers::models::quantized_qwen2::ModelWeights;
 use hf_hub::api::tokio::Api;
 use hf_hub::Repo;
 use tokenizers::Tokenizer;
@@ -46,12 +45,17 @@ use tokio::sync::Mutex;
 #[derive(Debug, Clone)]
 pub struct EmbeddedClassifierConfig {
     /// Hugging Face repository ID hosting the GGUF model.
-    /// Default: `"mradermacher/gemma-2-2b-it-GGUF"`
+    /// Default: `"Qwen/Qwen2-1.5B-Instruct-GGUF"`
     pub repo_id: String,
 
     /// Filename of the GGUF model inside the repository.
-    /// Default: `"gemma-2-2b-it.Q4_K_M.gguf"`
+    /// Default: `"qwen2-1_5b-instruct-q4_k_m.gguf"`
     pub gguf_filename: String,
+
+    /// Optional local path to a pre-downloaded GGUF model file.
+    /// When set (e.g. via `ISARTOR__EMBEDDED__MODEL_PATH`), the gateway
+    /// skips the Hugging Face download and loads directly from this path.
+    pub model_path: Option<String>,
 
     /// Maximum number of tokens to generate for classification responses.
     /// Classification labels are short, so 20 is usually sufficient.
@@ -71,8 +75,9 @@ pub struct EmbeddedClassifierConfig {
 impl Default for EmbeddedClassifierConfig {
     fn default() -> Self {
         Self {
-            repo_id: "mradermacher/gemma-2-2b-it-GGUF".into(),
-            gguf_filename: "gemma-2-2b-it.Q4_K_M.gguf".into(),
+            repo_id: "Qwen/Qwen2-1.5B-Instruct-GGUF".into(),
+            gguf_filename: "qwen2-1_5b-instruct-q4_k_m.gguf".into(),
+            model_path: None,
             max_classify_tokens: 20,
             max_generate_tokens: 256,
             temperature: 0.0,
@@ -82,7 +87,7 @@ impl Default for EmbeddedClassifierConfig {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Prompt Templates — Gemma-2 chat format
+// Prompt Templates — Qwen2 ChatML format
 // ═════════════════════════════════════════════════════════════════════
 
 /// System prompt instructing the model to perform intent classification.
@@ -97,23 +102,25 @@ Reply with EXACTLY this format (no other text):\n\
 LABEL: <one of SIMPLE|COMPLEX|RAG|CODEGEN>\n\
 CONFIDENCE: <a number between 0.0 and 1.0>";
 
-/// Format a classification prompt using the Gemma-2 chat template.
+/// Format a classification prompt using the Qwen2 ChatML template.
 ///
-/// Gemma-2 chat format:
+/// Qwen2 ChatML format:
 /// ```text
-/// <start_of_turn>user
-/// {system}\n\nUser query: {prompt}<end_of_turn>
-/// <start_of_turn>model
+/// <|im_start|>system
+/// {system}<|im_end|>
+/// <|im_start|>user
+/// {prompt}<|im_end|>
+/// <|im_start|>assistant
 /// ```
 pub fn format_classify_prompt(prompt: &str) -> String {
     format!(
-        "<start_of_turn>user\n{CLASSIFY_SYSTEM_PROMPT}\n\nUser query: {prompt}<end_of_turn>\n<start_of_turn>model\n"
+        "<|im_start|>system\n{CLASSIFY_SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
     )
 }
 
-/// Format a simple task execution prompt using the Gemma-2 chat template.
+/// Format a simple task execution prompt using the Qwen2 ChatML template.
 pub fn format_simple_prompt(prompt: &str) -> String {
-    format!("<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n")
+    format!("<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n")
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -174,7 +181,7 @@ pub fn parse_classify_response(raw: &str) -> (String, f64) {
 // ═════════════════════════════════════════════════════════════════════
 
 /// A Rust-native intent classifier and simple-task executor powered by
-/// a quantised Gemma-2-2B-IT model loaded via the candle framework.
+/// a quantised Qwen2-1.5B-Instruct model loaded via the candle framework.
 ///
 /// The model is loaded once at startup and held in memory. Inference
 /// calls are serialised via a `Mutex<ModelWeights>` and dispatched to
@@ -194,7 +201,7 @@ pub struct EmbeddedClassifier {
     /// Runtime configuration.
     config: EmbeddedClassifierConfig,
 
-    /// End-of-turn token ID for Gemma-2 (`<end_of_turn>`).
+    /// End-of-turn token ID for Qwen2 (`<|im_end|>`).
     eot_token_id: u32,
 }
 
@@ -209,30 +216,44 @@ impl EmbeddedClassifier {
         let load_start = Instant::now();
 
         tracing::info!(
-            repo = %cfg.repo_id,
-            gguf = %cfg.gguf_filename,
-            "EmbeddedClassifier: downloading model files from Hugging Face"
+            "EmbeddedClassifier: initialising, repo: {}, gguf: {}, model_path: {:?}",
+            cfg.repo_id, cfg.gguf_filename, cfg.model_path
         );
 
-        // ── Step 1: Locate model files via hf-hub ────────────────
+        // ── Step 1: Locate model files ───────────────────────────
         let api = Api::new().context("failed to create Hugging Face API client")?;
-        let repo = api.repo(Repo::model(cfg.repo_id.clone()));
 
-        // Download (or locate cached) GGUF model file.
-        let model_path = repo
-            .get(&cfg.gguf_filename)
-            .await
-            .context("failed to download GGUF model file")?;
+        // If a local model_path is configured (e.g. baked into Docker image),
+        // use it directly; otherwise download via hf-hub.
+        let model_path = if let Some(ref local) = cfg.model_path {
+            let p = PathBuf::from(local);
+            if p.exists() {
+                tracing::info!("EmbeddedClassifier: using local model file: {}", p.display());
+                p
+            } else {
+                tracing::warn!(
+                    "EmbeddedClassifier: configured model_path {} not found, falling back to hf-hub download",
+                    p.display()
+                );
+                let repo = api.repo(Repo::model(cfg.repo_id.clone()));
+                repo.get(&cfg.gguf_filename)
+                    .await
+                    .context("failed to download GGUF model file")?
+            }
+        } else {
+            let repo = api.repo(Repo::model(cfg.repo_id.clone()));
+            repo.get(&cfg.gguf_filename)
+                .await
+                .context("failed to download GGUF model file")?
+        };
 
         // Download tokenizer — tries the GGUF repo first (often includes
         // tokenizer.json), then falls back to the canonical Google repo.
         let tokenizer_path = Self::resolve_tokenizer_path(&api, &cfg.repo_id).await?;
 
         tracing::info!(
-            model_path = %model_path.display(),
-            tokenizer_path = %tokenizer_path.display(),
-            download_ms = load_start.elapsed().as_millis(),
-            "EmbeddedClassifier: model files located"
+            "EmbeddedClassifier: model files located, model_path: {}, tokenizer_path: {}, download_ms: {}",
+            model_path.display(), tokenizer_path.display(), load_start.elapsed().as_millis()
         );
 
         // ── Step 2: Load model (CPU-bound) ───────────────────────
@@ -252,17 +273,16 @@ impl EmbeddedClassifier {
             .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
 
         // Resolve the end-of-turn token ID.
-        let eot_token_id = tokenizer.token_to_id("<end_of_turn>").unwrap_or_else(|| {
-            tracing::warn!("EmbeddedClassifier: <end_of_turn> token not found, using EOS fallback");
-            // Gemma-2 EOS token ID is typically 1.
-            tokenizer.token_to_id("<eos>").unwrap_or(1)
+        let eot_token_id = tokenizer.token_to_id("<|im_end|>").unwrap_or_else(|| {
+            tracing::warn!("EmbeddedClassifier: <|im_end|> token not found, using EOS fallback");
+            // Qwen2 uses <|endoftext|> as EOS.
+            tokenizer.token_to_id("<|endoftext|>").unwrap_or(1)
         });
 
         let total_load_ms = load_start.elapsed().as_millis();
         tracing::info!(
-            total_load_ms,
-            eot_token_id,
-            "EmbeddedClassifier: model loaded successfully on CPU"
+            "EmbeddedClassifier: model loaded successfully on CPU, total_load_ms: {}, eot_token_id: {}",
+            total_load_ms, eot_token_id
         );
 
         Ok(Self {
@@ -275,30 +295,26 @@ impl EmbeddedClassifier {
     }
 
     /// Resolve the tokenizer.json path — tries the quantised GGUF repo first,
-    /// then the canonical `google/gemma-2-2b-it` repo, then a local fallback.
+    /// then the canonical Qwen2 repo, then a local fallback.
     async fn resolve_tokenizer_path(api: &Api, gguf_repo_id: &str) -> Result<PathBuf> {
         // Repos to try, in order.  The GGUF repo is tried first because some
-        // re-uploaders include tokenizer.json. Ungated community mirrors
-        // (e.g. unsloth) are tried before the official Google repo because
-        // the latter is a *gated* model requiring an HF token.
-        let repos_to_try: &[&str] = &[
-            gguf_repo_id,
-            "unsloth/gemma-2-2b-it",     // ungated community mirror
-            "google/gemma-2-2b-it",      // official (gated — needs HF_TOKEN)
+        // re-uploaders include tokenizer.json.
+        let repos_to_try = vec![
+            gguf_repo_id.to_string(),
+            "Qwen/Qwen2-1.5B-Instruct".to_string(),
         ];
 
-        for repo_id in repos_to_try {
-            let repo = api.repo(Repo::model((*repo_id).into()));
+        for repo_id in &repos_to_try {
+            let repo = api.repo(Repo::model(repo_id.clone()));
             match repo.get("tokenizer.json").await {
                 Ok(path) => {
-                    tracing::info!(repo = %repo_id, "Tokenizer found");
+                    tracing::info!("Tokenizer found in repo: {}", repo_id);
                     return Ok(path);
                 }
                 Err(e) => {
                     tracing::debug!(
-                        repo = %repo_id,
-                        error = %e,
-                        "tokenizer.json not found in repo, trying next"
+                        "tokenizer.json not found in repo {}: {}, trying next",
+                        repo_id, e
                     );
                 }
             }
@@ -323,8 +339,8 @@ impl EmbeddedClassifier {
         let load_start = Instant::now();
 
         tracing::info!(
-            path = %model_path.display(),
-            "EmbeddedClassifier: loading GGUF weights into memory"
+            "EmbeddedClassifier: loading GGUF weights into memory, path: {}",
+            model_path.display()
         );
 
         let mut file = std::fs::File::open(model_path).context("failed to open GGUF model file")?;
@@ -333,17 +349,16 @@ impl EmbeddedClassifier {
             .map_err(|e| anyhow::anyhow!("failed to parse GGUF content: {e}"))?;
 
         tracing::debug!(
-            tensor_infos = content.tensor_infos.len(),
-            metadata_entries = content.metadata.len(),
-            "GGUF file parsed"
+            "GGUF file parsed, tensor_infos: {}, metadata_entries: {}",
+            content.tensor_infos.len(), content.metadata.len()
         );
 
         let weights = ModelWeights::from_gguf(content, &mut file, device)
             .map_err(|e| anyhow::anyhow!("failed to build ModelWeights from GGUF: {e}"))?;
 
         tracing::info!(
-            load_ms = load_start.elapsed().as_millis(),
-            "EmbeddedClassifier: GGUF weights loaded"
+            "EmbeddedClassifier: GGUF weights loaded, load_ms: {}",
+            load_start.elapsed().as_millis()
         );
 
         Ok(weights)
@@ -351,7 +366,7 @@ impl EmbeddedClassifier {
 
     /// Perform intent classification on a user prompt.
     ///
-    /// Formats the prompt with the Gemma-2 chat template, runs a
+    /// Formats the prompt with the Qwen2 ChatML template, runs a
     /// greedy token generation loop, and parses the structured output.
     ///
     /// This method is safe to call from async code — it dispatches the
@@ -363,8 +378,8 @@ impl EmbeddedClassifier {
             .await?;
 
         tracing::debug!(
-            raw_output = %raw,
-            "EmbeddedClassifier: raw classification output"
+            "EmbeddedClassifier: raw classification output: {}",
+            raw
         );
 
         Ok(parse_classify_response(&raw))
@@ -395,9 +410,8 @@ impl EmbeddedClassifier {
         let prompt_len = prompt_tokens.len();
 
         tracing::debug!(
-            prompt_tokens = prompt_len,
-            max_tokens,
-            "EmbeddedClassifier: starting generation"
+            "EmbeddedClassifier: starting generation, prompt_tokens: {}, max_tokens: {}",
+            prompt_len, max_tokens
         );
 
         // Clone Arcs for the blocking closure.
@@ -440,11 +454,8 @@ impl EmbeddedClassifier {
         };
 
         tracing::info!(
-            prompt_tokens = prompt_len,
-            tokens_generated,
-            inference_ms,
-            tokens_per_sec = format!("{tokens_per_sec:.1}"),
-            "EmbeddedClassifier: generation complete"
+            "EmbeddedClassifier: generation complete, prompt_tokens: {}, tokens_generated: {}, inference_ms: {}, tokens_per_sec: {:.1}",
+            prompt_len, tokens_generated, inference_ms, tokens_per_sec
         );
 
         Ok(output)
@@ -599,23 +610,23 @@ mod tests {
     // ── Prompt Formatting ────────────────────────────────────────
 
     #[test]
-    fn classify_prompt_contains_gemma_template() {
+    fn classify_prompt_contains_chatml_template() {
         let prompt = "What is 2+2?";
         let formatted = format_classify_prompt(prompt);
-        assert!(formatted.starts_with("<start_of_turn>user\n"));
+        assert!(formatted.contains("<|im_start|>system\n"));
         assert!(formatted.contains("What is 2+2?"));
         assert!(formatted.contains(CLASSIFY_SYSTEM_PROMPT));
-        assert!(formatted.ends_with("<start_of_turn>model\n"));
-        assert!(formatted.contains("<end_of_turn>"));
+        assert!(formatted.ends_with("<|im_start|>assistant\n"));
+        assert!(formatted.contains("<|im_end|>"));
     }
 
     #[test]
-    fn simple_prompt_contains_gemma_template() {
+    fn simple_prompt_contains_chatml_template() {
         let prompt = "Hello, world!";
         let formatted = format_simple_prompt(prompt);
-        assert!(formatted.starts_with("<start_of_turn>user\n"));
+        assert!(formatted.contains("<|im_start|>user\n"));
         assert!(formatted.contains("Hello, world!"));
-        assert!(formatted.ends_with("<start_of_turn>model\n"));
+        assert!(formatted.ends_with("<|im_start|>assistant\n"));
         // Simple prompt should NOT contain the classify system prompt.
         assert!(!formatted.contains("EXACTLY ONE"));
     }
@@ -730,8 +741,9 @@ mod tests {
     #[test]
     fn default_config_values() {
         let cfg = EmbeddedClassifierConfig::default();
-        assert_eq!(cfg.repo_id, "mradermacher/gemma-2-2b-it-GGUF");
-        assert_eq!(cfg.gguf_filename, "gemma-2-2b-it.Q4_K_M.gguf");
+        assert_eq!(cfg.repo_id, "Qwen/Qwen2-1.5B-Instruct-GGUF");
+        assert_eq!(cfg.gguf_filename, "qwen2-1_5b-instruct-q4_k_m.gguf");
+        assert!(cfg.model_path.is_none());
         assert_eq!(cfg.max_classify_tokens, 20);
         assert_eq!(cfg.max_generate_tokens, 256);
         assert!((cfg.temperature - 0.0).abs() < 1e-9);

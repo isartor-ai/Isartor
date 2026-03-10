@@ -187,7 +187,13 @@ impl AppState {
                 // doing blocking initialization or panic, but for the sake of the architecture
                 // state encapsulation we can block_on it or pass it in. Assuming blocking for now
                 // or we change AppState::new to be async.
-                let cfg = crate::services::local_inference::EmbeddedClassifierConfig::default();
+                let mut cfg = crate::services::local_inference::EmbeddedClassifierConfig::default();
+                // Allow overriding the model path via env var (e.g. Docker image with baked-in model).
+                if let Ok(path) = std::env::var("ISARTOR__EMBEDDED__MODEL_PATH") {
+                    if !path.is_empty() {
+                        cfg.model_path = Some(path);
+                    }
+                }
                 // Since `AppState::new` is not async, we use a blocking fallback or expect initialization elsewhere.
                 // For simplicity in this sync constructor we will leave it as None and assume an async `init` method later,
                 // or just block_on. We use block_on here for convenience.

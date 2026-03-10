@@ -46,9 +46,9 @@ opentelemetry-semantic-conventions = "0.31.0"
 tracing-opentelemetry = "0.32.1"
 
 # ── Embedded ML Inference (candle) ─────────────────────────────────
-candle-core = { version = "0.8", optional = true }
-candle-nn = { version = "0.8", optional = true }
-candle-transformers = { version = "0.8", optional = true }
+candle-core = { version = "0.9", optional = true }
+candle-nn = { version = "0.9", optional = true }
+candle-transformers = { version = "0.9", optional = true }
 hf-hub = { version = "0.4", default-features = false, features = ["tokio", "rustls-tls"], optional = true }
 tokenizers = { version = "0.21", optional = true }
 fastembed = { version = "5.12.0", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls", "image-models"] }
