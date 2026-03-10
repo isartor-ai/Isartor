@@ -11,19 +11,23 @@
 #
 # Usage:
 #   cd docker
-#   docker compose -f docker-compose.full.yml up --build
+#   docker compose -f docker-compose.embedded.yml up --build
+#
+# Azure OpenAI quick-start:
+#   cp .env.azure.example .env.full    # fill in key / resource / deployment
+#   docker compose -f docker-compose.embedded.yml up --build
 #
 # Endpoints:
-#   Gateway (v1):  http://localhost:8080/api/chat
-#   Gateway (v2):  http://localhost:8080/api/v2/chat
-#   Health check:  http://localhost:8080/healthz
+#   Gateway (v1):  http://localhost:8000/api/chat
+#   Gateway (v2):  http://localhost:8000/api/v2/chat
+#   Health check:  http://localhost:8000/healthz
 #   Jaeger UI:     http://localhost:16686
 #   Tempo API:     http://localhost:3200
 #   Grafana:       http://localhost:3000
 #   Prometheus:    http://localhost:9090
 #
 # Tear down:
-#   docker compose -f docker-compose.full.yml down -v
+#   docker compose -f docker-compose.embedded.yml down -v
 # =============================================================================
 
 services:

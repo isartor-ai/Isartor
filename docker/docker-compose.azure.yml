@@ -2,12 +2,13 @@
 #
 # Usage:
 #   cd docker
+#   cp .env.azure.example .env    # fill in key / resource / deployment
 #   docker compose -f docker-compose.azure.yml up --build
 #
 # Required environment (set in .env or shell):
-#   ISARTOR__EXTERNAL_LLM_API_KEY   — Azure OpenAI key
-#   ISARTOR__EXTERNAL_LLM_URL       — https://<resource>.openai.azure.com
-#   ISARTOR__AZURE_DEPLOYMENT_ID    — your deployment name
+#   ISARTOR_EXTERNAL_LLM_API_KEY   — Azure OpenAI key
+#   ISARTOR_EXTERNAL_LLM_URL       — https://<resource>.openai.azure.com
+#   ISARTOR_AZURE_DEPLOYMENT_ID    — your deployment name
 #
 # Endpoints:
 #   Gateway:       http://localhost:8080/api/chat
