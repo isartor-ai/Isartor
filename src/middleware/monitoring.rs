@@ -26,7 +26,10 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
     let path = request.uri().path().to_string();
 
     // Diagnostics: use println! for compatibility
-    println!("[monitoring] gateway_request: method={} path={}", method, path);
+    println!(
+        "[monitoring] gateway_request: method={} path={}",
+        method, path
+    );
 
     async {
         let state = request

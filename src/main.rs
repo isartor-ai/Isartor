@@ -43,19 +43,16 @@ async fn main() -> anyhow::Result<()> {
     // ------------------------------------------------------------------
     // 2. Build shared state.
     // ------------------------------------------------------------------
-        println!("Isartor gateway starting on {}", config.host_port);
-        println!(
-            "Cache layer configured: cache_mode={:?} embedding_model={} similarity_threshold={}",
-            config.cache_mode,
-            config.embedding_model,
-            config.similarity_threshold
-        );
-        println!(
-            "LLM provider configured: llm_provider={} model={}",
-            config.llm_provider,
-            config.external_llm_model
-        );
-        println!(
+    println!("Isartor gateway starting on {}", config.host_port);
+    println!(
+        "Cache layer configured: cache_mode={:?} embedding_model={} similarity_threshold={}",
+        config.cache_mode, config.embedding_model, config.similarity_threshold
+    );
+    println!(
+        "LLM provider configured: llm_provider={} model={}",
+        config.llm_provider, config.external_llm_model
+    );
+    println!(
             "Engine & provider details: inference_engine={:?} azure_deployment_id={} external_llm_url={} api_key_len={}",
             config.inference_engine,
             config.azure_deployment_id,
@@ -226,7 +223,7 @@ async fn main() -> anyhow::Result<()> {
     // 4. Start the server.
     // ------------------------------------------------------------------
     let listener = tokio::net::TcpListener::bind(&config.host_port).await?;
-        println!("Listening on {}", config.host_port);
+    println!("Listening on {}", config.host_port);
     axum::serve(listener, app).await?;
 
     Ok(())
