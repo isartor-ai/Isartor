@@ -69,7 +69,10 @@ impl SlmRouter for EmbeddedCandleRouter {
         // Default classification: fall through to the external LLM.
         let decision = "COMPLEX";
         span.record("router.decision", decision);
-        tracing::info!(router.decision = decision, "L2 intent classified (embedded candle)");
+        tracing::info!(
+            router.decision = decision,
+            "L2 intent classified (embedded candle)"
+        );
         Ok(decision.to_string())
     }
 }
@@ -203,7 +206,10 @@ mod tests {
     #[tokio::test]
     async fn remote_vllm_skeleton_returns_complex() {
         // Use wiremock to mock the vLLM endpoint
-        use wiremock::{MockServer, Mock, ResponseTemplate, matchers::{method, path}};
+        use wiremock::{
+            matchers::{method, path},
+            Mock, MockServer, ResponseTemplate,
+        };
         let mock_server = MockServer::start().await;
         // Mock the /v1/chat/completions endpoint to return a COMPLEX label
         Mock::given(method("POST"))

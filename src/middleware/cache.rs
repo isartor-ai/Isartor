@@ -115,9 +115,9 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
 
         // candle BertModel inference is CPU-bound; run on the blocking pool
         // so we don't starve the Tokio async workers.
-        let result = tokio::task::spawn_blocking(move || embedder.generate_embedding(&prompt_clone)).await;
-        match result
-        {
+        let result =
+            tokio::task::spawn_blocking(move || embedder.generate_embedding(&prompt_clone)).await;
+        match result {
             Ok(Ok(emb)) => {
                 tracing::debug!(embedding.dims = emb.len(), "L1b: embedding generated");
                 Some(emb)

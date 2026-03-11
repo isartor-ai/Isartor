@@ -112,7 +112,11 @@ impl VectorCache {
         let size = entries.len();
         span.record("cache.evicted", evicted as u64);
         span.record("cache.size_after", size as u64);
-        tracing::debug!(cache.size = size, evicted, "Semantic cache: inserted new entry");
+        tracing::debug!(
+            cache.size = size,
+            evicted,
+            "Semantic cache: inserted new entry"
+        );
     }
 }
 

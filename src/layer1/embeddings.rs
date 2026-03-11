@@ -45,8 +45,7 @@ impl TextEmbedder {
             .context("Failed to download model.safetensors")?;
 
         // Load configuration
-        let config_bytes = std::fs::read(&config_path)
-            .context("Failed to read config.json")?;
+        let config_bytes = std::fs::read(&config_path).context("Failed to read config.json")?;
         let config: BertConfig = serde_json::from_slice(&config_bytes)
             .context("Failed to parse BertConfig from config.json")?;
 
@@ -84,12 +83,9 @@ impl TextEmbedder {
         let seq_len = input_ids.len();
 
         // Build tensors [1, seq_len]
-        let input_ids_t = Tensor::new(input_ids, &self.device)?
-            .unsqueeze(0)?;
-        let attention_mask_t = Tensor::new(attention_mask, &self.device)?
-            .unsqueeze(0)?;
-        let token_type_ids_t = Tensor::new(token_type_ids, &self.device)?
-            .unsqueeze(0)?;
+        let input_ids_t = Tensor::new(input_ids, &self.device)?.unsqueeze(0)?;
+        let attention_mask_t = Tensor::new(attention_mask, &self.device)?.unsqueeze(0)?;
+        let token_type_ids_t = Tensor::new(token_type_ids, &self.device)?.unsqueeze(0)?;
 
         // Forward pass through BERT
         let model = self

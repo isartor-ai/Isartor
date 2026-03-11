@@ -95,8 +95,10 @@ pub fn record_request(final_layer: &str, status_code: u16, duration_secs: f64) {
 /// Record per-layer latency.
 pub fn record_layer_duration(layer_name: &str, duration: std::time::Duration) {
     let m = metrics();
-    m.layer_duration_seconds
-        .record(duration.as_secs_f64(), &[KeyValue::new("layer_name", layer_name.to_string())]);
+    m.layer_duration_seconds.record(
+        duration.as_secs_f64(),
+        &[KeyValue::new("layer_name", layer_name.to_string())],
+    );
 }
 
 /// Record tokens saved (call when a request is resolved before Layer 3).
