@@ -1,5 +1,9 @@
 # 🏛️ Isartor
 
+<p align="center">
+  <img src="docs/logo.png" alt="Isartor Logo" width="400">
+</p>
+
 **The Edge-Native AI Orchestration Gateway.**
 
 [![CI Status](https://github.com/isartor-ai/Isartor/actions/workflows/ci.yml/badge.svg)](https://github.com/isartor-ai/Isartor/actions)
