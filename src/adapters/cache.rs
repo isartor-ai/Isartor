@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! # Cache Adapters — Concrete implementations of `ExactCache`
 //!
 //! | Adapter            | Backing Store         | Use Case                |

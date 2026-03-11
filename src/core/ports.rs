@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! # Core Ports — Trait Interfaces for the Pluggable Trait Provider Pattern
 //!
 //! These traits define the **Ports** (in Hexagonal Architecture parlance) that

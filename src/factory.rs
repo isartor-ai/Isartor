@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! # Factory — Configuration-driven adapter instantiation
 //!
 //! Reads `AppConfig` and wires the correct **Port → Adapter** bindings

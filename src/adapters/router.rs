@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! # Router Adapters — Concrete implementations of `SlmRouter`
 //!
 //! | Adapter                | Inference Backend            | Use Case                    |

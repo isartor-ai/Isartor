@@ -79,6 +79,7 @@ pub fn init_telemetry(config: Arc<AppConfig>) -> anyhow::Result<()> {
 }
 
 /// Flush in-flight spans & metrics before process exit.
+#[allow(dead_code)]
 pub fn shutdown_telemetry() {
     // In OpenTelemetry 0.31+, shutdown is handled by dropping the
     // TracerProvider. We replace the global provider with a no-op,

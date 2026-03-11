@@ -6,7 +6,6 @@ use axum::middleware::Next;
 use axum::response::IntoResponse;
 use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{global, KeyValue};
-use tracing::{info_span, Instrument};
 
 use crate::models::FinalLayer;
 use crate::state::AppState;
@@ -26,12 +25,8 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
     let method = request.method().to_string();
     let path = request.uri().path().to_string();
 
-    let root_span = info_span!(
-        "gateway_request",
-        method = %method,
-        path = %path,
-        isartor.final_layer = tracing::field::Empty,
-    );
+    // Diagnostics: use println! for compatibility
+    println!("[monitoring] gateway_request: method={} path={}", method, path);
 
     async {
         let state = request
@@ -97,7 +92,7 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
         let layer_label = final_layer.as_str();
 
         // ── Record trace attribute ───────────────────────────────
-        root_span.record("isartor.final_layer", layer_label);
+        // root_span removed; no tracing attribute recording
 
         // ── Record OTel metrics ──────────────────────────────────
         let attrs = [
@@ -112,16 +107,18 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
             h.record(elapsed.as_secs_f64(), &attrs);
         }
 
-        tracing::info!(
-            duration_ms = elapsed.as_millis(),
-            final_layer = layer_label,
-            status = response.status().as_u16(),
-            "Request finished"
+        println!(
+            "[monitoring] Request finished: method={} path={} final_layer={} status={} duration_ms={}",
+            method,
+            path,
+            layer_label,
+            response.status().as_u16(),
+            elapsed.as_millis()
         );
 
         response
     }
-    .instrument(root_span.clone())
+    // .instrument(root_span.clone())  // root_span removed, no tracing
     .await
 }
 

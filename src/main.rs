@@ -43,25 +43,25 @@ async fn main() -> anyhow::Result<()> {
     // ------------------------------------------------------------------
     // 2. Build shared state.
     // ------------------------------------------------------------------
-    tracing::info!(addr = %config.host_port, "Isartor gateway starting");
-    tracing::info!(
-        cache_mode = ?config.cache_mode,
-        embedding_model = %config.embedding_model,
-        similarity_threshold = %config.similarity_threshold,
-        "Cache layer configured"
-    );
-    tracing::info!(
-        llm_provider = %config.llm_provider,
-        model = %config.external_llm_model,
-        "LLM provider configured"
-    );
-    tracing::info!(
-        inference_engine = ?config.inference_engine,
-        azure_deployment_id = %config.azure_deployment_id,
-        external_llm_url = %config.external_llm_url,
-        api_key_len = config.external_llm_api_key.len(),
-        "Engine & provider details"
-    );
+        println!("Isartor gateway starting on {}", config.host_port);
+        println!(
+            "Cache layer configured: cache_mode={:?} embedding_model={} similarity_threshold={}",
+            config.cache_mode,
+            config.embedding_model,
+            config.similarity_threshold
+        );
+        println!(
+            "LLM provider configured: llm_provider={} model={}",
+            config.llm_provider,
+            config.external_llm_model
+        );
+        println!(
+            "Engine & provider details: inference_engine={:?} azure_deployment_id={} external_llm_url={} api_key_len={}",
+            config.inference_engine,
+            config.azure_deployment_id,
+            config.external_llm_url,
+            config.external_llm_api_key.len()
+        );
 
     // Initialize the in-process sentence embedder for Layer 1 semantic cache.
     // This blocks during startup (~1s) to load the ONNX model into RAM (~33 MB).
@@ -226,7 +226,7 @@ async fn main() -> anyhow::Result<()> {
     // 4. Start the server.
     // ------------------------------------------------------------------
     let listener = tokio::net::TcpListener::bind(&config.host_port).await?;
-    tracing::info!("Listening on {}", config.host_port);
+        println!("Listening on {}", config.host_port);
     axum::serve(listener, app).await?;
 
     Ok(())
