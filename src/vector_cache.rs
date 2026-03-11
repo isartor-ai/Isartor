@@ -59,10 +59,8 @@ impl VectorCache {
             }
             scanned += 1;
             let score = cosine_similarity(query, &entry.embedding);
-            if score >= self.similarity_threshold {
-                if best.as_ref().map_or(true, |(_, s)| score > *s) {
-                    best = Some((entry, score));
-                }
+            if score >= self.similarity_threshold && best.as_ref().is_none_or(|(_, s)| score > *s) {
+                best = Some((entry, score));
             }
         }
 

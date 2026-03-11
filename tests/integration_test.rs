@@ -3,6 +3,7 @@ async fn redis_exact_cache_round_trip() {
     // This test requires a running Redis instance on localhost:6379.
     // It will be skipped if Redis is not available.
     use isartor::adapters::cache::RedisExactCache;
+    use isartor::core::ports::ExactCache;
     let cache = RedisExactCache::new("redis://localhost:6379");
     let key = "integration-test-key";
     let value = "integration-test-value";

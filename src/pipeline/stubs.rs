@@ -74,6 +74,12 @@ pub struct StubVectorStore {
     entries: tokio::sync::RwLock<Vec<(Vec<f64>, String)>>,
 }
 
+impl Default for StubVectorStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StubVectorStore {
     pub fn new() -> Self {
         Self {

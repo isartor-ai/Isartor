@@ -110,7 +110,7 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
         http.status_code = status_code,
         isartor.final_layer = layer_label,
         duration_ms = elapsed.as_millis() as u64,
-        monitoring = state_opt.as_ref().map_or(false, |s| s.config.enable_monitoring),
+        monitoring = state_opt.as_ref().is_some_and(|s| s.config.enable_monitoring),
         "Request completed"
     );
 

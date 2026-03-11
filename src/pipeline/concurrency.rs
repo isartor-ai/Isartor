@@ -84,6 +84,7 @@ impl AdaptiveConcurrencyLimiter {
     ///
     /// The permit automatically decrements the in-flight counter and
     /// records the request latency when dropped.
+    #[allow(clippy::result_unit_err)]
     pub fn try_acquire(&self) -> Result<ConcurrencyPermit<'_>, ()> {
         let current = self.in_flight.fetch_add(1, Ordering::AcqRel);
         let limit = self.concurrency_limit.load(Ordering::Acquire);

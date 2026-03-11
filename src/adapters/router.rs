@@ -176,7 +176,7 @@ impl SlmRouter for RemoteVllmRouter {
                 // Fallback: treat as COMPLEX if label is not recognized
                 "COMPLEX".to_string()
             };
-            tracing::Span::current().record("router.decision", &decision.as_str());
+            tracing::Span::current().record("router.decision", decision.as_str());
             tracing::info!(router.decision = %decision, "L2 intent classified (remote vLLM)");
             Ok(decision)
         }
