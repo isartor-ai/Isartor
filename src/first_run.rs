@@ -153,7 +153,6 @@ mod tests {
         // If ISARTOR__FIRST_RUN_COMPLETE is set, is_first_run() returns false.
         // We can't easily test this without temp_env, but the logic is straightforward.
         // This test validates the function exists and returns a bool.
-        let result = is_first_run();
-        assert!(result == true || result == false);
+        let _result: bool = is_first_run();
     }
 }
