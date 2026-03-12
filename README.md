@@ -24,7 +24,7 @@ Isartor replaces the dumb pipe with algorithmic intelligence at the edge. Acting
 
 By computing intent *before* routing, Isartor acts as an impenetrable financial shield for your LLM spend.
 
-- **100% Pure-Rust Edge AI:** Statically compiled. No Python, no C++ ONNX toolchains, no dependency hell. Native tensor execution via Hugging Face `candle`.
+- **100% Pure-Rust Edge AI:** Statically compiled, no dependency hell. Native tensor execution via Hugging Face `candle`.
 - **Algorithmic Deflection:** Layers 1 & 2 can resolve 60–80% of repetitive agentic traffic locally for $0.
 - **Frictionless:** One `cargo build` or `docker run` and you're live.
 
