@@ -40,7 +40,7 @@ async fn e2e_simple_prompt_cached_after_slm() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);
@@ -95,7 +95,7 @@ async fn e2e_complex_prompt_reaches_layer_3() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);

@@ -46,7 +46,7 @@ async fn simple_classification_short_circuits_at_layer_2() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);
@@ -82,7 +82,7 @@ async fn complex_classification_reaches_layer_3() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);
@@ -106,7 +106,7 @@ async fn complex_classification_reaches_layer_3() {
 #[tokio::test]
 async fn slm_unreachable_falls_through_to_layer_3() {
     // Sidecar URL points to a closed port.
-    let config = test_config(CacheMode::Exact, "http://127.0.0.1:1");
+    let config = test_config_slm_enabled(CacheMode::Exact, "http://127.0.0.1:1");
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);
@@ -141,7 +141,7 @@ async fn malformed_slm_response_falls_through() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);
@@ -174,7 +174,7 @@ async fn slm_500_error_falls_through() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);

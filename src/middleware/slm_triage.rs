@@ -85,6 +85,15 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         };
 
     // ------------------------------------------------------------------
+    // 0. Feature gate — when enable_slm_router is false the entire L2
+    //    layer is a no-op and the request falls straight to Layer 3.
+    // ------------------------------------------------------------------
+    if !state.config.enable_slm_router {
+        tracing::debug!("Layer 2: SLM router disabled — skipping to Layer 3");
+        return next.run(request).await;
+    }
+
+    // ------------------------------------------------------------------
     // 1. Extract the prompt from the buffered body (set by body_buffer
     //    middleware). The request body stream is untouched.
     // ------------------------------------------------------------------
@@ -376,6 +385,7 @@ mod tests {
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,
+            enable_slm_router: true,
             otel_exporter_endpoint: "http://localhost:4317".into(),
         });
 
@@ -550,5 +560,79 @@ mod tests {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["layer"], 3);
+    }
+
+    /// When `enable_slm_router` is false the middleware must be a complete
+    /// no-op: no HTTP calls to the sidecar, no classification — the
+    /// request goes straight to Layer 3.
+    #[tokio::test]
+    async fn disabled_flag_skips_l2_entirely() {
+        // Build state with the flag turned off and a non-listening sidecar
+        // URL. If the middleware tried to call it, the test would hang or fail.
+        let config = Arc::new(AppConfig {
+            host_port: "127.0.0.1:0".into(),
+            inference_engine: crate::config::InferenceEngineMode::Sidecar,
+            gateway_api_key: "test".into(),
+            cache_mode: CacheMode::Exact,
+            cache_backend: crate::config::CacheBackend::Memory,
+            redis_url: "redis://127.0.0.1:6379".into(),
+            router_backend: crate::config::RouterBackend::Embedded,
+            vllm_url: "http://127.0.0.1:8000".into(),
+            vllm_model: "gemma-2-2b-it".into(),
+            embedding_model: "all-minilm".into(),
+            similarity_threshold: 0.85,
+            cache_ttl_secs: 300,
+            cache_max_capacity: 100,
+            layer2: Layer2Settings {
+                sidecar_url: "http://127.0.0.1:1".into(),
+                model_name: "phi-3-mini".into(),
+                timeout_seconds: 1,
+            },
+            local_slm_url: "http://localhost:11434/api/generate".into(),
+            local_slm_model: "llama3".into(),
+            embedding_sidecar: EmbeddingSidecarSettings {
+                sidecar_url: "http://127.0.0.1:8082".into(),
+                model_name: "test".into(),
+                timeout_seconds: 5,
+            },
+            llm_provider: "openai".into(),
+            external_llm_url: "http://localhost".into(),
+            external_llm_model: "test".into(),
+            external_llm_api_key: "".into(),
+            azure_deployment_id: "".into(),
+            azure_api_version: "".into(),
+            enable_monitoring: false,
+            enable_slm_router: false, // ← L2 disabled
+            otel_exporter_endpoint: "http://localhost:4317".into(),
+        });
+
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
+            vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            llm_agent: Arc::new(MockAgent),
+            slm_client: Arc::new(SlmClient::new(&config.layer2)),
+            text_embedder: shared_test_embedder(),
+            config,
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+
+        let app = triage_app(state);
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(json_body("hello"))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Should skip L2 entirely and land on Layer 3.
+        assert_eq!(json["layer"], 3);
+        assert_eq!(json["message"], "layer 3 response");
     }
 }

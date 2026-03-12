@@ -34,7 +34,7 @@ async fn slm_returns_500() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);
@@ -70,7 +70,7 @@ async fn slm_returns_unexpected_json() {
         .mount(&mock_server)
         .await;
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(EchoAgent), config, embedder);

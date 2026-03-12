@@ -196,6 +196,15 @@ pub struct AppConfig {
     /// Azure OpenAI API version (only used when `llm_provider` = "azure").
     pub azure_api_version: String,
 
+    // ── Layer 2 Feature Flag ────────────────────────────────────────
+    /// Enable the Layer 2 SLM triage router (Qwen / llama.cpp sidecar).
+    ///
+    /// When `false` (the default), every request skips L2 entirely and
+    /// goes straight from L1 cache to L3 external LLM.  Set to `true`
+    /// via `ISARTOR__ENABLE_SLM_ROUTER=true` when a GPU-backed sidecar
+    /// is available.
+    pub enable_slm_router: bool,
+
     // ── Observability ───────────────────────────────────────────────
     pub enable_monitoring: bool,
     pub otel_exporter_endpoint: String,
@@ -247,6 +256,7 @@ impl AppConfig {
             .set_default("azure_deployment_id", "")?
             .set_default("azure_api_version", "2024-08-01-preview")?
             // Observability
+            .set_default("enable_slm_router", false)?
             .set_default("enable_monitoring", false)?
             .set_default("otel_exporter_endpoint", "http://localhost:4317")?
             // Optional config file --------------------------------------
@@ -328,6 +338,7 @@ mod tests {
                 "ISARTOR_CACHE_MODE",
                 "ISARTOR_CACHE_TTL_SECS",
                 "ISARTOR_ENABLE_MONITORING",
+                "ISARTOR_ENABLE_SLM_ROUTER",
                 "ISARTOR_LAYER2__SIDECAR_URL",
                 "ISARTOR_LAYER2__MODEL_NAME",
                 "ISARTOR_LAYER2__TIMEOUT_SECONDS",
@@ -363,6 +374,7 @@ mod tests {
                 assert_eq!(config.llm_provider, "openai");
                 assert_eq!(config.external_llm_model, "gpt-4o-mini");
                 assert!(!config.enable_monitoring);
+                assert!(!config.enable_slm_router);
             },
         );
     }
@@ -429,6 +441,8 @@ mod tests {
             .unwrap()
             .set_default("enable_monitoring", false)
             .unwrap()
+            .set_default("enable_slm_router", false)
+            .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
             .unwrap()
             .set_default("inference_engine", "sidecar")
@@ -455,6 +469,7 @@ mod tests {
         assert_eq!(config.cache_mode, CacheMode::Exact);
         assert_eq!(config.cache_ttl_secs, 600);
         assert!(config.enable_monitoring);
+        assert!(!config.enable_slm_router);
     }
 
     #[test]
@@ -517,6 +532,8 @@ mod tests {
             .set_default("azure_api_version", "2024-08-01-preview")
             .unwrap()
             .set_default("enable_monitoring", false)
+            .unwrap()
+            .set_default("enable_slm_router", false)
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
             .unwrap()
@@ -612,6 +629,8 @@ mod tests {
             .set_default("azure_api_version", "2024-08-01-preview")
             .unwrap()
             .set_default("enable_monitoring", false)
+            .unwrap()
+            .set_default("enable_slm_router", false)
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
             .unwrap()

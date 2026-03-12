@@ -87,6 +87,7 @@ const SCAFFOLD_TOML: &str = r#"# ═══════════════�
 # vllm_model     = "gemma-2-2b-it"
 
 # ── Layer 2 — SLM Sidecar (llama.cpp) ────────────────────────────────
+# enable_slm_router = false    # Set to true to enable L2 SLM triage
 # [layer2]
 # sidecar_url     = "http://127.0.0.1:8081"
 # model_name      = "phi-3-mini"

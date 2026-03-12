@@ -65,6 +65,16 @@ async fn main() -> anyhow::Result<()> {
         "LLM provider configured"
     );
 
+    if config.enable_slm_router {
+        tracing::info!(
+            sidecar_url = %config.layer2.sidecar_url,
+            model = %config.layer2.model_name,
+            "Layer 2 SLM router enabled"
+        );
+    } else {
+        tracing::info!("Layer 2 SLM router disabled — requests skip L2 triage");
+    }
+
     // Initialize the in-process sentence embedder for Layer 1 semantic cache.
     // This blocks during startup (~2s) to load the candle BertModel into RAM (~90 MB).
     let text_embedder = Arc::new(

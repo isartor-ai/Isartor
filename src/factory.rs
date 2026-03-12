@@ -119,6 +119,7 @@ mod tests {
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,
+            enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
         }
     }

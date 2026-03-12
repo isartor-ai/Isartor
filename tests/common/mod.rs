@@ -116,6 +116,7 @@ pub fn test_config(mode: CacheMode, sidecar_url: &str) -> Arc<AppConfig> {
         azure_deployment_id: "".into(),
         azure_api_version: "".into(),
         enable_monitoring: false,
+        enable_slm_router: false,
         otel_exporter_endpoint: "http://localhost:4317".into(),
     })
 }
@@ -123,6 +124,13 @@ pub fn test_config(mode: CacheMode, sidecar_url: &str) -> Arc<AppConfig> {
 /// Build a test `AppConfig` with a minimal exact-only cache.
 pub fn test_config_exact(sidecar_url: &str) -> Arc<AppConfig> {
     test_config(CacheMode::Exact, sidecar_url)
+}
+
+/// Build a test `AppConfig` with `enable_slm_router = true` for L2 triage tests.
+pub fn test_config_slm_enabled(mode: CacheMode, sidecar_url: &str) -> Arc<AppConfig> {
+    let mut cfg = (*test_config(mode, sidecar_url)).clone();
+    cfg.enable_slm_router = true;
+    Arc::new(cfg)
 }
 
 // ── State Builder ────────────────────────────────────────────────────

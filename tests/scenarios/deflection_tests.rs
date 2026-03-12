@@ -61,7 +61,7 @@ async fn deflection_rate_at_least_60_percent() {
         counter: l3_calls_clone,
     };
 
-    let config = test_config(CacheMode::Exact, &mock_server.uri());
+    let config = test_config_slm_enabled(CacheMode::Exact, &mock_server.uri());
     let embedder =
         Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
     let state = build_state(Arc::new(counting_agent), config, embedder);
