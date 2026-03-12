@@ -60,6 +60,15 @@ parking_lot = "0.12"
 ahash = "0.8"
 redis = { version = "0.25", features = ["tokio-comp"] }
 
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Progress bars (first-run UX)
+indicatif = "0.17"
+
+# Time formatting
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
 [dev-dependencies]
 # Test utilities
 tokio-test = "0.4"

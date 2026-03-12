@@ -1,14 +1,36 @@
 use std::sync::Arc;
 
 use axum::{middleware as axum_mw, response::IntoResponse, routing::post, Json, Router};
+use clap::{Parser, Subcommand};
 
 use isartor::config::AppConfig;
 use isartor::handler;
+use isartor::health::{self, DemoModeFlag};
 use isartor::middleware;
-use isartor::state::AppState;
+
+#[derive(Parser)]
+#[command(name = "isartor", version, about = "AI Gateway — cache-first prompt deflection")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Generate a commented isartor.toml config scaffold and exit.
+    Init,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    // ── Handle `isartor init` ────────────────────────────────────
+    if let Some(Commands::Init) = cli.command {
+        isartor::first_run::write_config_scaffold()?;
+        return Ok(());
+    }
+
     // ------------------------------------------------------------------
     // 1. Initialise structured logging & OTel telemetry
     // ------------------------------------------------------------------
@@ -16,13 +38,24 @@ async fn main() -> anyhow::Result<()> {
     let _otel_guard = isartor::telemetry::init_telemetry(&config)?;
 
     // ------------------------------------------------------------------
-    // 2. Build shared state.
+    // 2. Detect first-run mode
+    // ------------------------------------------------------------------
+    let first_run = isartor::first_run::is_first_run();
+    let demo_mode = first_run;
+
+    if first_run {
+        isartor::first_run::print_welcome_banner();
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Build shared state.
     // ------------------------------------------------------------------
     tracing::info!(
         host_port = %config.host_port,
         cache_mode = ?config.cache_mode,
         embedding_model = %config.embedding_model,
         similarity_threshold = config.similarity_threshold,
+        first_run = first_run,
         "Isartor gateway starting"
     );
     tracing::info!(
@@ -39,10 +72,13 @@ async fn main() -> anyhow::Result<()> {
             .expect("Failed to initialize candle TextEmbedder (all-MiniLM-L6-v2)"),
     );
 
-    let app_state = Arc::new(AppState::new(config.clone(), text_embedder));
+    let app_state = Arc::new(isartor::state::AppState::new(config.clone(), text_embedder));
+
+    // Mark boot time for the /health uptime counter.
+    health::mark_boot_time();
 
     // ------------------------------------------------------------------
-    // 3. Build the Axum router with the middleware "funnel".
+    // 4. Build the Axum router with the middleware "funnel".
     //
     //    Middleware layers execute in the order they are added via
     //    `.layer()`, but they wrap the inner handler, so the *last*
@@ -59,13 +95,6 @@ async fn main() -> anyhow::Result<()> {
     let state_for_ext = app_state.clone();
 
     // Authenticated routes — go through the full middleware pipeline.
-    //
-    // Axum layers wrap in REVERSE order: the last `.layer()` call
-    // produces the outermost (first-to-execute) middleware.
-    //
-    // Execution order:
-    //   State injection → Body buffer → Monitoring → Auth →
-    //   Cache → SLM triage → Handler
     let authenticated = Router::new()
         .route("/api/chat", post(handler::chat_handler))
         // Layer 2 – SLM triage (innermost, runs last before handler).
@@ -97,15 +126,46 @@ async fn main() -> anyhow::Result<()> {
         ));
 
     // Unauthenticated routes — bypass the middleware pipeline entirely.
-    let public = Router::new().route("/healthz", axum::routing::get(healthz));
+    let demo_flag = DemoModeFlag(demo_mode);
+    let health_config = config.clone();
+    let public = Router::new()
+        .route("/healthz", axum::routing::get(healthz))
+        .route("/health", axum::routing::get(health::health_handler))
+        .layer(axum::Extension(health_config))
+        .layer(axum::Extension(demo_flag));
 
     let app = public.merge(authenticated);
 
     // ------------------------------------------------------------------
-    // 4. Start the server.
+    // 5. Start the server.
     // ------------------------------------------------------------------
     let listener = tokio::net::TcpListener::bind(&config.host_port).await?;
     tracing::info!(addr = %config.host_port, "Listening");
+
+    // ------------------------------------------------------------------
+    // 6. First-run demo — runs concurrently with the server.
+    // ------------------------------------------------------------------
+    if first_run {
+        let demo_state = app_state.clone();
+        tokio::spawn(async move {
+            // Brief pause so the welcome banner is visible.
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+            match isartor::demo::run_demo(&demo_state).await {
+                Ok(stats) => {
+                    isartor::demo::print_demo_results(&stats);
+                    if let Err(e) = isartor::demo::write_demo_result_file(&stats) {
+                        tracing::warn!(error = %e, "Failed to write demo result file");
+                    }
+                    isartor::first_run::mark_first_run_complete();
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "First-run demo failed");
+                }
+            }
+        });
+    }
+
     axum::serve(listener, app).await?;
 
     Ok(())
