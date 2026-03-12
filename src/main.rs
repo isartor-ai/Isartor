@@ -9,7 +9,11 @@ use isartor::health::{self, DemoModeFlag};
 use isartor::middleware;
 
 #[derive(Parser)]
-#[command(name = "isartor", version, about = "AI Gateway — cache-first prompt deflection")]
+#[command(
+    name = "isartor",
+    version,
+    about = "AI Gateway — cache-first prompt deflection"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
