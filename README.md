@@ -35,18 +35,19 @@ By computing intent *before* routing, Isartor acts as an impenetrable financial 
 Every incoming request passes through a sequence of smart computing layers. Only prompts requiring genuine, complex reasoning survive the funnel to reach the cloud.
 
 ```text
-Request ──► L1a Deterministic Hash ──► L1b Vector Search ──► L2 Neural Router ──► L3 Cloud Fallback
-                   │ hit                    │ hit                 │ simple               │
-                   ▼                        ▼                     ▼                      ▼
-                Response                 Response             Local Response         Cloud Response
+Request ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM Router ──► L2.5 Context Optimiser ──► L3 Cloud Logic
+                 │ hit                │ hit                 │ simple             │ compressed                │
+                 ▼                    ▼                     ▼                    ▼                           ▼
+              Response             Response            Local Response     Optimised Prompt            Cloud Response
 ```
 
-| Layer | Algorithm | What It Does | Typical Latency |
-|:------|:----------|:-------------|:----------------|
-| **L1a — Deterministic Hash** | `ahash` + LRU cache | Catches exact-duplicate requests (e.g. agent loops) with sub-millisecond lookup | < 1 ms |
-| **L1b — Vector Search** | `candle` BertModel (`all-MiniLM-L6-v2`) + brute-force cosine similarity | Catches meaning-based duplicates ("What's the price?" ≈ "How much?") via pure-Rust local embeddings | 1–5 ms |
-| **L2 — Neural Router** | Embedded SLM (Qwen-1.5B via `candle` GGUF) | Classifies intent and resolves trivial prompts in-process — no cloud round-trip | 50–200 ms |
-| **L3 — Cloud Fallback** | OpenAI, Anthropic, Azure OpenAI, xAI | Forwards genuinely complex reasoning to the configured cloud provider | Network-bound |
+| Layer | Algorithm / Mechanism | What It Does | Typical Latency |
+|:------|:----------------------|:-------------|:----------------|
+| **L1a — Exact Cache** | Fast Hashing (`ahash`) | Sub-millisecond duplicate detection. Traps infinite agent loops instantly. | < 1 ms |
+| **L1b — Semantic Cache** | Cosine Similarity (Embeddings) | Computes mathematical meaning via pure-Rust `candle` models (`all-MiniLM-L6-v2`) to catch variations ("Price?" ≈ "Cost?"). | 1–5 ms |
+| **L2 — SLM Router** | Neural Classification (LLM) | Triages intent using an embedded Small Language Model (e.g. Qwen-1.5B) to resolve simple data extraction tasks. | 50–200 ms |
+| **L2.5 — Context Optimiser** | Retrieve + Rerank (top-K) | Retrieves and reranks candidate documents to minimise token usage before the cloud call. Configurable via `ISARTOR__PIPELINE_RERANK_TOP_K`. | 5–50 ms |
+| **L3 — Cloud Logic** | Load Balancing & Retries | Routes surviving complex prompts to OpenAI, Anthropic, or Azure, with built-in fallback resilience. | Network-bound |
 
 Layers 1a and 1b alone can deflect **60–80% of agentic traffic** before any neural inference runs.
 
@@ -58,10 +59,11 @@ Isartor uses a **Pluggable Trait Provider** pattern (Hexagonal Architecture). Th
 
 | Component | Minimalist (Single Binary) | Enterprise (K8s) |
 |:----------|:---------------------------|:------------------|
-| **L1a Hash Cache** | In-memory LRU (`ahash` + `parking_lot`) | Redis cluster (shared across replicas) |
-| **L1b Vector Search** | In-process `candle` BertModel | External TEI sidecar (optional) |
-| **L2 Neural Router** | Embedded `candle` GGUF inference | Remote vLLM / TGI server (GPU pool) |
-| **L3 Cloud** | Direct to OpenAI / Anthropic | Direct to OpenAI / Anthropic |
+| **L1a Exact Cache** | In-memory LRU (`ahash` + `parking_lot`) | Redis cluster (shared across replicas) |
+| **L1b Semantic Cache** | In-process `candle` BertModel | External TEI sidecar (optional) |
+| **L2 SLM Router** | Embedded `candle` GGUF inference | Remote vLLM / TGI server (GPU pool) |
+| **L2.5 Context Optimiser** | In-process retrieve + rerank (top-K selection) | Distributed rerank (optional TEI / ANN pool) |
+| **L3 Cloud Logic** | Direct to OpenAI / Anthropic | Direct to OpenAI / Anthropic |
 
 **Minimalist Mode** — zero external dependencies. Download the binary and run it.
 
@@ -140,7 +142,7 @@ This works with **any** OpenAI-compatible client — the official Python/Node SD
 
 Isartor emits standard **OpenTelemetry** traces and metrics out of the box.
 
-- **Distributed traces** — every request produces a root span (`gateway_request`) with child spans for each layer (`l1a_exact_cache`, `l1b_semantic_cache`, `l2_classify_intent`, `l3_cloud_llm`).
+- **Distributed traces** — every request produces a root span (`gateway_request`) with child spans for each layer (`l1a_exact_cache`, `l1b_semantic_cache`, `l2_classify_intent`, `context_optimise`, `l3_cloud_llm`).
 - **Prometheus metrics** — `isartor_request_duration_seconds`, `isartor_layer_duration_seconds`, `isartor_requests_total`.
 - **ROI metric** — `isartor_tokens_saved_total` tracks estimated tokens that never left your infrastructure. Pipe it into Grafana to prove cost savings to leadership.
 
