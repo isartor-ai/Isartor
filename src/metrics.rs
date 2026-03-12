@@ -12,6 +12,8 @@
 //! | `isartor_requests_total`             | Counter   | `final_layer`, `status_code`         |
 //! | `isartor_layer_duration_seconds`     | Histogram | `layer_name`                         |
 //! | `isartor_tokens_saved_total`         | Counter   | `final_layer`                        |
+//! | `isartor_errors_total`               | Counter   | `layer`, `error_class`               |
+//! | `isartor_retries_total`              | Counter   | `operation`, `outcome`               |
 
 use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{global, KeyValue};
@@ -32,6 +34,12 @@ pub struct GatewayMetrics {
     /// resolved by an earlier layer (L1a, L1b, or L2).
     /// This is the primary ROI metric for cost-savings dashboards.
     pub tokens_saved_total: Counter<u64>,
+
+    /// Total errors emitted by each layer, labelled by error class (fatal / retryable).
+    pub errors_total: Counter<u64>,
+
+    /// Total retry attempts, labelled by operation and outcome (success / exhausted).
+    pub retries_total: Counter<u64>,
 }
 
 /// Singleton accessor.  The instruments are created on first call.
@@ -63,6 +71,16 @@ pub fn metrics() -> &'static GatewayMetrics {
                 .with_description(
                     "Estimated cloud LLM tokens saved by early resolution (L1a/L1b/L2)",
                 )
+                .build(),
+
+            errors_total: meter
+                .u64_counter("isartor_errors_total")
+                .with_description("Total errors emitted by each layer")
+                .build(),
+
+            retries_total: meter
+                .u64_counter("isartor_retries_total")
+                .with_description("Total retry attempts and their outcomes")
                 .build(),
         }
     })
@@ -107,5 +125,35 @@ pub fn record_tokens_saved(final_layer: &str, estimated_tokens: u64) {
     m.tokens_saved_total.add(
         estimated_tokens,
         &[KeyValue::new("final_layer", final_layer.to_string())],
+    );
+}
+
+/// Record an error occurrence, labelled by the layer that produced it and
+/// the error class (`fatal` or `retryable`).
+pub fn record_error(layer: &str, error_class: &str) {
+    let m = metrics();
+    m.errors_total.add(
+        1,
+        &[
+            KeyValue::new("layer", layer.to_string()),
+            KeyValue::new("error_class", error_class.to_string()),
+        ],
+    );
+}
+
+/// Record a retry event, labelled by the operation name and outcome
+/// (`success` or `exhausted`).
+pub fn record_retry(operation: &str, attempts: u32, succeeded: bool) {
+    let m = metrics();
+    m.retries_total.add(
+        1,
+        &[
+            KeyValue::new("operation", operation.to_string()),
+            KeyValue::new("attempts", attempts.to_string()),
+            KeyValue::new(
+                "outcome",
+                if succeeded { "success" } else { "exhausted" }.to_string(),
+            ),
+        ],
     );
 }

@@ -5,8 +5,11 @@ use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
+use sha2::{Digest, Sha256};
 use tracing::{info_span, Instrument};
 
+use crate::core::retry::{execute_with_retry, RetryConfig};
+use crate::errors::GatewayError;
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::state::AppState;
@@ -75,9 +78,27 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
     tracing::info!(prompt = %prompt, provider = provider_name, "Layer 3: Forwarding to LLM via Rig");
 
     // ------------------------------------------------------------------
-    // 2. Dispatch to the configured rig-core Agent.
+    // 2. Dispatch to the configured rig-core Agent — with retry.
     // ------------------------------------------------------------------
-    match state.llm_agent.chat(&prompt).await {
+    let retry_cfg = RetryConfig::default();
+    let agent = state.llm_agent.clone();
+    let provider_for_err = provider_name.to_string();
+    let prompt_for_retry = prompt.clone();
+
+    let result = execute_with_retry(&retry_cfg, "L3_Cloud_LLM", || {
+        let agent = agent.clone();
+        let prompt = prompt_for_retry.clone();
+        let provider = provider_for_err.clone();
+        async move {
+            agent
+                .chat(&prompt)
+                .await
+                .map_err(|e| GatewayError::from_llm_error(&provider, &e))
+        }
+    })
+    .await;
+
+    match result {
         Ok(text) => {
             crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
             let mut response = (
@@ -92,14 +113,37 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
             response.extensions_mut().insert(FinalLayer::Cloud);
             response
         }
-        Err(e) => {
+        Err(gw_err) => {
             crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
-            tracing::error!(error = %e, provider = provider_name, "Layer 3: LLM call failed");
+            crate::metrics::record_error(gw_err.layer_label(), if gw_err.is_retryable() { "retryable" } else { "fatal" });
+            tracing::error!(error = %gw_err, provider = provider_name, "Layer 3: LLM call failed after retries");
+
+            // ── Stale-cache fallback ─────────────────────────────
+            // If the LLM is down, try to serve a previously-cached
+            // answer for this exact prompt so the user still gets
+            // *something* useful.
+            let exact_key = hex::encode(Sha256::digest(prompt.as_bytes()));
+            if let Some(cached) = state.exact_cache.get(&exact_key) {
+                tracing::info!(
+                    cache.key = %exact_key,
+                    "Layer 3: Serving stale cache entry as fallback"
+                );
+                crate::metrics::record_error("L3_StaleFallback", "fallback_used");
+                let mut response = (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    cached,
+                )
+                    .into_response();
+                response.extensions_mut().insert(FinalLayer::Cloud);
+                return response;
+            }
+
             let mut response = (
                 StatusCode::BAD_GATEWAY,
                 Json(ChatResponse {
                     layer: 3,
-                    message: format!("[{provider_name}] {e}"),
+                    message: format!("[{provider_name}] {gw_err}"),
                     model: None,
                 }),
             )
@@ -118,6 +162,7 @@ mod tests {
     use super::*;
     use axum::{body::Body, middleware as axum_mw, routing::post, Router};
     use http_body_util::BodyExt;
+    use sha2::{Digest, Sha256};
     use tower::ServiceExt;
 
     use crate::clients::slm::SlmClient;
@@ -283,5 +328,57 @@ mod tests {
         let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["message"], "Reply to: raw text prompt");
+    }
+
+    #[tokio::test]
+    async fn stale_cache_fallback_on_llm_failure() {
+        let state = test_state(Arc::new(FailAgent));
+
+        // Pre-populate the exact cache with a stale entry for "fallback test".
+        let prompt = "fallback test";
+        let key = hex::encode(Sha256::digest(prompt.as_bytes()));
+        let cached_json = serde_json::to_string(&ChatResponse {
+            layer: 3,
+            message: "stale cached answer".into(),
+            model: Some("gpt-4o-mini".into()),
+        })
+        .unwrap();
+        state.exact_cache.put(key, cached_json);
+
+        let app = handler_app(state);
+
+        let body = serde_json::to_vec(&serde_json::json!({ "prompt": prompt })).unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        // Should get 200 (stale cache) instead of 502.
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&body_bytes);
+        assert!(text.contains("stale cached answer"));
+    }
+
+    #[tokio::test]
+    async fn no_stale_cache_returns_502() {
+        // When the LLM fails and there is no stale cache entry, 502 is expected.
+        let state = test_state(Arc::new(FailAgent));
+        let app = handler_app(state);
+
+        let body = serde_json::to_vec(&serde_json::json!({ "prompt": "no-cache-entry" })).unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
     }
 }

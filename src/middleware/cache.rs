@@ -128,6 +128,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
                     error = %e,
                     "L1b: in-process embedding failed – skipping semantic cache",
                 );
+                crate::metrics::record_error("L1b_Embedding", "retryable");
                 None
             }
             Err(e) => {
@@ -135,6 +136,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
                     error = %e,
                     "L1b: embedding task panicked – skipping semantic cache",
                 );
+                crate::metrics::record_error("L1b_Embedding", "fatal");
                 None
             }
         }
@@ -194,6 +196,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         return Response::from_parts(resp_parts, Body::from(resp_bytes));
     }
 
+    crate::metrics::record_error("L1_Cache", "retryable");
     (
         StatusCode::BAD_GATEWAY,
         Json(ChatResponse {

@@ -9,6 +9,7 @@ pub mod adapters;
 pub mod clients;
 pub mod config;
 pub mod core;
+pub mod errors;
 pub mod factory;
 pub mod handler;
 pub mod layer1;

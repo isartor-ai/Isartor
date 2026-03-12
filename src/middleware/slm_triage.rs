@@ -131,6 +131,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Layer 2: Embedded classification failed – falling through");
+                        crate::metrics::record_error("L2_SLM", "retryable");
                         false
                     }
                 }
@@ -197,11 +198,13 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "Layer 2: Failed to parse SLM response – falling through");
+                    crate::metrics::record_error("L2_SLM", "retryable");
                     false
                 }
             },
             Err(e) => {
                 tracing::warn!(error = %e, "Layer 2: SLM unreachable – falling through to Layer 3");
+                crate::metrics::record_error("L2_SLM", "retryable");
                 false
             }
         }
@@ -235,6 +238,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "Layer 2: Embedded answer generation failed – falling through");
+                            crate::metrics::record_error("L2_SLM", "retryable");
                         }
                     }
                 }
@@ -288,10 +292,12 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Layer 2: Sidecar answer parse failed – falling through");
+                        crate::metrics::record_error("L2_SLM", "retryable");
                     }
                 },
                 Err(e) => {
                     tracing::warn!(error = %e, "Layer 2: Sidecar answer call failed – falling through");
+                    crate::metrics::record_error("L2_SLM", "retryable");
                 }
             }
         }
