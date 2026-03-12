@@ -59,19 +59,31 @@ async fn main() -> anyhow::Result<()> {
     let state_for_ext = app_state.clone();
 
     // Authenticated routes — go through the full middleware pipeline.
+    //
+    // Axum layers wrap in REVERSE order: the last `.layer()` call
+    // produces the outermost (first-to-execute) middleware.
+    //
+    // Execution order:
+    //   State injection → Body buffer → Monitoring → Auth →
+    //   Cache → SLM triage → Handler
     let authenticated = Router::new()
         .route("/api/chat", post(handler::chat_handler))
-        // Layer 2 – SLM triage (innermost middleware).
+        // Layer 2 – SLM triage (innermost, runs last before handler).
         .layer(axum_mw::from_fn(
             middleware::slm_triage::slm_triage_middleware,
         ))
         // Layer 1 – Cache (exact / semantic / both).
         .layer(axum_mw::from_fn(middleware::cache::cache_middleware))
-        // Layer 0 – Authentication (outermost functional middleware).
+        // Layer 0 – Authentication.
         .layer(axum_mw::from_fn(middleware::auth::auth_middleware))
-        // Layer -1 - Root Monitoring (Top level tracing capability).
+        // Root monitoring – request-level tracing span.
         .layer(axum_mw::from_fn(
             middleware::monitoring::root_monitoring_middleware,
+        ))
+        // Body buffer – reads the body once and stores a BufferedBody
+        // in extensions so downstream layers never consume the stream.
+        .layer(axum_mw::from_fn(
+            middleware::body_buffer::buffer_body_middleware,
         ))
         // Inject shared state into every request's extensions.
         .layer(axum_mw::from_fn(

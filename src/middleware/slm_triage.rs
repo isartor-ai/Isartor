@@ -2,17 +2,15 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    body::Body,
     extract::Request,
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
 };
-use bytes::Bytes;
-use http_body_util::BodyExt;
 use tracing::{info_span, Instrument};
 
+use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::state::AppState;
 
@@ -87,17 +85,18 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         };
 
     // ------------------------------------------------------------------
-    // 1. Read the request body.
+    // 1. Extract the prompt from the buffered body (set by body_buffer
+    //    middleware). The request body stream is untouched.
     // ------------------------------------------------------------------
-    let (parts, body) = request.into_parts();
-    let body_bytes: Bytes = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
+    let body_bytes = match request.extensions().get::<BufferedBody>() {
+        Some(buf) => buf.0.clone(),
+        None => {
+            tracing::error!("Layer 2: BufferedBody missing from request extensions");
             return (
-                StatusCode::BAD_REQUEST,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ChatResponse {
                     layer: 2,
-                    message: "Failed to read request body".into(),
+                    message: "Gateway misconfiguration: missing buffered body".into(),
                     model: None,
                 }),
             )
@@ -298,9 +297,8 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         }
     }
 
-    // Complex task (or SLM failure) — re-attach body, forward to Layer 3.
+    // Complex task (or SLM failure) — forward to Layer 3 (body stream intact).
     tracing::debug!("Layer 2: Forwarding to Layer 3");
-    let request = Request::from_parts(parts, Body::from(body_bytes));
     next.run(request).await
     }
     .instrument(span)
@@ -310,7 +308,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{middleware as axum_mw, routing::post, Router};
+    use axum::{body::Body, middleware as axum_mw, routing::post, Router};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
     use wiremock::matchers::{method, path};
@@ -320,6 +318,7 @@ mod tests {
     use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
+    use crate::middleware::body_buffer::buffer_body_middleware;
     use crate::models::ChatResponse;
     use crate::state::AppLlmAgent;
     use crate::vector_cache::VectorCache;
@@ -403,6 +402,7 @@ mod tests {
                 }),
             )
             .layer(axum_mw::from_fn(slm_triage_middleware))
+            .layer(axum_mw::from_fn(buffer_body_middleware))
             .layer(axum_mw::from_fn(
                 move |mut req: axum::extract::Request, next: axum_mw::Next| {
                     let st = state.clone();

@@ -9,11 +9,11 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use bytes::Bytes;
 use http_body_util::BodyExt;
 use sha2::{Digest, Sha256};
 
 use crate::config::CacheMode;
+use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::state::AppState;
 
@@ -48,17 +48,18 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     };
 
     // ------------------------------------------------------------------
-    // 1. Read the body to extract the prompt.
+    // 1. Extract the prompt from the buffered body (set by body_buffer
+    //    middleware). The request body stream is untouched.
     // ------------------------------------------------------------------
-    let (parts, body) = request.into_parts();
-    let body_bytes: Bytes = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
+    let body_bytes = match request.extensions().get::<BufferedBody>() {
+        Some(buf) => buf.0.clone(),
+        None => {
+            tracing::error!("Layer 1: BufferedBody missing from request extensions");
             return (
-                StatusCode::BAD_REQUEST,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ChatResponse {
                     layer: 1,
-                    message: "Failed to read request body".into(),
+                    message: "Gateway misconfiguration: missing buffered body".into(),
                     model: None,
                 }),
             )
@@ -165,9 +166,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     );
 
     // ------------------------------------------------------------------
-    // 4. Cache miss: forward to next layer.
+    // 4. Cache miss: forward to next layer (body stream intact).
     // ------------------------------------------------------------------
-    let request = Request::from_parts(parts, Body::from(body_bytes));
     let response = next.run(request).await;
 
     // ------------------------------------------------------------------
@@ -216,6 +216,7 @@ mod tests {
     use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
+    use crate::middleware::body_buffer::buffer_body_middleware;
     use crate::models::ChatResponse;
     use crate::state::AppLlmAgent;
     use crate::vector_cache::VectorCache;
@@ -304,6 +305,7 @@ mod tests {
                 }),
             )
             .layer(axum_mw::from_fn(cache_middleware))
+            .layer(axum_mw::from_fn(buffer_body_middleware))
             .layer(axum_mw::from_fn(
                 move |mut req: axum::extract::Request, next: axum_mw::Next| {
                     let st = state.clone();

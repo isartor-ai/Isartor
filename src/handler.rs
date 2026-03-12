@@ -5,10 +5,9 @@ use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use bytes::Bytes;
-use http_body_util::BodyExt;
 use tracing::{info_span, Instrument};
 
+use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::state::AppState;
 
@@ -43,16 +42,18 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
         };
 
         // ------------------------------------------------------------------
-    // 1. Read the body (may have been re-attached by Layer 2).
+    // 1. Extract the prompt from the buffered body (set by body_buffer
+    //    middleware). No body-stream consumption needed.
     // ------------------------------------------------------------------
-    let body_bytes: Bytes = match request.into_body().collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
+    let body_bytes = match request.extensions().get::<BufferedBody>() {
+        Some(buf) => buf.0.clone(),
+        None => {
+            tracing::error!("Layer 3: BufferedBody missing from request extensions");
             return (
-                StatusCode::BAD_REQUEST,
+                StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ChatResponse {
                     layer: 3,
-                    message: "Failed to read request body".into(),
+                    message: "Gateway misconfiguration: missing buffered body".into(),
                     model: None,
                 }),
             )
@@ -123,6 +124,7 @@ mod tests {
     use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
+    use crate::middleware::body_buffer::buffer_body_middleware;
     use crate::state::AppLlmAgent;
     use crate::vector_cache::VectorCache;
     use std::num::NonZeroUsize;
@@ -204,6 +206,7 @@ mod tests {
     fn handler_app(state: Arc<AppState>) -> Router {
         Router::new()
             .route("/api/chat", post(chat_handler))
+            .layer(axum_mw::from_fn(buffer_body_middleware))
             .layer(axum_mw::from_fn(
                 move |mut req: Request, next: axum_mw::Next| {
                     let st = state.clone();
