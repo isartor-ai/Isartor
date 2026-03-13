@@ -25,9 +25,9 @@ cargo test test_candle_embedder_prompt_ab_c
 ```
 # Isartor Architecture: Layers & Modes
 
-## Layered Funnel Overview
+## Deflection Stack Overview
 
-Isartor implements a multi-layer funnel for prompt routing and caching, using a Pluggable Trait Provider pattern. Each layer can be swapped between Minimalist (embedded) and Enterprise (external/K8s) modes via environment variables.
+Isartor implements a multi-layer Deflection Stack for prompt routing and caching, using a Pluggable Trait Provider pattern. Each layer can be swapped between Minimalist (embedded) and Enterprise (external/K8s) modes via environment variables.
 
 ### Layer Definitions
 

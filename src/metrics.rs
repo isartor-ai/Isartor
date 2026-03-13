@@ -1,4 +1,4 @@
-//! # Gateway Metrics — Lazy-initialised OTel instruments
+//! # Firewall Metrics — Lazy-initialised OTel instruments
 //!
 //! All metric instruments are created once from the global `MeterProvider`
 //! and cached for the lifetime of the process.  When monitoring is disabled

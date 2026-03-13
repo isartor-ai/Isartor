@@ -1,6 +1,6 @@
 # Isartor
 
-**An ultra-lightweight, pure-Rust Smart Algorithm Gateway designed to execute local intelligence, slash LLM costs, and accelerate agentic workloads.**
+**An ultra-lightweight, pure-Rust Prompt Firewall designed to execute local intelligence, slash LLM costs, and accelerate agentic workloads.**
 
 <p align="center">
   <img src="docs/logo.png" alt="Isartor" width="400">
@@ -18,11 +18,11 @@ Standard API gateways are "dumb pipes" — they treat AI prompts like standard H
 
 For autonomous agents and enterprise applications, this is a fatal flaw. Agent loops repeat identical prompts. Simple data extraction tasks consume the same expensive tokens as complex reasoning problems. The result is runaway costs, high latency, and sensitive data leaving your perimeter unnecessarily.
 
-## The Solution: A Smart Algorithm Gateway
+## The Solution: A Prompt Firewall
 
 Isartor replaces the dumb pipe with algorithmic intelligence at the edge. Acting as a drop-in OpenAI replacement, it intercepts incoming prompts and applies a cascade of local algorithms — from deterministic hashing to pure-Rust neural networks — to resolve requests locally.
 
-By computing intent *before* routing, Isartor acts as an impenetrable financial shield for your LLM spend.
+By computing intent *before* routing, Isartor acts as an impenetrable Prompt Firewall for your LLM spend.
 
 - **100% Pure-Rust Edge AI:** Statically compiled, no dependency hell. Native tensor execution via Hugging Face `candle`.
 - **Algorithmic Deflection:** Layers 1 & 2 can resolve 60–80% of repetitive agentic traffic locally for $0.
@@ -30,9 +30,9 @@ By computing intent *before* routing, Isartor acts as an impenetrable financial 
 
 ---
 
-## The Algorithmic Funnel (Architecture)
+## The Deflection Stack (Architecture)
 
-Every incoming request passes through a sequence of smart computing layers. Only prompts requiring genuine, complex reasoning survive the funnel to reach the cloud.
+Every incoming request passes through a sequence of smart computing layers. Only prompts requiring genuine, complex reasoning survive the Deflection Stack to reach the cloud.
 
 ```text
 Request ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM Router ──► L2.5 Context Optimiser ──► L3 Cloud Logic
@@ -162,7 +162,7 @@ See [docs/6-OBSERVABILITY.md](docs/6-OBSERVABILITY.md) for the full span and met
 | Guide | Description |
 |:------|:------------|
 | [Quick Start](docs/1-QUICKSTART.md) | Installation, first request, configuration basics |
-| [Architecture](docs/2-ARCHITECTURE.md) | Deep dive into the 3-layer funnel and trait provider pattern |
+| [Architecture](docs/2-ARCHITECTURE.md) | Deep dive into the Deflection Stack and trait provider pattern |
 | [Enterprise Guide](docs/3-ENTERPRISE-GUIDE.md) | Redis, vLLM, Kubernetes, Helm, horizontal scaling |
 | [Integrations](docs/4-INTEGRATIONS.md) | OpenAI SDK, LangChain, autonomous agents |
 | [Configuration Reference](docs/5-CONFIGURATION-REF.md) | Every environment variable and config key |

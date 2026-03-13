@@ -29,7 +29,7 @@ reads `AppConfig` and wires the correct adapter at startup.
 | `SlmRouter` | `EmbeddedCandleRouter` (Candle) | `RemoteVllmRouter` (vLLM) |
 
 Full details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-# Isartor — Intelligent AI Orchestration Gateway Architecture
+# Isartor — Prompt Firewall Architecture
 
 ## High-Level Overview
 
@@ -41,7 +41,7 @@ flowchart TB
         C3["CLI / Agent"]
     end
 
-    subgraph GW["Isartor Gateway (Single Binary)"]
+    subgraph GW["Isartor Prompt Firewall (Single Binary)"]
         direction TB
 
         L0["Layer 0 — Authentication\n<code>middleware/auth.rs</code>\nValidates X-API-Key header"]
@@ -73,9 +73,9 @@ flowchart TB
     L3 -.->|"LLM Response"| C1 & C2 & C3
 ```
 
-## Request Pipeline (The Funnel)
+## The Deflection Stack
 
-Each layer can **short-circuit** the pipeline by returning a response directly, avoiding unnecessary downstream work.
+Each layer can **short-circuit** the Deflection Stack by returning a response directly, avoiding unnecessary downstream work.
 
 ```mermaid
 sequenceDiagram
@@ -240,7 +240,7 @@ User Prompt
 
 **Prompt** (injected as system instruction):
 ```
-You are a request classifier for an AI gateway. Analyse the user's prompt
+You are a request classifier for an AI Prompt Firewall. Analyse the user's prompt
 and classify it into EXACTLY ONE of these categories:
 - SIMPLE — Greetings, basic factual questions, short answers, simple math.
 - COMPLEX — Deep reasoning, multi-step analysis, creative writing.

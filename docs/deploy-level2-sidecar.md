@@ -1,8 +1,8 @@
 # 📄 Level 2 — Sidecar Deployment (Docker Compose)
 
-> **Split architecture: Isartor gateway + llama.cpp generation sidecar on a single host.**
+> **Split architecture: Isartor firewall + llama.cpp generation sidecar on a single host.**
 
-This guide covers deploying Isartor with a dedicated AI sidecar for generation. The gateway delegates Layer 2 inference to a lightweight llama.cpp container via HTTP, while Layer 1 semantic cache embeddings run **in-process** via candle BertModel (no embedding sidecar required). The overall stack runs on a single machine via Docker Compose.
+This guide covers deploying Isartor with a dedicated AI sidecar for generation. The firewall delegates Layer 2 inference to a lightweight llama.cpp container via HTTP, while Layer 1 semantic cache embeddings run **in-process** via candle BertModel (no embedding sidecar required). The overall stack runs on a single machine via Docker Compose.
 
 ---
 
@@ -39,7 +39,7 @@ This guide covers deploying Isartor with a dedicated AI sidecar for generation. 
 │                        Single Host                              │
 │                                                                 │
 │  ┌─────────────┐    ┌───────────────────┐    ┌──────────────┐  │
-│  │   Client     │───▶│  Isartor Gateway  │    │  Jaeger UI   │  │
+│  │   Client     │───▶│  Isartor Firewall │    │  Jaeger UI   │  │
 │  │             │    │  :8080             │    │  :16686      │  │
 │  └─────────────┘    │  (candle L1        │    └──────────────┘  │
 │                     │   embeddings       │                      │
@@ -68,7 +68,7 @@ This guide covers deploying Isartor with a dedicated AI sidecar for generation. 
 
 | Service | Image | Port | Purpose | Memory Limit |
 | --- | --- | --- | --- | --- |
-| **gateway** | `isartor:latest` (built) | 8080 | AI orchestration gateway (includes candle BertModel for Layer 1 embeddings) | 256 MB |
+| **gateway** | `isartor:latest` (built) | 8080 | Prompt Firewall (includes candle BertModel for Layer 1 embeddings) | 256 MB |
 | **slm-generation** | `ghcr.io/ggml-org/llama.cpp:server` | 8081 | Phi-3-mini-4k (Q4_K_M) — intent classification + generation | 4 GB |
 | **slm-embedding** *(optional)* | `ghcr.io/ggml-org/llama.cpp:server` | 8082 | all-MiniLM-L6-v2 (Q8_0) — v2 pipeline embeddings only (v1 uses in-process candle) | 512 MB |
 | **otel-collector** | `otel/opentelemetry-collector-contrib:0.96.0` | 4317 | OTLP gRPC receiver | 128 MB |
@@ -113,7 +113,7 @@ First launch downloads model files (~1.5 GB for Phi-3 + ~50 MB for MiniLM). Subs
 
 ### 4. Wait for Health Checks
 
-The gateway waits for both sidecars to become healthy before starting:
+The firewall waits for both sidecars to become healthy before starting:
 
 ```bash
 docker compose -f docker-compose.sidecar.yml ps
@@ -127,7 +127,7 @@ All services should show `healthy` or `running`.
 # Health check
 curl http://localhost:8080/healthz
 
-# Test the gateway
+# Test the firewall
 curl -s http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -H "X-API-Key: changeme" \
@@ -222,7 +222,7 @@ The `docker/` directory contains several Compose configurations for different us
 
 These variables are relevant to the sidecar architecture. For the full reference, see [`docs/configuration.md`](configuration.md).
 
-### Gateway ↔ Sidecar Communication
+### Firewall ↔ Sidecar Communication
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -266,7 +266,7 @@ These variables are relevant to the sidecar architecture. For the full reference
 # All services
 docker compose -f docker-compose.sidecar.yml logs -f
 
-# Gateway only
+# Firewall only
 docker compose -f docker-compose.sidecar.yml logs -f gateway
 
 # Sidecars
@@ -304,8 +304,8 @@ docker volume inspect isartor-slm-models
 ## Networking Notes
 
 - All services share a Docker bridge network created by Compose.
-- Gateway references sidecars by Docker service name (`slm-generation`, `slm-embedding`), not `localhost`.
-- Only the gateway (8080), Jaeger UI (16686), Grafana (3000), and Prometheus (9090) are exposed to the host.
+- The firewall references sidecars by Docker service name (`slm-generation`, `slm-embedding`), not `localhost`.
+- Only the firewall (8080), Jaeger UI (16686), Grafana (3000), and Prometheus (9090) are exposed to the host.
 - Sidecar ports (8081, 8082) are also exposed for debugging but can be removed in production by deleting the `ports:` mapping.
 
 ---
@@ -320,7 +320,7 @@ Before moving to Level 3, you can vertically scale Level 2:
 | **Bigger model** | Swap Phi-3-mini for Phi-3-medium or Qwen2-7B in the Compose command |
 | **More cache** | Increase `ISARTOR__CACHE_MAX_CAPACITY` and `ISARTOR__CACHE_TTL_SECS` |
 | **Faster embedding** | Use `nomic-embed-text` (768-dim) for richer semantic matching |
-| **More concurrency** | Scale horizontally with multiple gateway replicas behind a load balancer |
+| **More concurrency** | Scale horizontally with multiple firewall replicas behind a load balancer |
 
 ---
 
@@ -328,9 +328,9 @@ Before moving to Level 3, you can vertically scale Level 2:
 
 When a single host is no longer sufficient:
 
-1. **Extract the gateway** into stateless Kubernetes pods (it's already stateless).
+1. **Extract the firewall** into stateless Kubernetes pods (it's already stateless).
 2. **Replace sidecars** with an auto-scaling inference pool (vLLM, TGI, or Triton).
-3. **Add an internal load balancer** between gateway pods and the inference pool.
+3. **Add an internal load balancer** between firewall pods and the inference pool.
 4. **Move observability** to a managed solution (Datadog, Grafana Cloud, Azure Monitor).
 
 See [📄 `docs/deploy-level3-enterprise.md`](deploy-level3-enterprise.md) for the full Kubernetes guide.

@@ -1,9 +1,9 @@
 // =============================================================================
 // tests/scenarios/deflection_tests.rs
 //
-// Scenario tests verifying that the gateway deflects ≥60% of requests
+// Scenario tests verifying that the firewall deflects ≥60% of requests
 // before they reach Layer 3 (cloud LLM). This is the core cost-saving
-// property of the Isartor gateway.
+// property of the Isartor Prompt Firewall.
 //
 // Strategy:
 //   1. Send a batch of "simple" prompts through the full middleware stack
@@ -110,7 +110,7 @@ async fn deflection_rate_at_least_60_percent() {
 // Failure Scenarios
 // ═══════════════════════════════════════════════════════════════════════
 
-/// When both the SLM and the LLM are down, the gateway should return a
+/// When both the SLM and the LLM are down, the firewall should return a
 /// 502 error — never hang or panic.
 #[tokio::test]
 async fn failure_scenario_slm_and_llm_both_down() {
@@ -132,7 +132,7 @@ async fn failure_scenario_slm_and_llm_both_down() {
     assert_eq!(
         resp.status(),
         502,
-        "When everything is down the gateway should return 502"
+        "When everything is down the firewall should return 502"
     );
 }
 
@@ -163,7 +163,7 @@ async fn failure_scenario_slm_down_llm_ok() {
     assert_eq!(json["message"], "echo: test");
 }
 
-/// When the LLM fails but a stale cache entry exists, the gateway should
+/// When the LLM fails but a stale cache entry exists, the firewall should
 /// serve the stale response (200, not 502).
 #[tokio::test]
 async fn failure_scenario_stale_cache_fallback() {

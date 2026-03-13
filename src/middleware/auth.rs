@@ -16,7 +16,7 @@ use crate::state::AppState;
 ///
 /// Validates the `X-API-Key` request header against the configured
 /// `gateway_api_key`. If the key is missing or does not match, the
-/// pipeline is short-circuited with a `401 Unauthorized` response.
+/// Deflection Stack is short-circuited with a `401 Unauthorized` response.
 pub async fn auth_middleware(request: Request, next: Next) -> Response {
     let state = match request.extensions().get::<Arc<AppState>>() {
         Some(s) => s.clone(),
@@ -26,7 +26,7 @@ pub async fn auth_middleware(request: Request, next: Next) -> Response {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "Internal Server Error",
-                    "message": "Gateway misconfiguration: missing application state"
+                    "message": "Firewall misconfiguration: missing application state"
                 })),
             )
                 .into_response();

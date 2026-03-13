@@ -18,7 +18,7 @@ use crate::state::AppState;
 ///      **and** the custom `isartor.final_layer` tag.
 ///   2. After the response returns, read the [`FinalLayer`] extension
 ///      that child middlewares (cache / SLM / handler) inserted to
-///      determine *which* gateway layer handled the request.
+///      determine *which* firewall layer handled the request.
 ///   3. Record OTel metrics via the global `GatewayMetrics` singleton:
 ///      - `isartor_requests_total`
 ///      - `isartor_request_duration_seconds`

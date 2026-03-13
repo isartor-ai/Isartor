@@ -1,7 +1,7 @@
-//! # Gateway Error Types
+//! # Firewall Error Types
 //!
 //! Provides a structured error hierarchy that distinguishes **retryable**
-//! from **fatal** errors. Every layer in the pipeline maps its failures
+//! from **fatal** errors. Every layer in the Deflection Stack maps its failures
 //! into [`GatewayError`] so the handler and middleware can make
 //! retry/fallback decisions consistently.
 

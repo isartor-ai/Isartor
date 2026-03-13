@@ -3,7 +3,7 @@
 First off, thank you for considering contributing to Isartor! It's people like you that make Isartor such a great tool for the AI community.
 
 We welcome all kinds of contributions, whether it's:
-- ✨ Implementing new features or pipeline layers.
+- ✨ Implementing new features or Deflection Stack layers.
 - 🐛 Reporting or fixing bugs.
 - 📝 Improving documentation (including this guide!).
 - 🧪 Adding unit or integration tests.

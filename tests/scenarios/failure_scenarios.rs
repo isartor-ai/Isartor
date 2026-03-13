@@ -1,7 +1,7 @@
 // =============================================================================
 // tests/scenarios/failure_scenarios.rs
 //
-// Additional failure scenarios testing resilience of the gateway under
+// Additional failure scenarios testing resilience of the firewall under
 // various partial-failure conditions.
 // =============================================================================
 
@@ -96,7 +96,7 @@ async fn slm_returns_unexpected_json() {
 // Edge-Case Inputs
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Empty body — the gateway should handle it without crashing.
+/// Empty body — the firewall should handle it without crashing.
 #[tokio::test]
 async fn empty_body_does_not_crash() {
     let config = test_config(CacheMode::Exact, "http://127.0.0.1:1");

@@ -1,5 +1,5 @@
 // =============================================================================
-// tests/common/gateway.rs — Full gateway router builder for integration tests.
+// tests/common/gateway.rs — Full firewall router builder for integration tests.
 //
 // Assembles the entire middleware stack in the same order as main.rs:
 //   state injection → body buffer → monitoring → auth → cache → SLM triage → handler
@@ -17,7 +17,7 @@ use isartor::middleware::monitoring::root_monitoring_middleware;
 use isartor::middleware::slm_triage::slm_triage_middleware;
 use isartor::state::AppState;
 
-/// Build the full gateway router with the complete middleware stack.
+/// Build the full firewall router with the complete middleware stack.
 ///
 /// Layer order (outermost → innermost):
 /// 1. State injection (adds `Arc<AppState>` to extensions)
@@ -47,7 +47,7 @@ pub fn full_gateway(state: Arc<AppState>) -> Router {
         ))
 }
 
-/// Build the gateway with only cache + handler layers (no auth, no SLM triage).
+/// Build the firewall with only cache + handler layers (no auth, no SLM triage).
 /// Useful for isolated cache-flow tests.
 pub fn cache_only_gateway(state: Arc<AppState>) -> Router {
     let state_for_ext = state.clone();
@@ -66,7 +66,7 @@ pub fn cache_only_gateway(state: Arc<AppState>) -> Router {
         ))
 }
 
-/// Build the gateway with SLM triage + handler (no auth, no cache).
+/// Build the firewall with SLM triage + handler (no auth, no cache).
 /// Useful for isolated SLM-flow tests.
 pub fn slm_only_gateway(state: Arc<AppState>) -> Router {
     let state_for_ext = state.clone();

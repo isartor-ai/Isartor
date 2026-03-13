@@ -41,7 +41,7 @@ rate means only 30 % of requests reach the paid cloud LLM.
 
 ### 2.1 Via Prometheus / Grafana
 
-The gateway emits `isartor_requests_total` with a `final_layer` label.
+The firewall emits `isartor_requests_total` with a `final_layer` label.
 Use the following PromQL to compute the deflection rate:
 
 ```promql
@@ -376,7 +376,7 @@ for marginal quality improvement in most use cases.
 ### 9.3 SLA Template (for downstream consumers)
 
 ```markdown
-## Isartor Gateway SLA
+## Isartor Prompt Firewall SLA
 
 **Availability:** 99.9 % monthly uptime (< 43.8 min downtime/month)
 **Latency:** P95 end-to-end < 2 seconds
@@ -435,13 +435,13 @@ groups:
         annotations:
           summary: "Isartor deflection rate below 50%"
 
-      - alert: GatewayDown
+      - alert: FirewallDown
         expr: up{job="isartor"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Isartor gateway is down"
+          summary: "Isartor firewall is down"
 ```
 
 ---

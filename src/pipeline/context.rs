@@ -1,8 +1,8 @@
 // =============================================================================
-// Pipeline Context — The "State" flowing through the algorithmic pipeline.
+// Pipeline Context — The "State" flowing through the Deflection Stack.
 //
 // This is the central request context object that passes from layer to layer
-// in the unidirectional processing pipeline. Each algorithmic stage enriches
+// in the unidirectional Deflection Stack. Each algorithmic stage enriches
 // the context with its computed outputs.
 // =============================================================================
 

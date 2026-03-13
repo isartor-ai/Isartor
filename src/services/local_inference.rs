@@ -53,7 +53,7 @@ pub struct EmbeddedClassifierConfig {
     pub gguf_filename: String,
 
     /// Optional local path to a pre-downloaded GGUF model file.
-    /// When set (e.g. via `ISARTOR__EMBEDDED__MODEL_PATH`), the gateway
+    /// When set (e.g. via `ISARTOR__EMBEDDED__MODEL_PATH`), the firewall
     /// skips the Hugging Face download and loads directly from this path.
     pub model_path: Option<String>,
 
@@ -92,7 +92,7 @@ impl Default for EmbeddedClassifierConfig {
 
 /// System prompt instructing the model to perform intent classification.
 const CLASSIFY_SYSTEM_PROMPT: &str = "\
-You are a request classifier for an AI gateway. Analyse the user's prompt and \
+You are a request classifier for an AI Prompt Firewall. Analyse the user's prompt and \
 classify it into EXACTLY ONE of these categories:\n\n\
 - SIMPLE — Greetings, basic factual questions, short answers, simple math.\n\
 - COMPLEX — Deep reasoning, multi-step analysis, creative writing, long explanations.\n\

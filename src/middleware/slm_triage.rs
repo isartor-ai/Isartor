@@ -76,7 +76,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ChatResponse {
                         layer: 2,
-                        message: "Gateway misconfiguration: missing application state".into(),
+                        message: "Firewall misconfiguration: missing application state".into(),
                         model: None,
                     }),
                 )
@@ -105,7 +105,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ChatResponse {
                     layer: 2,
-                    message: "Gateway misconfiguration: missing buffered body".into(),
+                    message: "Firewall misconfiguration: missing buffered body".into(),
                     model: None,
                 }),
             )

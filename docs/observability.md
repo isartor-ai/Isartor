@@ -2,7 +2,7 @@
 
 > **OpenTelemetry tracing, Prometheus metrics, Jaeger distributed tracing, and Grafana dashboards — per-tier setup.**
 
-Isartor ships with first-class [OpenTelemetry](https://opentelemetry.io/) support. When monitoring is enabled, the gateway exports distributed traces and metrics via OTLP gRPC to an OpenTelemetry Collector, which fans out to Jaeger (traces) and Prometheus (metrics).
+Isartor ships with first-class [OpenTelemetry](https://opentelemetry.io/) support. When monitoring is enabled, the firewall exports distributed traces and metrics via OTLP gRPC to an OpenTelemetry Collector, which fans out to Jaeger (traces) and Prometheus (metrics).
 
 ---
 
@@ -11,7 +11,7 @@ Isartor ships with first-class [OpenTelemetry](https://opentelemetry.io/) suppor
 ```text
 ┌─────────────┐                  ┌──────────────────┐
 │  Isartor    │  OTLP gRPC      │  OTel Collector   │
-│  Gateway    │─────────────────▶│  :4317            │
+│  Firewall   │─────────────────▶│  :4317            │
 │             │  (traces +       │                   │
 │             │   metrics)       │  Pipelines:       │
 └─────────────┘                  │  traces → Jaeger  │
@@ -50,7 +50,7 @@ When `ISARTOR__ENABLE_MONITORING=false` (the default), Isartor uses console-only
 
 ### Traces
 
-The gateway creates spans for:
+The firewall creates spans for:
 
 | Span | Layer | Description |
 | --- | --- | --- |
@@ -117,12 +117,12 @@ Services included:
 
 | Service | URL | Purpose |
 | --- | --- | --- |
-| **OTel Collector** | `localhost:4317` (gRPC) | Receives OTLP from gateway |
+| **OTel Collector** | `localhost:4317` (gRPC) | Receives OTLP from firewall |
 | **Jaeger UI** | [`http://localhost:16686`](http://localhost:16686) | View distributed traces |
 | **Prometheus** | [`http://localhost:9090`](http://localhost:9090) | Query metrics |
 | **Grafana** | [`http://localhost:3000`](http://localhost:3000) | Dashboards (anonymous admin access) |
 
-The gateway is pre-configured with:
+The firewall is pre-configured with:
 
 ```bash
 ISARTOR__ENABLE_MONITORING=true
@@ -140,7 +140,7 @@ ISARTOR__OTEL_EXPORTER_ENDPOINT=http://otel-collector:4317
 | **Grafana Cloud** | Grafana Alloy + Grafana Cloud | Low ops, managed Prometheus + Tempo |
 | **Datadog** | Datadog Agent + OTel Collector | Enterprise APM |
 
-For all options, point the gateway at the collector:
+For all options, point the firewall at the collector:
 
 ```bash
 ISARTOR__OTEL_EXPORTER_ENDPOINT=http://otel-collector.isartor:4317
@@ -182,8 +182,8 @@ service:
 
 **Pipeline flow:**
 
-- **Traces**: `Gateway → OTLP gRPC → Collector → OTLP → Jaeger`
-- **Metrics**: `Gateway → OTLP gRPC → Collector → Prometheus scrape (:8889) → Prometheus`
+- **Traces**: `Firewall → OTLP gRPC → Collector → OTLP → Jaeger`
+- **Metrics**: `Firewall → OTLP gRPC → Collector → Prometheus scrape (:8889) → Prometheus`
 
 ---
 
@@ -296,7 +296,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Gateway running at concurrency limit — scale up or tune AIMD"
+          summary: "Firewall running at concurrency limit — scale up or tune AIMD"
 ```
 
 ---

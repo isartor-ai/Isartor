@@ -21,7 +21,7 @@
 
 ### 1.1 `Failed to initialize candle TextEmbedder`
 
-**Symptom:** Gateway panics on startup with:
+**Symptom:** Firewall panics on startup with:
 
 ```text
 Failed to initialize candle TextEmbedder (all-MiniLM-L6-v2)
@@ -121,7 +121,7 @@ The default is `changeme` — override it for any non-local deployment.
 
 **Symptom:** Users receive outdated answers from cache.
 
-**Fix:** Reduce TTL or restart the gateway to clear in-memory caches:
+**Fix:** Reduce TTL or restart the firewall to clear in-memory caches:
 
 ```bash
 export ISARTOR__CACHE_TTL_SECS=60   # 1 minute
@@ -151,7 +151,7 @@ Layer 1a: Redis connection error — falling through
 
 2. Check network connectivity (especially in Docker/K8s):
    ```bash
-   # Inside the gateway container:
+   # Inside the firewall container:
    curl -v telnet://redis:6379
    ```
 
@@ -169,7 +169,7 @@ to the next layer. No data is lost, but deflection rate drops.
 
 ### 2.4 Cache Memory Growing Unbounded
 
-**Symptom:** Gateway memory usage increases over time.
+**Symptom:** Firewall memory usage increases over time.
 
 **Fix:** The in-memory cache uses bounded LRU eviction. Check:
 
@@ -333,7 +333,7 @@ export ISARTOR__EXTERNAL_LLM_URL=https://api.x.ai/v1/chat/completions
 | Monitoring disabled | `export ISARTOR__ENABLE_MONITORING=true` |
 | Wrong endpoint | `export ISARTOR__OTEL_EXPORTER_ENDPOINT=http://otel-collector:4317` |
 | Collector not running | `docker compose -f docker-compose.observability.yml up otel-collector` |
-| Firewall blocking gRPC | Ensure port 4317 is open between gateway and collector |
+| Firewall blocking gRPC | Ensure port 4317 is open between firewall and collector |
 
 ### 5.2 No Metrics in Prometheus
 
@@ -387,7 +387,7 @@ export ISARTOR_ENABLE_MONITORING=true  # ❌ not picked up
    - L2 SLM: model inference is slow → use a smaller quantised model.
    - L1b Semantic: embedding is slow → check CPU contention.
 
-### 6.2 Gateway OOM (Out of Memory)
+### 6.2 Firewall OOM (Out of Memory)
 
 **Diagnostic steps:**
 
@@ -444,7 +444,7 @@ sum(rate(isartor_requests_total{final_layer="L2_SLM"}[5m])) == 0
 
 ### 7.2 Container Can't Reach Host Services
 
-**Symptom:** Gateway inside Docker can't connect to sidecar on `localhost`.
+**Symptom:** Firewall inside Docker can't connect to sidecar on `localhost`.
 
 **Fix:** Use Docker network names or `host.docker.internal`:
 
@@ -536,7 +536,7 @@ Kubernetes cluster. See the [Enterprise Guide](3-ENTERPRISE-GUIDE.md).
 ### Q: Can I use Isartor with LangChain / LlamaIndex / AutoGen?
 
 **A:** Yes. Isartor exposes an OpenAI-compatible API. Point any SDK at
-the gateway URL:
+the firewall URL:
 
 ```python
 import openai

@@ -16,10 +16,10 @@ async fn redis_exact_cache_round_trip() {
     }
 }
 // =============================================================================
-// Integration Tests — Full-stack gateway tests via HTTP.
+// Integration Tests — Full-stack firewall tests via HTTP.
 //
 // These tests spin up wiremock servers to simulate the llama.cpp sidecars
-// and then exercise the gateway's REST endpoints end-to-end.
+// and then exercise the firewall's REST endpoints end-to-end.
 //
 // Because the binary crate cannot be imported directly, we spin up the
 // real Axum server on a random port via `TcpListener::bind("127.0.0.1:0")`.
@@ -31,7 +31,7 @@ use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Helper — start the gateway on a random port and return its address.
+/// Helper — start the firewall on a random port and return its address.
 /// We inline the router setup here because we can't import from a bin crate.
 async fn start_gateway(api_key: &str, sidecar_url: &str, embed_url: &str) -> SocketAddr {
     use axum::{
@@ -42,7 +42,7 @@ async fn start_gateway(api_key: &str, sidecar_url: &str, embed_url: &str) -> Soc
     };
 
     // Minimal inline types to avoid importing the binary crate.
-    // We test the gateway "black-box" over HTTP.
+    // We test the firewall "black-box" over HTTP.
     let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     let actual_addr = listener.local_addr().unwrap();

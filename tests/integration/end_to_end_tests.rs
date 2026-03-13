@@ -1,7 +1,7 @@
 // =============================================================================
 // tests/integration/end_to_end_tests.rs
 //
-// Full end-to-end integration tests exercising the complete gateway:
+// Full end-to-end integration tests exercising the complete Deflection Stack:
 //   auth → cache → SLM triage → handler
 // =============================================================================
 

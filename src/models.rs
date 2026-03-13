@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 // ── Observability: Final-layer annotation ────────────────────────────
 
-/// Which gateway layer ultimately resolved the request.
+/// Which firewall layer ultimately resolved the request.
 /// Inserted into `http::Extensions` by each middleware so the root
 /// monitoring span can record it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +34,7 @@ impl FinalLayer {
     }
 }
 
-// ── Client ↔ Gateway ─────────────────────────────────────────────────
+// ── Client ↔ Firewall ─────────────────────────────────────────────────
 
 /// Incoming chat request from a client.
 #[derive(Debug, Clone, Deserialize, Serialize)]

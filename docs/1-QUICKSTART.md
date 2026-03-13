@@ -32,7 +32,7 @@ irm https://raw.githubusercontent.com/isartor-ai/isartor/main/scripts/install.ps
 
 ---
 
-## Test the Gateway
+## Test the Prompt Firewall
 
 You can test your Isartor instance with:
 

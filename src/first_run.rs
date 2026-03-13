@@ -37,7 +37,7 @@ pub fn print_welcome_banner() {
     println!("  ║                                                      ║");
     println!("  ║   🚀  Welcome to Isartor v{:<26}  ║", version);
     println!("  ║                                                      ║");
-    println!("  ║   AI Gateway — Cache-first prompt deflection         ║");
+    println!("  ║   Prompt Firewall — Cache-first prompt deflection     ║");
     println!("  ║                                                      ║");
     println!("  ║   Layers:                                            ║");
     println!("  ║     L1a  Exact-match SHA-256 cache                   ║");

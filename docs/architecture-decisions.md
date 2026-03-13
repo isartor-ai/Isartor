@@ -6,18 +6,18 @@ Each ADR follows a lightweight format: Context → Decision → Consequences.
 
 ---
 
-## ADR-001: Multi-Layer Pipeline Architecture
+## ADR-001: Multi-Layer Deflection Stack Architecture
 
 **Date:** 2024 · **Status:** Accepted
 
 ### Context
 
-AI gateway traffic follows a power-law distribution: the majority of prompts are simple or repetitive, while only a small fraction requires expensive cloud LLMs. Sending all traffic to a single provider wastes tokens and money.
+AI Prompt Firewall traffic follows a power-law distribution: the majority of prompts are simple or repetitive, while only a small fraction requires expensive cloud LLMs. Sending all traffic to a single provider wastes tokens and money.
 
 ### Decision
 
 
-Implement a **sequential pipeline** with 4+ layers, each capable of short-circuiting:
+Implement a **sequential Deflection Stack** with 4+ layers, each capable of short-circuiting:
 
 - **Layer 0** — Operational defense (auth, rate limiting, concurrency control)
 - **Layer 1** — Semantic + exact cache (zero-cost hits)
@@ -33,7 +33,7 @@ Retrieves and reranks candidate documents or responses to minimize downstream to
 - **Positive:** 60–80% of traffic can be resolved before Layer 3, dramatically reducing cost.
 - **Positive:** Each layer adds latency only when needed — cache hits are sub-millisecond.
 - **Positive:** Clear separation of concerns; each layer is independently testable.
-- **Negative:** Pipeline adds conceptual complexity vs. a simple reverse proxy.
+- **Negative:** Deflection Stack adds conceptual complexity vs. a simple reverse proxy.
 - **Negative:** Each layer needs its own error handling and timeout strategy.
 
 ---
@@ -44,7 +44,7 @@ Retrieves and reranks candidate documents or responses to minimize downstream to
 
 ### Context
 
-The gateway must handle high concurrency (thousands of simultaneous connections) with low latency overhead. The binary should be small, statically linked, and deployable to minimal environments.
+The firewall must handle high concurrency (thousands of simultaneous connections) with low latency overhead. The binary should be small, statically linked, and deployable to minimal environments.
 
 ### Decision
 
@@ -99,7 +99,7 @@ Define three explicit deployment tiers that share the **same binary and configur
 | Tier | Strategy | Target |
 | --- | --- | --- |
 | **Level 1** | Monolithic binary, embedded candle | VPS, edge, bare metal |
-| **Level 2** | Gateway + llama.cpp sidecars | Docker Compose, single host + GPU |
+| **Level 2** | Firewall + llama.cpp sidecars | Docker Compose, single host + GPU |
 | **Level 3** | Stateless pods + inference pools | Kubernetes, Helm, HPA |
 
 The tier is selected purely by environment variables and infrastructure, not by code changes.
@@ -133,7 +133,7 @@ Replace Ollama with **llama.cpp server** (`ghcr.io/ggml-org/llama.cpp:server`, ~
 
 - **Positive:** 50× smaller container images (30 MB vs. 1.5 GB).
 - **Positive:** Faster cold starts; no model pull step needed (uses `--hf-repo` auto-download).
-- **Positive:** OpenAI-compatible API — gateway code doesn't need to change.
+- **Positive:** OpenAI-compatible API — firewall code doesn't need to change.
 - **Negative:** Ollama's model management UX (pull, list, delete) is lost.
 - **Negative:** Each model needs its own llama.cpp instance (no multi-model serving).
 - **Migration:** Ollama-based Compose files (`docker-compose.yml`, `docker-compose.azure.yml`) are retained for backward compatibility.
@@ -168,7 +168,7 @@ Use [rig-core](https://crates.io/crates/rig-core) (v0.32.0) as the unified LLM c
 
 ### Context
 
-A fixed concurrency limit either over-provisions (wasting resources) or under-provisions (rejecting requests during traffic spikes). The gateway needs to dynamically adjust its limit based on real-time latency.
+A fixed concurrency limit either over-provisions (wasting resources) or under-provisions (rejecting requests during traffic spikes). The firewall needs to dynamically adjust its limit based on real-time latency.
 
 ### Decision
 
@@ -218,7 +218,7 @@ Consolidate into a single endpoint:
 
 ### Context
 
-The gateway binary is statically linked (musl). The runtime container only needs to execute a single binary.
+The firewall binary is statically linked (musl). The runtime container only needs to execute a single binary.
 
 ### Decision
 
@@ -241,7 +241,7 @@ Use `gcr.io/distroless/static-debian12` as the runtime base image. It contains n
 
 ### Context
 
-The gateway needs distributed tracing and metrics. Vendor-specific SDKs (Datadog, New Relic, etc.) create lock-in.
+The firewall needs distributed tracing and metrics. Vendor-specific SDKs (Datadog, New Relic, etc.) create lock-in.
 
 ### Decision
 
@@ -316,13 +316,13 @@ As Isartor grew from a single-process binary (Level 1) to a multi-tier deploymen
 1. **Shared cache** — in-process LRU caches are isolated per pod; cache hits are inconsistent, duplicating work.
 2. **GPU-backed inference** — in-process Candle inference is CPU-bound; Level 3 needs a dedicated GPU inference pool (vLLM / TGI) that can scale independently.
 
-Hard-coding these choices into the gateway binary would require compile-time feature flags or code branching, making the binary non-portable across tiers.
+Hard-coding these choices into the firewall binary would require compile-time feature flags or code branching, making the binary non-portable across tiers.
 
 ### Decision
 
 Adopt the **Ports & Adapters (Hexagonal Architecture)** pattern:
 
-- **Ports** (`src/core/ports.rs`) — Define `ExactCache` and `SlmRouter` as `async_trait` traits (`Send + Sync`), representing the interfaces the gateway depends on.
+- **Ports** (`src/core/ports.rs`) — Define `ExactCache` and `SlmRouter` as `async_trait` traits (`Send + Sync`), representing the interfaces the firewall depends on.
 - **Adapters** (`src/adapters/`) — Provide concrete implementations:
   - `InMemoryCache` (ahash + LRU + parking_lot) and `RedisExactCache` for `ExactCache`
   - `EmbeddedCandleRouter` and `RemoteVllmRouter` for `SlmRouter`

@@ -2,7 +2,7 @@
 
 > **Single static binary, embedded candle inference + in-process candle sentence embeddings, zero C/C++ dependencies.**
 
-This guide covers deploying Isartor as a standalone process — no sidecars, no Docker Compose, no orchestrator. The gateway binary embeds a Gemma-2-2B-IT GGUF model via [candle](https://github.com/huggingface/candle) for Layer 2 classification and uses candle's `BertModel` (sentence-transformers/all-MiniLM-L6-v2) for Layer 1 semantic cache embeddings — all entirely in-process, pure Rust.
+This guide covers deploying Isartor as a standalone process — no sidecars, no Docker Compose, no orchestrator. The firewall binary embeds a Gemma-2-2B-IT GGUF model via [candle](https://github.com/huggingface/candle) for Layer 2 classification and uses candle's `BertModel` (sentence-transformers/all-MiniLM-L6-v2) for Layer 1 semantic cache embeddings — all entirely in-process, pure Rust.
 
 ---
 
@@ -28,7 +28,7 @@ This guide covers deploying Isartor as a standalone process — no sidecars, no 
 | **Rust** (build from source) | 1.75+ | Latest stable |
 | **OS** | Linux (x86_64 / aarch64), macOS | Ubuntu 22.04 LTS |
 
-> **Memory budget:** Gemma-2-2B Q4_K_M ≈ 1.5 GB, candle BertModel ≈ 90 MB, tokenizer ≈ 4 MB, gateway runtime ≈ 50 MB. Total: ~1.7 GB resident.
+> **Memory budget:** Gemma-2-2B Q4_K_M ≈ 1.5 GB, candle BertModel ≈ 90 MB, tokenizer ≈ 4 MB, firewall runtime ≈ 50 MB. Total: ~1.7 GB resident.
 
 ---
 
@@ -86,7 +86,7 @@ export ISARTOR__CACHE_MODE="both"
 # These are ideal for a single-process deployment with zero dependencies.
 ```
 
-### 3. Start the Gateway
+### 3. Start the Firewall
 
 ```bash
 ./target/release/isartor
@@ -109,7 +109,7 @@ INFO  isartor::services::local_inference > Model loaded (1.5 GB), ready for infe
 curl http://localhost:8080/healthz
 # {"status":"ok"}
 
-# Test the gateway
+# Test the firewall
 curl -s http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -H "X-API-Key: my-secret-key" \
@@ -192,7 +192,7 @@ sudo chmod 600 /etc/isartor/env
 ```bash
 sudo tee /etc/systemd/system/isartor.service <<'EOF'
 [Unit]
-Description=Isartor AI Orchestration Gateway
+Description=Isartor Prompt Firewall
 After=network-online.target
 Wants=network-online.target
 
@@ -309,7 +309,7 @@ These are the most relevant `ISARTOR__*` variables for Level 1 deployments. For 
 | Warm start (cached model) | 3–8 s |
 | Classification latency | 50–200 ms |
 | Simple task execution | 200–2000 ms |
-| Gateway overhead (no inference) | < 1 ms |
+| Firewall overhead (no inference) | < 1 ms |
 | Memory (steady state) | ~1.6 GB |
 | Binary size | ~5 MB |
 

@@ -3,7 +3,7 @@
 ## Why Enterprise Mode?
 
 Enterprise Mode enables horizontal scaling of network I/O independently from GPU compute, and provides shared distributed caching for multi-replica deployments. This is essential for:
-- High-throughput, stateless gateway pods
+- High-throughput, stateless firewall pods
 - Efficient GPU utilization via remote inference pools
 - Consistent cache hits across replicas (via Redis)
 

@@ -1,6 +1,6 @@
 # 📄 Level 3 — Enterprise Deployment (Kubernetes)
 
-> **Fully decoupled microservices: stateless gateway pods + auto-scaling GPU inference pools.**
+> **Fully decoupled microservices: stateless firewall pods + auto-scaling GPU inference pools.**
 
 This guide covers deploying Isartor on Kubernetes with Helm, horizontal pod autoscaling, dedicated GPU inference pools (vLLM or TGI), service mesh integration, and production-grade observability.
 
@@ -27,7 +27,7 @@ This guide covers deploying Isartor on Kubernetes with Helm, horizontal pod auto
                         └──────────┬─────────┘
                                    │
                     ┌──────────────┴──────────────┐
-                    │      Gateway Deployment      │
+                    │      Firewall Deployment     │
                     │      (N stateless pods)       │
                     │                              │
                     │  ┌────────┐   ┌────────┐    │
@@ -55,7 +55,7 @@ This guide covers deploying Isartor on Kubernetes with Helm, horizontal pod auto
 
 | Component | Replicas | Scaling Metric | Resource |
 | --- | --- | --- | --- |
-| **Gateway** | 2–20 | CPU utilisation / request rate | CPU nodes |
+| **Firewall** | 2–20 | CPU utilisation / request rate | CPU nodes |
 | **Inference Pool** (vLLM) | 1–N | GPU utilisation / queue depth | GPU nodes |
 | **Embedding Pool** (TEI) | 1–N | Requests per second | CPU or GPU nodes (v2 pipeline only; v1 uses in-process candle) |
 | **OTel Collector** | 1 (DaemonSet or Deployment) | — | CPU nodes |
@@ -71,12 +71,12 @@ This guide covers deploying Isartor on Kubernetes with Helm, horizontal pod auto
 | **Helm** | v3.12+ |
 | **kubectl** | Matching cluster version |
 | **GPU nodes** (for inference pool) | NVIDIA GPU Operator installed, or GKE/EKS GPU node pools |
-| **Container registry** | For pushing the Isartor gateway image |
+| **Container registry** | For pushing the Isartor firewall image |
 | **Ingress controller** | nginx-ingress, Istio, or cloud ALB |
 
 ---
 
-## Step 1: Build & Push the Gateway Image
+## Step 1: Build & Push the Firewall Image
 
 ```bash
 # Build
@@ -98,7 +98,7 @@ kubectl create secret generic isartor-llm-secret \
   --namespace isartor \
   --from-literal=api-key='sk-...'
 
-# Gateway API key (Layer 0 auth)
+# Firewall API key (Layer 0 auth)
 kubectl create secret generic isartor-gateway-secret \
   --namespace isartor \
   --from-literal=gateway-api-key='your-production-key'
@@ -106,7 +106,7 @@ kubectl create secret generic isartor-gateway-secret \
 
 ---
 
-## Step 3: Gateway Deployment
+## Step 3: Firewall Deployment
 
 ```yaml
 # k8s/gateway-deployment.yaml
@@ -143,7 +143,7 @@ spec:
                   key: gateway-api-key
             # Pluggable backends — scaled for multi-replica K8s
             - name: ISARTOR__CACHE_BACKEND
-              value: "redis"          # Shared cache across all gateway pods
+              value: "redis"          # Shared cache across all firewall pods
             - name: ISARTOR__REDIS_URL
               value: "redis://redis.isartor:6379"
             - name: ISARTOR__ROUTER_BACKEND

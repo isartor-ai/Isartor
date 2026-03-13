@@ -12,7 +12,7 @@ use isartor::middleware;
 #[command(
     name = "isartor",
     version,
-    about = "AI Gateway — cache-first prompt deflection"
+    about = "Prompt Firewall — cache-first prompt deflection"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -60,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
         embedding_model = %config.embedding_model,
         similarity_threshold = config.similarity_threshold,
         first_run = first_run,
-        "Isartor gateway starting"
+        "Isartor firewall starting"
     );
     tracing::info!(
         llm_provider = %config.llm_provider,
@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
     health::mark_boot_time();
 
     // ------------------------------------------------------------------
-    // 4. Build the Axum router with the middleware "funnel".
+    // 4. Build the Axum router with the middleware Deflection Stack.
     //
     //    Middleware layers execute in the order they are added via
     //    `.layer()`, but they wrap the inner handler, so the *last*
@@ -108,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
     // ------------------------------------------------------------------
     let state_for_ext = app_state.clone();
 
-    // Authenticated routes — go through the full middleware pipeline.
+    // Authenticated routes — go through the full Deflection Stack.
     let authenticated = Router::new()
         .route("/api/chat", post(handler::chat_handler))
         // Layer 2 – SLM triage (innermost, runs last before handler).
@@ -139,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
             },
         ));
 
-    // Unauthenticated routes — bypass the middleware pipeline entirely.
+    // Unauthenticated routes — bypass the Deflection Stack entirely.
     let demo_flag = DemoModeFlag(demo_mode);
     let health_config = config.clone();
     let public = Router::new()
