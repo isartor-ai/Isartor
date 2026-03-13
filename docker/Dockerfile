@@ -20,23 +20,14 @@ ENV CXX_aarch64_unknown_linux_musl=g++ \
 
 WORKDIR /build
 
-# Cache dependencies in a separate layer.
-# Create stub src/main.rs and benches/ so Cargo.toml parses cleanly.
+# Copy everything needed for the build.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src benches \
-    && echo 'fn main() {}' > src/main.rs \
-    && echo 'fn main() {}' > benches/cache_latency.rs \
-    && if [ "$TARGETARCH" = "arm64" ]; then TARGET=aarch64-unknown-linux-musl; else TARGET=x86_64-unknown-linux-musl; fi \
-    && cargo build --release --target $TARGET --no-default-features \
-    && rm -rf src benches
-
-# Build the real binary (without embedded-inference / candle ML crates).
 COPY src/ src/
-RUN mkdir -p benches \
-    && echo 'fn main() {}' > benches/cache_latency.rs \
-    && touch src/main.rs \
-    && if [ "$TARGETARCH" = "arm64" ]; then TARGET=aarch64-unknown-linux-musl; else TARGET=x86_64-unknown-linux-musl; fi \
-    && cargo build --release --target $TARGET --no-default-features \
+COPY benches/ benches/
+
+# Build the release binary.
+RUN if [ "$TARGETARCH" = "arm64" ]; then TARGET=aarch64-unknown-linux-musl; else TARGET=x86_64-unknown-linux-musl; fi \
+    && cargo build --release --target $TARGET \
     && cp target/$TARGET/release/isartor /build/isartor-bin
 
 # ── Stage 2: Runtime ──────────────────────────────────────────────────

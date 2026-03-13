@@ -143,6 +143,8 @@ jobs:
           file: docker/Dockerfile
           push: true
           platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ghcr.io/isartor-ai/isartor:latest
             ghcr.io/isartor-ai/isartor:${{ steps.version.outputs.tag }}
