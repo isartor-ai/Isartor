@@ -31,10 +31,9 @@ Failed to initialize candle TextEmbedder (all-MiniLM-L6-v2)
 
 | Cause | Fix |
 |-------|-----|
-| Model files not downloaded | Run once with internet access; fastembed auto-downloads to `.fastembed_cache/` |
-| Corrupted model cache | Delete `.fastembed_cache/` and restart |
+| Model files not downloaded | Run once with internet access; candle auto-downloads to `~/.cache/huggingface/` |
+| Corrupted model cache | Delete `~/.cache/huggingface/` and restart |
 | Insufficient memory | Ensure ≥ 256 MB available for the embedding model |
-| Missing ONNX runtime libs (Docker) | Use the official Dockerfile which includes all dependencies |
 
 ### 1.2 `Address already in use`
 
@@ -193,7 +192,7 @@ If set too high, reduce it. Each entry ≈ 2–4 KB, so 10K entries ≈ 20–40 
 |-------|-----|
 | CPU-bound contention | Increase CPU allocation for the container |
 | Large prompt text | Embedder truncates to model max length (512 tokens), but longer text = more CPU |
-| Cold start | First embedding call warms up ONNX runtime (~2 s). Subsequent calls are fast. |
+| Cold start | First embedding call warms up the candle BertModel (~2 s). Subsequent calls are fast. |
 
 ### 3.2 SLM Sidecar Unreachable
 
@@ -494,7 +493,7 @@ cloud LLM (higher cost).
 
 ### Q: Can I change the embedding model?
 
-**A:** Yes. The in-process embedder uses fastembed, which supports
+**A:** Yes. The in-process embedder uses candle with a pure-Rust BertModel, which supports
 multiple models. Set:
 
 ```bash

@@ -7,4 +7,3 @@
 /.vscode
 *.log
 .fastembed_cache/
-test_fastembed.rs

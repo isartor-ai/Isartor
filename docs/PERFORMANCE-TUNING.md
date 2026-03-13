@@ -209,7 +209,7 @@ histogram_quantile(0.95, rate(isartor_request_duration_seconds_bucket[5m]))
 |-----------|-------------|-------|
 | Exact cache (in-memory, 10K entries) | ~20–40 MB | Scales linearly with `cache_max_capacity` |
 | Semantic cache (in-memory, 10K entries) | ~30–60 MB | 384-dim float32 vectors + response strings |
-| fastembed (ONNX, all-MiniLM-L6-v2) | ~90 MB | Loaded at startup, constant |
+| candle embedder (all-MiniLM-L6-v2) | ~90 MB | Loaded at startup, constant |
 | Candle GGUF model (embedded SLM) | ~1–4 GB | Depends on model quantisation |
 | Tokio runtime | ~10–20 MB | Async task pool |
 | **Total (minimalist mode)** | **~150–200 MB** | No embedded SLM |
@@ -317,9 +317,9 @@ answers), consider:
 
 ## 8 — Embedder Tuning
 
-### 8.1 In-Process (fastembed)
+### 8.1 In-Process (candle)
 
-The default embedder uses fastembed with `BAAI/bge-small-en-v1.5` via ONNX Runtime:
+The default embedder uses candle with `sentence-transformers/all-MiniLM-L6-v2` (pure-Rust BertModel):
 
 - **384-dimensional** vectors
 - **~90 MB** model footprint

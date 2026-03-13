@@ -54,7 +54,7 @@ flowchart TB
     end
 
     subgraph Backends
-        FE["fastembed (ONNX Runtime)\nBAAI/bge-small-en-v1.5\nIn-process sentence embeddings"]
+        FE["candle BertModel\nall-MiniLM-L6-v2\nIn-process sentence embeddings"]
         EC["Embedded Classifier\n(candle · Gemma-2-2B-IT GGUF)\nIn-process, zero network hop"]
         SLM["llama.cpp Sidecar\n(external HTTP, optional)"]
         LLM["External LLM API\n(OpenAI · Azure · Anthropic · xAI)"]
@@ -82,7 +82,7 @@ sequenceDiagram
     participant Client
     participant L0 as Layer 0<br/>Auth
     participant L1 as Layer 1<br/>Cache
-    participant FE as fastembed<br/>(ONNX, in-process)
+    participant FE as candle BertModel<br/>(in-process)
     participant L2 as Layer 2<br/>SLM Triage
     participant L3 as Layer 3<br/>LLM Fallback
     participant EC as Embedded Classifier<br/>(candle)
@@ -130,7 +130,7 @@ graph LR
         config["config.rs\nAppConfig"]
         handler["handler.rs\nLayer 3 Handler"]
         subgraph layer1
-            emb_l1["embeddings.rs\nTextEmbedder\n(fastembed/ONNX)"]
+            emb_l1["embeddings.rs\nTextEmbedder\n(candle BertModel)"]
         end
         subgraph middleware
             mod["mod.rs"]
@@ -285,7 +285,7 @@ The parser falls back to keyword detection and defaults to `COMPLEX` (safest rou
 | `ISARTOR__VLLM_MODEL` | `vllm_model` | `gemma-2-2b-it` | vLLM model name (when `router_backend=vllm`) |
 | `ISARTOR__LAYER2__SIDECAR_URL` | `layer2.sidecar_url` | `http://127.0.0.1:8081` | Layer 2 (sidecar mode) |
 | `ISARTOR__LAYER2__MODEL_NAME` | `layer2.model_name` | `phi-3-mini` | Layer 2 (sidecar mode) |
-| `ISARTOR__EMBEDDING_SIDECAR__SIDECAR_URL` | `embedding_sidecar.sidecar_url` | `http://127.0.0.1:8082` | v2 Pipeline (legacy; v1 uses in-process fastembed) |
+| `ISARTOR__EMBEDDING_SIDECAR__SIDECAR_URL` | `embedding_sidecar.sidecar_url` | `http://127.0.0.1:8082` | v2 Pipeline (legacy; v1 uses in-process candle embedder) |
 | `ISARTOR__EXTERNAL_LLM_API_KEY` | `external_llm_api_key` | *(empty)* | Layer 3 |
 
 ### Embedded Classifier Configuration
@@ -318,8 +318,7 @@ flowchart LR
     end
 
     subgraph Models["Model Cache"]
-        HF["~/.cache/huggingface/\nGemma-2-2B-IT GGUF\n~1.5 GB"]
-        FEC[".fastembed_cache/\nBAAI/bge-small-en-v1.5\n~33 MB ONNX"]
+        HF["~/.cache/huggingface/\nGemma-2-2B-IT GGUF\n~1.5 GB\nall-MiniLM-L6-v2\n~90 MB"]
     end
 
     IMG -.->|"auto-download\non first start"| Models
@@ -330,10 +329,10 @@ flowchart LR
 | Component | Approximate Size |
 |---|---|
 | Isartor binary | ~5 MB |
-| fastembed ONNX model (BAAI/bge-small-en-v1.5) | ~33 MB |
+| candle embedding model (all-MiniLM-L6-v2) | ~90 MB |
 | Gemma-2-2B-IT Q4_K_M | ~1.5 GB |
 | Tokenizer | ~3 MB |
 | Runtime overhead | ~50 MB |
-| **Total** | **~1.6 GB** |
+| **Total** | **~1.65 GB** |
 
-For VPS/edge deployments, a 2 GB RAM instance is sufficient. The GGUF model is memory-mapped where possible, so actual RSS may be lower than the file size. The fastembed ONNX model is downloaded once on first startup and cached in `.fastembed_cache/`.
+For VPS/edge deployments, a 2 GB RAM instance is sufficient. The GGUF model is memory-mapped where possible, so actual RSS may be lower than the file size. Model weights are downloaded once on first startup from Hugging Face Hub and cached in `~/.cache/huggingface/`.
