@@ -86,7 +86,7 @@ export ISARTOR__VLLM_MODEL=meta-llama/Llama-3-8B-Instruct
 All required ML models are baked into the image.
 
 ```bash
-docker run -p 3000:3000 ghcr.io/isartor-ai/isartor:latest
+docker run -p 8080:8080 ghcr.io/isartor-ai/isartor:latest
 ```
 
 ### macOS / Linux
@@ -113,7 +113,7 @@ cargo build --release
 ### Verify
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/chat \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Calculate 2+2"}'
 ```
@@ -127,7 +127,7 @@ Isartor exposes an OpenAI-compatible API. Point any SDK or agent at it by changi
 ```python
 import openai
 
-client = openai.OpenAI(base_url="http://localhost:3000/v1", api_key="your-gateway-key")
+client = openai.OpenAI(base_url="http://localhost:8080/v1", api_key="your-api-key")
 response = client.chat.completions.create(
     model="gpt-4",
     messages=[{"role": "user", "content": "Summarise this document."}],
