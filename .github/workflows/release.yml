@@ -71,7 +71,7 @@ jobs:
               tar -czf $ARCHIVE -C target/${TARGET}/release ${BIN_NAME}
               ;;
             Windows)
-              BIN_PATH=target\${TARGET}\release\${BIN_NAME}.exe
+              BIN_PATH=target/${TARGET}/release/${BIN_NAME}.exe
               ARCHIVE=${BIN_NAME}-${VERSION}-${TARGET}.zip
               7z a $ARCHIVE $BIN_PATH
               ;;
