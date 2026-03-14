@@ -1,0 +1,500 @@
+{"prompt": "Write a Python function that checks if a number is prime."}
+{"prompt": "Create a REST API endpoint in FastAPI that accepts a JSON body."}
+{"prompt": "Write a SQL query to find the top 10 customers by revenue."}
+{"prompt": "Implement a binary search algorithm in JavaScript."}
+{"prompt": "Write a Rust function that parses a CSV file line by line."}
+{"prompt": "Create a React component that displays a paginated table."}
+{"prompt": "Write a bash script that monitors disk usage and sends an alert."}
+{"prompt": "Implement a linked list in C++."}
+{"prompt": "Write a Go function that concurrently fetches multiple URLs."}
+{"prompt": "Create a Dockerfile for a Node.js application."}
+{"prompt": "Write a Python decorator that retries a function on failure."}
+{"prompt": "Implement a debounce function in TypeScript."}
+{"prompt": "Write a regex to validate email addresses."}
+{"prompt": "Create a class in Java that implements a stack data structure."}
+{"prompt": "Write a Kubernetes deployment YAML for a stateless web service."}
+{"prompt": "Implement a rate limiter middleware in Express.js."}
+{"prompt": "Write a function to deep clone an object in JavaScript."}
+{"prompt": "Create a Python class that parses and validates JSON schemas."}
+{"prompt": "Write a Terraform configuration for an AWS S3 bucket."}
+{"prompt": "Implement merge sort in Python."}
+{"prompt": "Write a shell script to rotate log files daily."}
+{"prompt": "Create an async function in Rust using Tokio."}
+{"prompt": "Write a unit test for a calculator function in Jest."}
+{"prompt": "Implement a simple pub/sub event system in Python."}
+{"prompt": "Write a GraphQL mutation to create a new user."}
+{"prompt": "Create a Helm chart values.yaml for a microservice."}
+{"prompt": "Write a Python context manager for a database connection."}
+{"prompt": "Implement a trie data structure in Java."}
+{"prompt": "Write a function to flatten a nested Python dictionary."}
+{"prompt": "Create an nginx configuration for load balancing."}
+{"prompt": "Write a TypeScript interface for a user profile object."}
+{"prompt": "Implement LRU cache in Python."}
+{"prompt": "Write a Makefile with build, test, and lint targets."}
+{"prompt": "Create a GitHub Actions workflow for CI/CD."}
+{"prompt": "Write a Python function to parse a config TOML file."}
+{"prompt": "Implement a circular buffer in C."}
+{"prompt": "Write a Redis pipeline command for batching operations."}
+{"prompt": "Create a Docker Compose file for a three-tier application."}
+{"prompt": "Write a function that converts CSV to JSON in Python."}
+{"prompt": "Implement a bloom filter in Go."}
+{"prompt": "Write a migration script to add a column in PostgreSQL."}
+{"prompt": "Create an OpenAPI spec for a simple CRUD API."}
+{"prompt": "Write a Python async generator for streaming data."}
+{"prompt": "Implement WebSocket handling in Node.js."}
+{"prompt": "Write a function to generate a UUID in Rust."}
+{"prompt": "Create a pandas DataFrame from a JSON API response."}
+{"prompt": "Write a script to backup a PostgreSQL database."}
+{"prompt": "Implement a priority queue in C++."}
+{"prompt": "Write a gRPC service definition in protobuf."}
+{"prompt": "Create a Redis Sorted Set leaderboard implementation."}
+{"prompt": "Write a Python function to compute cosine similarity between vectors."}
+{"prompt": "Implement a simple state machine in TypeScript."}
+{"prompt": "Write a function to parse query parameters from a URL."}
+{"prompt": "Create a Prometheus metrics endpoint in Go."}
+{"prompt": "Write an Ansible playbook to install and start nginx."}
+{"prompt": "Implement a simple tokenizer in Python."}
+{"prompt": "Write a function to compute SHA-256 in Rust."}
+{"prompt": "Create a DataLoader for batching ML training data in PyTorch."}
+{"prompt": "Write a function to paginate an array in JavaScript."}
+{"prompt": "Implement a retry mechanism with exponential backoff in Python."}
+{"prompt": "Write a function to compute the edit distance between two strings."}
+{"prompt": "Create a simple HTTP server in Go."}
+{"prompt": "Write a recursive function to traverse a binary tree."}
+{"prompt": "Implement producer-consumer pattern using Python queues."}
+{"prompt": "Write a function to parse ISO 8601 timestamps."}
+{"prompt": "Create a simple CRUD API using Axum in Rust."}
+{"prompt": "Write a function to detect duplicate entries in a CSV."}
+{"prompt": "Implement a consistent hashing ring in Python."}
+{"prompt": "Write a function to generate a JWT token in Node.js."}
+{"prompt": "Create a simple key-value store backed by a file in Go."}
+{"prompt": "Write a function to serialize and deserialize a graph structure."}
+{"prompt": "Implement a sliding window algorithm for stream processing."}
+{"prompt": "Write a cron job configuration to run a script every midnight."}
+{"prompt": "Create a simple logger class that writes to file and stdout."}
+{"prompt": "Write a function to compute a rolling average in Python."}
+{"prompt": "Implement a job queue with workers in TypeScript."}
+{"prompt": "Write a function to normalize a vector in NumPy."}
+{"prompt": "Create a simple config file parser in Rust."}
+{"prompt": "Write a function to validate a phone number format."}
+{"prompt": "Implement bucket sort in Python."}
+{"prompt": "Summarize the key differences between REST and GraphQL APIs."}
+{"prompt": "Provide a brief summary of the CAP theorem in distributed systems."}
+{"prompt": "Summarize what microservices architecture is in three sentences."}
+{"prompt": "Give a concise overview of how TLS/SSL works."}
+{"prompt": "Summarize the SOLID principles in software engineering."}
+{"prompt": "Briefly explain the difference between concurrency and parallelism."}
+{"prompt": "Summarize the main advantages of using Kubernetes for container orchestration."}
+{"prompt": "Give a one-paragraph summary of the MapReduce programming model."}
+{"prompt": "Summarize what OAuth 2.0 is and how it works."}
+{"prompt": "Briefly describe the CQRS architectural pattern."}
+{"prompt": "Summarize the differences between SQL and NoSQL databases."}
+{"prompt": "Provide a concise explanation of eventual consistency."}
+{"prompt": "Summarize what a service mesh is and why it is used."}
+{"prompt": "Give a brief overview of event sourcing."}
+{"prompt": "Summarize the differences between monorepo and polyrepo approaches."}
+{"prompt": "Briefly explain what blue-green deployment is."}
+{"prompt": "Summarize how backpressure is handled in reactive systems."}
+{"prompt": "Give a short summary of the twelve-factor app methodology."}
+{"prompt": "Summarize what infrastructure as code (IaC) means."}
+{"prompt": "Briefly describe the actor model of concurrency."}
+{"prompt": "Summarize the pros and cons of serverless computing."}
+{"prompt": "Give a brief explanation of how consistent hashing works."}
+{"prompt": "Summarize the role of a message broker like Kafka."}
+{"prompt": "Briefly explain what a circuit breaker pattern is."}
+{"prompt": "Summarize what domain-driven design (DDD) is."}
+{"prompt": "Give a concise overview of the saga pattern in microservices."}
+{"prompt": "Summarize what chaos engineering is and why teams use it."}
+{"prompt": "Briefly describe the differences between horizontal and vertical scaling."}
+{"prompt": "Summarize what a data lakehouse architecture is."}
+{"prompt": "Give a short explanation of how gradient descent works."}
+{"prompt": "Summarize the purpose of a reverse proxy."}
+{"prompt": "Briefly explain the difference between pub/sub and request/reply messaging."}
+{"prompt": "Summarize what a zero-trust security model is."}
+{"prompt": "Give a brief overview of the Raft consensus algorithm."}
+{"prompt": "Summarize the differences between JWT and session-based auth."}
+{"prompt": "Briefly describe what a sidecar pattern is in microservices."}
+{"prompt": "Summarize what HTAP (Hybrid Transactional/Analytical Processing) means."}
+{"prompt": "Give a concise overview of change data capture (CDC)."}
+{"prompt": "Summarize what canary deployments are."}
+{"prompt": "Briefly explain the observer design pattern."}
+{"prompt": "Summarize what a write-ahead log (WAL) is."}
+{"prompt": "Give a brief overview of API gateway patterns."}
+{"prompt": "Summarize what a distributed tracing system like Jaeger does."}
+{"prompt": "Briefly describe the concept of idempotency in APIs."}
+{"prompt": "Summarize how vector databases work at a high level."}
+{"prompt": "Give a concise explanation of attention mechanisms in transformers."}
+{"prompt": "Summarize what a knowledge graph is and its use cases."}
+{"prompt": "Briefly describe the concept of prompt engineering."}
+{"prompt": "Summarize the role of embeddings in NLP."}
+{"prompt": "Give a brief overview of retrieval-augmented generation (RAG)."}
+{"prompt": "Summarize what fine-tuning a language model entails."}
+{"prompt": "Briefly explain the difference between precision and recall."}
+{"prompt": "Summarize what transfer learning is in the context of machine learning."}
+{"prompt": "Give a brief explanation of the attention is all you need paper."}
+{"prompt": "Summarize what RLHF (Reinforcement Learning from Human Feedback) is."}
+{"prompt": "Briefly describe what a hallucination is in LLM output."}
+{"prompt": "Summarize the purpose of a system prompt in LLM interactions."}
+{"prompt": "Give a brief overview of the difference between GPT and BERT architectures."}
+{"prompt": "Summarize what quantization means in the context of ML models."}
+{"prompt": "Briefly explain what few-shot learning is."}
+{"prompt": "Summarize the Agile manifesto in four bullet points."}
+{"prompt": "Give a brief overview of Scrum methodology."}
+{"prompt": "Summarize the difference between Scrum and Kanban."}
+{"prompt": "Briefly describe what a sprint review meeting is."}
+{"prompt": "Summarize what a product backlog is."}
+{"prompt": "Give a concise overview of OKRs (Objectives and Key Results)."}
+{"prompt": "Summarize what a post-mortem analysis is used for."}
+{"prompt": "Briefly describe what a blameless post-mortem means."}
+{"prompt": "Summarize the main components of an SRE on-call rotation."}
+{"prompt": "Give a brief overview of what SLOs and SLAs are."}
+{"prompt": "Summarize what toil means in the SRE context."}
+{"prompt": "Briefly explain what error budgets are used for."}
+{"prompt": "Summarize the four golden signals of monitoring."}
+{"prompt": "Give a brief overview of the DORA metrics for engineering teams."}
+{"prompt": "Summarize what a runbook is and why teams maintain them."}
+{"prompt": "Briefly describe what feature flags are and why teams use them."}
+{"prompt": "Summarize the purpose of A/B testing in product development."}
+{"prompt": "Give a concise overview of cohort analysis in product analytics."}
+{"prompt": "Summarize what the North Star Metric concept means."}
+{"prompt": "What is the difference between TCP and UDP?"}
+{"prompt": "What is a hash collision and how is it resolved?"}
+{"prompt": "What does ACID stand for in database transactions?"}
+{"prompt": "What is the difference between a process and a thread?"}
+{"prompt": "What is tail call optimization?"}
+{"prompt": "What is the difference between a stack and a heap in memory?"}
+{"prompt": "What causes a deadlock and how can it be prevented?"}
+{"prompt": "What is the difference between synchronous and asynchronous programming?"}
+{"prompt": "What is a race condition?"}
+{"prompt": "What is garbage collection and how does it work?"}
+{"prompt": "What is the difference between an interface and an abstract class?"}
+{"prompt": "What is a closure in JavaScript?"}
+{"prompt": "What is the difference between var, let, and const in JavaScript?"}
+{"prompt": "What is prototypal inheritance in JavaScript?"}
+{"prompt": "What is the event loop in Node.js?"}
+{"prompt": "What is the difference between == and === in JavaScript?"}
+{"prompt": "What is memoization?"}
+{"prompt": "What is a monad in functional programming?"}
+{"prompt": "What is the difference between shallow copy and deep copy?"}
+{"prompt": "What is a mutex?"}
+{"prompt": "What is a semaphore?"}
+{"prompt": "What is the difference between a monolith and microservices?"}
+{"prompt": "What is eventual consistency in distributed systems?"}
+{"prompt": "What is the difference between optimistic and pessimistic locking?"}
+{"prompt": "What is N+1 query problem in ORMs?"}
+{"prompt": "What is database sharding?"}
+{"prompt": "What is connection pooling?"}
+{"prompt": "What is a database index and when should you use one?"}
+{"prompt": "What is the difference between a clustered and non-clustered index?"}
+{"prompt": "What is a foreign key constraint?"}
+{"prompt": "What is database normalization?"}
+{"prompt": "What is the difference between INNER JOIN and LEFT JOIN?"}
+{"prompt": "What is a subquery versus a join?"}
+{"prompt": "What is a materialized view?"}
+{"prompt": "What is the difference between a message queue and an event stream?"}
+{"prompt": "What is idempotency and why does it matter in APIs?"}
+{"prompt": "What is the difference between REST and SOAP?"}
+{"prompt": "What is CORS and why is it needed?"}
+{"prompt": "What is content negotiation in HTTP?"}
+{"prompt": "What is HTTP/2 and how does it improve on HTTP/1.1?"}
+{"prompt": "What is a CDN and how does it work?"}
+{"prompt": "What is the difference between authentication and authorization?"}
+{"prompt": "What is a JWT and how is it structured?"}
+{"prompt": "What is an API gateway?"}
+{"prompt": "What is the difference between a load balancer and a reverse proxy?"}
+{"prompt": "What is SSL termination?"}
+{"prompt": "What is mTLS and when is it used?"}
+{"prompt": "What is a container versus a virtual machine?"}
+{"prompt": "What is container orchestration?"}
+{"prompt": "What is a Kubernetes Pod?"}
+{"prompt": "What is the difference between a Deployment and a StatefulSet in Kubernetes?"}
+{"prompt": "What is a Kubernetes Service?"}
+{"prompt": "What is an ingress controller in Kubernetes?"}
+{"prompt": "What is a namespace in Kubernetes?"}
+{"prompt": "What is a ConfigMap versus a Secret in Kubernetes?"}
+{"prompt": "What is the difference between a DaemonSet and a Deployment?"}
+{"prompt": "What is horizontal pod autoscaling?"}
+{"prompt": "What is a Kubernetes operator?"}
+{"prompt": "What is a Helm chart?"}
+{"prompt": "What is GitOps?"}
+{"prompt": "What is the difference between CI and CD?"}
+{"prompt": "What is a canary release?"}
+{"prompt": "What is a feature toggle?"}
+{"prompt": "What is infrastructure as code?"}
+{"prompt": "What is immutable infrastructure?"}
+{"prompt": "What is the difference between mutable and immutable objects?"}
+{"prompt": "What is a pure function?"}
+{"prompt": "What is referential transparency?"}
+{"prompt": "What is a higher-order function?"}
+{"prompt": "What is currying in functional programming?"}
+{"prompt": "What is the difference between map, filter, and reduce?"}
+{"prompt": "What is a regular expression?"}
+{"prompt": "What is the difference between a compiled and interpreted language?"}
+{"prompt": "What is just-in-time (JIT) compilation?"}
+{"prompt": "What is the difference between static and dynamic typing?"}
+{"prompt": "What is type inference?"}
+{"prompt": "What is a null pointer exception?"}
+{"prompt": "What is the difference between an error and an exception?"}
+{"prompt": "What is a stack overflow error?"}
+{"prompt": "What is the difference between unit tests and integration tests?"}
+{"prompt": "Extract all email addresses from the following text: Contact us at support@example.com or sales@company.org."}
+{"prompt": "Parse the following JSON and return only the 'name' fields: [{\"name\":\"Alice\",\"age\":30},{\"name\":\"Bob\",\"age\":25}]"}
+{"prompt": "Extract all phone numbers from: Call 555-123-4567 or +1-800-555-9876 for assistance."}
+{"prompt": "From the following CSV row, extract the product name and price: 'Widget A,12.99,100 units'."}
+{"prompt": "Extract all URLs from: Visit https://example.com or http://test.org for more info."}
+{"prompt": "Parse the date from: 'The meeting is scheduled for March 15, 2025 at 3pm.'"}
+{"prompt": "Extract all hashtags from: Great day! #sunny #coding #productivity"}
+{"prompt": "From the text 'Order #12345 placed on 2024-11-01', extract the order number and date."}
+{"prompt": "Extract the currency and amount from: 'Total cost: $1,250.00 USD'."}
+{"prompt": "Parse the key-value pairs from: 'name=John age=35 city=Boston'."}
+{"prompt": "Extract the IP addresses from: 'Server at 192.168.1.1 and gateway at 10.0.0.1'."}
+{"prompt": "From the log line '2024-01-15 14:23:01 ERROR [auth] Login failed for user admin', extract the timestamp, level, and message."}
+{"prompt": "Extract all markdown links from: 'See [docs](https://docs.example.com) and [API](https://api.example.com)'."}
+{"prompt": "Parse the version number from: 'Running isartor v0.1.0-beta.2+build.123'."}
+{"prompt": "Extract the sender and subject from: 'From: alice@example.com, Subject: Meeting tomorrow'."}
+{"prompt": "From the address '123 Main St, Springfield, IL 62701, USA', extract city, state, and zip code."}
+{"prompt": "Extract all numbers from: 'There are 42 apples, 17 oranges, and 3 bananas.'"}
+{"prompt": "Parse the HTTP status code and message from: 'HTTP/1.1 404 Not Found'."}
+{"prompt": "Extract the domain name from: 'https://api.example.com/v1/users?page=2'."}
+{"prompt": "From the sentence 'The temperature is 72\u00b0F (22\u00b0C) today', extract both temperature values."}
+{"prompt": "Extract all mentioned company names from: 'Deals closed with Acme Corp, Globex Inc, and Umbrella Ltd.'"}
+{"prompt": "Parse the coordinates from: 'Location: 40.7128\u00b0 N, 74.0060\u00b0 W'."}
+{"prompt": "Extract all JIRA ticket IDs from: 'Fixed PROJ-123 and resolved PROJ-456 in this release.'"}
+{"prompt": "From the sentence 'User John Doe (ID: 9876) logged in from IP 203.0.113.5', extract all structured fields."}
+{"prompt": "Extract the table name and column names from: 'SELECT id, name, email FROM users WHERE active=true'."}
+{"prompt": "Parse the error code and description from: 'Error [E1023]: Insufficient permissions to access resource.'"}
+{"prompt": "Extract the function name and parameters from: 'Called calculate_interest(principal=1000, rate=0.05, years=3)'."}
+{"prompt": "From 'Duration: 1h 23m 45s', extract hours, minutes, and seconds as numbers."}
+{"prompt": "Extract the file path and extension from: 'Processed file /data/reports/Q4_2024.xlsx successfully.'"}
+{"prompt": "Parse the git commit hash from: 'Deployed commit a1b2c3d4e5f6 to production at 2024-12-01T10:00:00Z'."}
+{"prompt": "Extract all mentioned languages from: 'We support Python, JavaScript, Go, Rust, and Java.'"}
+{"prompt": "From the header 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig', extract the token type."}
+{"prompt": "Extract the key metrics from: 'CPU: 85%, Memory: 4.2GB / 8GB, Disk: 120GB used of 500GB.'"}
+{"prompt": "Parse the RGB color values from: 'Background color is rgb(255, 128, 0).'"}
+{"prompt": "Extract all mentioned countries from: 'Offices in USA, Germany, Japan, and Brazil.'"}
+{"prompt": "From the config line 'max_connections = 100 # default pool size', extract the key, value, and comment."}
+{"prompt": "Extract the semantic version components from: 'Release version 3.14.2-alpha.1'."}
+{"prompt": "Parse the authentication method and realm from: 'WWW-Authenticate: Basic realm=\"Admin Area\"'."}
+{"prompt": "Extract the table columns and their types from: 'id INTEGER, name VARCHAR(255), created_at TIMESTAMP'."}
+{"prompt": "From 'Lat: 51.5074, Lon: -0.1278 (London, UK)', extract all structured location data."}
+{"prompt": "Extract all mentioned frameworks from: 'Built with React, Next.js, Tailwind CSS, and shadcn/ui.'"}
+{"prompt": "Parse the cron expression fields from: '0 9 * * 1-5' (minute, hour, day, month, weekday)."}
+{"prompt": "Extract the protocol, host, port, and path from: 'https://api.example.com:443/v2/search?q=test'."}
+{"prompt": "From the sentence 'Invoice INV-20241201-005 totalling \u20ac2,340.00 is due on 2025-01-01', extract all fields."}
+{"prompt": "Extract the package name and version from: 'Successfully installed requests==2.31.0'."}
+{"prompt": "Parse the content type and charset from: 'Content-Type: application/json; charset=utf-8'."}
+{"prompt": "Extract all environment variable names from: 'Set DATABASE_URL, REDIS_URL, and SECRET_KEY before starting.'"}
+{"prompt": "From 'Benchmark: 1,234 req/s, P50: 2.3ms, P95: 8.7ms, P99: 23.1ms', extract all metrics."}
+{"prompt": "Extract the algorithm and key size from: 'Using RSA-2048 with SHA-256 for signing.'"}
+{"prompt": "Parse the operator, operands, and result from: '42 + 58 = 100'."}
+{"prompt": "Extract all mentioned AWS services from: 'Architecture uses EC2, RDS, S3, CloudFront, and Lambda.'"}
+{"prompt": "From the log entry '[2024-12-01T14:32:00Z] [INFO] [worker-3] Processed 150 jobs in 2.1s', extract all fields."}
+{"prompt": "Extract the base64-encoded portion from: 'Basic dXNlcjpwYXNzd29yZA=='."}
+{"prompt": "Parse the HTTP method, path, and status from: 'POST /api/v1/users \u2192 201 Created'."}
+{"prompt": "Extract all mentioned ports from: 'Services on ports 80, 443, 8080, and 5432.'"}
+{"prompt": "From 'Memory leak detected: 512MB leaked in module cache_manager after 3h runtime', extract all fields."}
+{"prompt": "Extract the locale and timezone from: 'Display format: en-US, UTC-05:00 (Eastern)'."}
+{"prompt": "Parse the error type and stack trace start from: 'TypeError: Cannot read property \"id\" of undefined at line 42'."}
+{"prompt": "Extract the test name and result from: 'PASS: test_user_creation (0.023s)'."}
+{"prompt": "From 'Transfer: 1.5 GB in 42.3s (36.2 MB/s)', extract all numeric values with units."}
+{"prompt": "Extract the model name and parameter count from: 'Loading Llama-3-8B (8 billion parameters)'."}
+{"prompt": "Parse the namespace and function name from: 'isartor::middleware::cache::cache_middleware'."}
+{"prompt": "Extract all key-value pairs from the headers: 'X-Request-ID: abc123, X-Forwarded-For: 1.2.3.4, X-API-Key: key456'."}
+{"prompt": "From 'Retry 3/5: request failed after 4.2s timeout', extract retry count, max retries, and timeout."}
+{"prompt": "Extract the query type and table from: 'Slow query detected: SELECT * FROM orders WHERE status = \"pending\" (1.23s)'."}
+{"prompt": "Parse the deployment environment and region from: 'Deployed to production-us-east-1 at 2024-12-01T10:00:00Z'."}
+{"prompt": "Extract all boolean flags from: 'Options: --verbose=true --debug=false --dry-run=true'."}
+{"prompt": "From 'Token expires in 3600 seconds (1 hour) at 2024-12-01T15:00:00Z', extract all temporal info."}
+{"prompt": "Extract the CI system and result from: 'GitHub Actions: Build #142 FAILED on branch feature/auth'."}
+{"prompt": "Parse the cache hit stats from: 'Cache stats: 850 hits / 1000 total (85.0% hit rate)'."}
+{"prompt": "Extract the certificate validity from: 'Certificate valid from 2024-01-01 to 2025-01-01 (365 days)'."}
+{"prompt": "From 'Rate limit: 100 requests / 15 minutes. Remaining: 47. Resets at 14:15 UTC', extract all values."}
+{"prompt": "Extract the compression algorithm and ratio from: 'Compressed with gzip: 10.2 MB \u2192 2.1 MB (79.4% reduction)'."}
+{"prompt": "Parse the reviewer and comment from: 'Reviewed by @alice: LGTM, minor nit on line 42.'"}
+{"prompt": "Extract all docker image components from: 'docker pull ghcr.io/example/app:v1.2.3-arm64'."}
+{"prompt": "From 'Found 3 critical, 7 high, 12 medium severity vulnerabilities', extract all severity counts."}
+{"prompt": "Extract the SQL explain plan type from: 'Query plan: Index Scan using users_email_idx (cost=0.43..8.45 rows=1)'."}
+{"prompt": "Parse the signal and PID from: 'Process 12345 received SIGTERM, shutting down gracefully'."}
+{"prompt": "Extract the audio/video codec info from: 'Encoding: H.264 1920x1080 @ 30fps, AAC 44.1kHz stereo'."}
+{"prompt": "From 'Pagination: page 3 of 15, showing items 41-60 of 300', extract all pagination values."}
+{"prompt": "Write a haiku about debugging code."}
+{"prompt": "Write a short poem about the beauty of open-source software."}
+{"prompt": "Describe a day in the life of a microservice."}
+{"prompt": "Write a one-paragraph story about a developer who fixed a bug just before a deadline."}
+{"prompt": "Write a short poem about Docker containers."}
+{"prompt": "Describe a conversation between two APIs."}
+{"prompt": "Write a haiku about database migrations."}
+{"prompt": "Tell a short story about a caching system that became self-aware."}
+{"prompt": "Write a limerick about a flaky test."}
+{"prompt": "Describe the feeling of finally understanding recursion."}
+{"prompt": "Write a short poem about the joy of a green CI build."}
+{"prompt": "Tell a story about a load balancer that learned to love."}
+{"prompt": "Write a haiku about infinite loops."}
+{"prompt": "Describe what it would be like if variables could talk."}
+{"prompt": "Write a short story about a developer's first open-source contribution."}
+{"prompt": "Write a poem about the journey from idea to production deployment."}
+{"prompt": "Tell a short tale about a bug that lived in production for three years."}
+{"prompt": "Write a haiku about the cloud."}
+{"prompt": "Describe the personality of each major programming language as a person."}
+{"prompt": "Write a short story about a team that finally achieved zero tech debt."}
+{"prompt": "Write a poem about the elegance of functional programming."}
+{"prompt": "Tell a story about the day the monolith was finally split into microservices."}
+{"prompt": "Write a haiku about async/await."}
+{"prompt": "Describe a romantic relationship between a frontend and a backend."}
+{"prompt": "Write a short poem about memory leaks."}
+{"prompt": "Tell a story about an on-call engineer who saved the day at 3am."}
+{"prompt": "Write a haiku about version control."}
+{"prompt": "Describe what logs would say if they could speak."}
+{"prompt": "Write a short poem about the agony and ecstasy of code review."}
+{"prompt": "Tell a tale of the great database migration of 2024."}
+{"prompt": "Write a limerick about stack overflows."}
+{"prompt": "Describe the life cycle of an HTTP request as a hero's journey."}
+{"prompt": "Write a haiku about the first successful deployment."}
+{"prompt": "Tell a short story about a developer who wrote perfect documentation."}
+{"prompt": "Write a poem about the inevitability of refactoring."}
+{"prompt": "Describe what a senior engineer dreams about."}
+{"prompt": "Write a haiku about merge conflicts."}
+{"prompt": "Tell the story of a startup that chose the wrong database."}
+{"prompt": "Write a short poem about the terminal."}
+{"prompt": "Describe a world where every API had perfect documentation."}
+{"prompt": "Write a haiku about the rubber duck debugging method."}
+{"prompt": "Tell a story about a bot that accidentally deleted production."}
+{"prompt": "Write a limerick about dependency hell."}
+{"prompt": "Describe the emotional arc of reading someone else's code."}
+{"prompt": "Write a haiku about unit tests."}
+{"prompt": "Tell a short story about the developer who never wrote comments."}
+{"prompt": "Write a poem about the beauty of a clean codebase."}
+{"prompt": "Describe what a distributed system would dream about."}
+{"prompt": "Write a haiku about latency."}
+{"prompt": "Tell the story of the day the internet went down."}
+{"prompt": "Write a short poem about pair programming."}
+{"prompt": "Describe the relationship between a developer and their IDE."}
+{"prompt": "Write a haiku about garbage collection."}
+{"prompt": "Tell a story about a team that achieved 100% test coverage."}
+{"prompt": "Write a limerick about undefined behavior."}
+{"prompt": "Describe the personality of different cloud providers as superheroes."}
+{"prompt": "Write a haiku about deployment pipelines."}
+{"prompt": "Tell a story about the engineer who finally tamed the build system."}
+{"prompt": "Write a poem about the silence after fixing a critical bug."}
+{"prompt": "Describe a Kubernetes cluster as a city."}
+{"prompt": "Write a haiku about the compiler."}
+{"prompt": "Tell the story of a 10x engineer who turned out to be a bot."}
+{"prompt": "Write a short poem about TypeScript types."}
+{"prompt": "Describe the life of a packet traveling across the internet."}
+{"prompt": "Write a haiku about the README that was never written."}
+{"prompt": "Tell a story about a team meeting where everyone agreed."}
+{"prompt": "Write a limerick about the semicolon."}
+{"prompt": "Describe what it feels like to finally understand monads."}
+{"prompt": "Write a haiku about continuous integration."}
+{"prompt": "Tell a short story about the last COBOL programmer."}
+{"prompt": "Write a poem about the open-source community."}
+{"prompt": "Describe what would happen if code could feel pain."}
+{"prompt": "Write a haiku about the empty commit message."}
+{"prompt": "Tell a story about a developer who used tabs and spaces in the same file."}
+{"prompt": "Write a short poem about the thrill of a zero-downtime deployment."}
+{"prompt": "Describe the last moments of a deprecated API."}
+{"prompt": "Write a haiku about the comment that explains nothing."}
+{"prompt": "Tell the story of the database that kept all the secrets."}
+{"prompt": "Write a limerick about premature optimization."}
+{"prompt": "Describe the world from the perspective of a forgotten branch."}
+{"prompt": "Translate 'Hello, how are you?' into French, Spanish, and German."}
+{"prompt": "What is the capital of Iceland?"}
+{"prompt": "Explain the rules of chess to a complete beginner."}
+{"prompt": "What are the ingredients in a classic Caesar salad?"}
+{"prompt": "Recommend three books on distributed systems."}
+{"prompt": "What time zone is Tokyo in?"}
+{"prompt": "Name the seven wonders of the ancient world."}
+{"prompt": "What is the Pythagorean theorem?"}
+{"prompt": "Explain compound interest in simple terms."}
+{"prompt": "What causes a rainbow?"}
+{"prompt": "Name the planets in the solar system in order from the sun."}
+{"prompt": "What is the boiling point of water at sea level?"}
+{"prompt": "Explain what a black hole is."}
+{"prompt": "What is photosynthesis?"}
+{"prompt": "Name three famous works by Leonardo da Vinci."}
+{"prompt": "What is the speed of light?"}
+{"prompt": "Explain what inflation means in economics."}
+{"prompt": "What is the Fibonacci sequence?"}
+{"prompt": "Name the five layers of the OSI model."}
+{"prompt": "What is the difference between weather and climate?"}
+{"prompt": "Explain what DNA is."}
+{"prompt": "What are the primary colors?"}
+{"prompt": "Name the three branches of the US government."}
+{"prompt": "What is the largest ocean on Earth?"}
+{"prompt": "Explain what blockchain is at a high level."}
+{"prompt": "What is the difference between machine learning and deep learning?"}
+{"prompt": "Name three popular Python libraries for data science."}
+{"prompt": "What is the meaning of the word 'ephemeral'?"}
+{"prompt": "Explain what a neural network is."}
+{"prompt": "What is the difference between IPv4 and IPv6?"}
+{"prompt": "Name the four fundamental forces of physics."}
+{"prompt": "What is entropy in information theory?"}
+{"prompt": "Explain what Moore's law states."}
+{"prompt": "What is the difference between supervised and unsupervised learning?"}
+{"prompt": "Name the major ancient civilizations."}
+{"prompt": "What is the tallest mountain on Earth?"}
+{"prompt": "Explain what the Turing test is."}
+{"prompt": "What is the difference between a virus and a bacterium?"}
+{"prompt": "Name three famous mathematicians and their contributions."}
+{"prompt": "What is the golden ratio?"}
+{"prompt": "Explain what recursion is using a real-world analogy."}
+{"prompt": "What is the difference between RAM and ROM?"}
+{"prompt": "Name three famous Renaissance painters."}
+{"prompt": "What is the purpose of a hash function?"}
+{"prompt": "Explain the concept of entropy in thermodynamics."}
+{"prompt": "What are the three laws of robotics by Isaac Asimov?"}
+{"prompt": "Name the major monotheistic religions."}
+{"prompt": "What is the difference between inductive and deductive reasoning?"}
+{"prompt": "Explain what the butterfly effect is."}
+{"prompt": "What is the largest country by land area?"}
+{"prompt": "Name the five great lakes of North America."}
+{"prompt": "What is the difference between a meteor and a meteorite?"}
+{"prompt": "Explain what game theory is."}
+{"prompt": "What is the Higgs boson?"}
+{"prompt": "Name three famous female scientists."}
+{"prompt": "What is the difference between a dialect and a language?"}
+{"prompt": "Explain what the placebo effect is."}
+{"prompt": "What is the difference between debit and credit?"}
+{"prompt": "Name the major bones in the human leg."}
+{"prompt": "What is the greenhouse effect?"}
+{"prompt": "Explain what opportunity cost means in economics."}
+{"prompt": "What is a logical fallacy? Give an example."}
+{"prompt": "Name three classical composers."}
+{"prompt": "What is the difference between civil and criminal law?"}
+{"prompt": "Explain what a derivative is in calculus."}
+{"prompt": "What is the Mandela effect?"}
+{"prompt": "Name three programming paradigms."}
+{"prompt": "What is the difference between synchronous and asynchronous communication?"}
+{"prompt": "Explain what cryptography is."}
+{"prompt": "What is the Drake equation?"}
+{"prompt": "Name the phases of the moon."}
+{"prompt": "What is the difference between a hypothesis and a theory?"}
+{"prompt": "Explain what the tragedy of the commons is."}
+{"prompt": "What is the Dunning-Kruger effect?"}
+{"prompt": "Name three famous philosophers and their ideas."}
+{"prompt": "What is the difference between deductive and inductive reasoning?"}
+{"prompt": "Explain what supply and demand means."}
+{"prompt": "What is Occam's razor?"}
+{"prompt": "Name three types of logical gates."}
+{"prompt": "What is the difference between a compiler and an interpreter?"}
+{"prompt": "Explain what a Fourier transform does."}
+{"prompt": "What is the Nash equilibrium in game theory?"}
+{"prompt": "Name the layers of the Earth."}
+{"prompt": "What is the difference between a star and a planet?"}
+{"prompt": "Explain what the Pareto principle (80/20 rule) means."}
+{"prompt": "What is the difference between empathy and sympathy?"}
+{"prompt": "Name three Nobel Prize categories."}
+{"prompt": "What is the Socratic method?"}
+{"prompt": "Explain what a zero-sum game is."}
+{"prompt": "What is the difference between a paradigm and a model?"}
+{"prompt": "Name three ancient philosophers."}
+{"prompt": "What is the Heisenberg uncertainty principle?"}
+{"prompt": "Explain what network effects are."}
+{"prompt": "What is the difference between open and closed innovation?"}
+{"prompt": "Name the four blood types in the ABO system."}
+{"prompt": "What is the difference between a patent and a trademark?"}
+{"prompt": "Explain what a pivot is in the startup context."}
+{"prompt": "What is Moore's law?"}
+{"prompt": "Name three famous startup failures and their lessons."}
+{"prompt": "What is the difference between product-market fit and growth hacking?"}
+{"prompt": "Explain what the minimum viable product (MVP) concept is."}

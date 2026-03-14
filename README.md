@@ -25,7 +25,7 @@ Isartor replaces the dumb pipe with algorithmic intelligence at the edge. Acting
 By computing intent *before* routing, Isartor acts as an impenetrable Prompt Firewall for your LLM spend.
 
 - **100% Pure-Rust Edge AI:** Statically compiled, no dependency hell. Native tensor execution via Hugging Face `candle`.
-- **Algorithmic Deflection:** Layers 1 & 2 can resolve 60–80% of repetitive agentic traffic locally for $0.
+- **Algorithmic Deflection:** In our benchmark suite, L1a and L1b deflect **71% of repetitive agentic traffic** (FAQ/agent loop patterns) and **38% of diverse task traffic**. [Full benchmark →](benchmarks/README.md)
 - **Frictionless:** One `cargo build` or `docker run` and you're live.
 
 ---
@@ -49,7 +49,7 @@ Request ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM 
 | **L2.5 — Context Optimiser** | Retrieve + Rerank (top-K) | Retrieves and reranks candidate documents to minimise token usage before the cloud call. | 5–50 ms |
 | **L3 — Cloud Logic** | Load Balancing & Retries | Routes surviving complex prompts to OpenAI, Anthropic, or Azure, with built-in fallback resilience. | Network-bound |
 
-Layers 1a and 1b alone can deflect **60–80% of agentic traffic** before any neural inference runs.
+Layers 1a and 1b deflect **71% of repetitive agentic traffic** (FAQ/agent loop patterns) and **38% of diverse task traffic** before any neural inference runs. [Full benchmark →](benchmarks/README.md)
 
 ---
 

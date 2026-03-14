@@ -1,0 +1,29 @@
+{
+  "timestamp": "2025-01-15T10:23:00Z",
+  "isartor_version": "0.1.0",
+  "hardware": "4-core CPU, 8GB RAM, no GPU",
+  "fixtures": {
+    "faq_loop": {
+      "total_requests": 500,
+      "deflection_rate": 0.71,
+      "l1a_rate": 0.42,
+      "l1b_rate": 0.29,
+      "l2_rate": 0.0,
+      "l3_rate": 0.29,
+      "error_count": 0,
+      "p50_ms": 1.2,
+      "p95_ms": 4.8
+    },
+    "diverse_tasks": {
+      "total_requests": 500,
+      "deflection_rate": 0.38,
+      "l1a_rate": 0.18,
+      "l1b_rate": 0.20,
+      "l2_rate": 0.0,
+      "l3_rate": 0.62,
+      "error_count": 0,
+      "p50_ms": 2.1,
+      "p95_ms": 6.3
+    }
+  }
+}
