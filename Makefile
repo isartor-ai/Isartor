@@ -7,7 +7,7 @@
 ## Usage: make benchmark
 ##        ISARTOR_URL=http://localhost:3000 make benchmark
 benchmark:
-	python3 benchmarks/run.py --all --url "$(or $(ISARTOR_URL),http://localhost:8080)"
+	python3 benchmarks/run.py --all --url "$${ISARTOR_URL:-http://localhost:8080}"
 
 ## Run the benchmark harness in dry-run mode (no server required).
 ## Useful for smoke-testing the harness and CI validation.
