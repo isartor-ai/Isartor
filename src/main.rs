@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::{middleware as axum_mw, response::IntoResponse, routing::post, Json, Router};
 use clap::{Parser, Subcommand};
+use anyhow::bail;
 
 use isartor::config::AppConfig;
 use isartor::handler;
@@ -23,16 +24,24 @@ struct Cli {
 enum Commands {
     /// Generate a commented isartor.toml config scaffold and exit.
     Init,
+    /// Replay bundled demo prompts against the local cache layers and print a deflection table.
+    Demo,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // ── Handle `isartor init` ────────────────────────────────────
-    if let Some(Commands::Init) = cli.command {
-        isartor::first_run::write_config_scaffold()?;
-        return Ok(());
+    // ── Handle `isartor init` / `isartor demo` ───────────────────
+    match cli.command {
+        Some(Commands::Init) => {
+            isartor::first_run::write_config_scaffold()?;
+            return Ok(());
+        }
+        Some(Commands::Demo) => {
+            return run_standalone_demo().await;
+        }
+        None => {}
     }
 
     // ------------------------------------------------------------------
@@ -188,4 +197,45 @@ async fn main() -> anyhow::Result<()> {
 /// Simple liveness probe — returns 200 OK.
 async fn healthz() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
+}
+
+/// `isartor demo` — standalone demo runner.
+///
+/// Initialises only the caches and the in-process text embedder (no server,
+/// no external LLM required), seeds the L1a/L1b layers with canonical
+/// prompt/response pairs, replays the bundled 50-prompt corpus, and prints
+/// a deflection summary table.
+async fn run_standalone_demo() -> anyhow::Result<()> {
+    // Minimal config — all defaults are fine for demo mode.
+    let config = Arc::new(AppConfig::load()?);
+
+    eprintln!();
+    eprintln!("  ┌─────────────────────────────────────────────────────┐");
+    eprintln!("  │  Isartor Demo — loading embedding model (~2 s) …    │");
+    eprintln!("  └─────────────────────────────────────────────────────┘");
+    eprintln!();
+
+    let text_embedder = Arc::new(
+        isartor::layer1::embeddings::TextEmbedder::new()
+            .expect("Failed to initialize embedding model"),
+    );
+
+    let app_state = Arc::new(isartor::state::AppState::new(config, text_embedder));
+
+    let stats = isartor::demo::run_demo(&app_state).await?;
+    isartor::demo::print_demo_results(&stats);
+
+    // Non-zero exit if deflection < 50 % so CI can catch regressions.
+    if stats.deflection_pct < 50.0 {
+        eprintln!(
+            "  ⚠  Deflection rate {:.1}% is below the 50% acceptance threshold.",
+            stats.deflection_pct
+        );
+        bail!(
+            "Deflection rate {:.1}% is below the 50% acceptance threshold.",
+            stats.deflection_pct
+        );
+    }
+
+    Ok(())
 }

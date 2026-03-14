@@ -9,46 +9,70 @@ echo "Installing $BIN_NAME..."
 
 # Detect OS
 OS="$(uname -s)"
-case "$OS" in
-    Linux*)     OS_NAME="linux" ;;
-    Darwin*)    OS_NAME="macos" ;;
-    *)          echo "Unsupported OS: $OS"; exit 1 ;;
-esac
-
 # Detect Architecture
 ARCH="$(uname -m)"
-case "$ARCH" in
-    x86_64)        ARCH_NAME="amd64" ;;
-    aarch64|arm64) ARCH_NAME="arm64" ;;
-    *)             echo "Unsupported Architecture: $ARCH"; exit 1 ;;
+
+case "$OS" in
+    Linux*)
+        case "$ARCH" in
+            x86_64)        TARGET="x86_64-unknown-linux-musl" ;;
+            aarch64|arm64) TARGET="aarch64-unknown-linux-musl" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+        EXTENSION="tar.gz"
+        ;;
+    Darwin*)
+        case "$ARCH" in
+            x86_64)        TARGET="x86_64-apple-darwin" ;;
+            aarch64|arm64) TARGET="aarch64-apple-darwin" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+        EXTENSION="tar.gz"
+        ;;
+    *) echo "Unsupported OS: $OS. Use the Windows PowerShell script for Windows."; exit 1 ;;
 esac
 
-ARTIFACT_NAME="${BIN_NAME}-${OS_NAME}-${ARCH_NAME}"
-
-# Fetch latest release data
-LATEST_RELEASE_URL="https://api.github.com/repos/$REPO/releases/latest"
+# Fetch the latest release tag
 echo "Fetching latest release information..."
-DOWNLOAD_URL=$(curl -s $LATEST_RELEASE_URL | grep "browser_download_url.*$ARTIFACT_NAME" | cut -d '"' -f 4)
+LATEST_JSON=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
+if command -v jq >/dev/null 2>&1; then
+    TAG=$(echo "$LATEST_JSON" | jq -r .tag_name)
+else
+    TAG=$(echo "$LATEST_JSON" | grep '"tag_name"' | head -1 | cut -d '"' -f 4)
+fi
 
-if [ -z "$DOWNLOAD_URL" ]; then
-    echo "Could not find a release artifact for $OS_NAME $ARCH_NAME"
+if [ -z "$TAG" ]; then
+    echo "Could not determine the latest release tag."
     exit 1
 fi
 
-echo "Downloading from $DOWNLOAD_URL..."
-TMP_FILE="$(mktemp)"
-curl -L -# "$DOWNLOAD_URL" -o "$TMP_FILE"
+ARCHIVE="${BIN_NAME}-${TAG}-${TARGET}.${EXTENSION}"
+DOWNLOAD_URL="https://github.com/$REPO/releases/download/${TAG}/${ARCHIVE}"
+
+echo "Downloading $ARCHIVE from $DOWNLOAD_URL ..."
+TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t isartor)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+curl -fsSL "$DOWNLOAD_URL" -o "$TMP_DIR/$ARCHIVE"
+
+echo "Extracting..."
+tar -xzf "$TMP_DIR/$ARCHIVE" -C "$TMP_DIR"
 
 echo "Installing to $INSTALL_DIR/$BIN_NAME..."
 if [ -w "$INSTALL_DIR" ]; then
-    mv "$TMP_FILE" "$INSTALL_DIR/$BIN_NAME"
+    mv "$TMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
     chmod +x "$INSTALL_DIR/$BIN_NAME"
 else
     echo "Requires sudo permissions to write to $INSTALL_DIR"
-    sudo mv "$TMP_FILE" "$INSTALL_DIR/$BIN_NAME"
+    sudo mv "$TMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
     sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
 fi
 
+rm -rf "$TMP_DIR"
+
 echo ""
-echo "✅ $BIN_NAME installed successfully!"
-echo "Run '$BIN_NAME' to start."
+echo "✅ $BIN_NAME $TAG installed successfully!"
+echo ""
+echo "Quick start:"
+echo "  $BIN_NAME          -- start the server (port 8080)"
+echo "  $BIN_NAME demo     -- run the deflection demo (no API key needed)"
+echo "  $BIN_NAME init     -- generate a config scaffold"

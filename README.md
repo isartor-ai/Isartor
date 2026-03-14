@@ -81,24 +81,42 @@ export ISARTOR__VLLM_MODEL=meta-llama/Llama-3-8B-Instruct
 
 ## Quick Start
 
-### Docker (Recommended)
+### Docker (Recommended — zero configuration)
 
-All required ML models are baked into the image.
+All required ML models are baked into the image. No API key needed for the cache layers.
 
 ```bash
 docker run -p 8080:8080 ghcr.io/isartor-ai/isartor:latest
 ```
 
-### macOS / Linux
+The startup banner appears after all layers are ready (< 30 s on a modern machine).
+Verify with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/isartor-ai/isartor/main/scripts/install.sh | bash
+curl http://localhost:8080/health
+# {"status":"ok","version":"0.1.0","layers":{...},"uptime_seconds":5,"demo_mode":true}
 ```
 
-### Windows (PowerShell)
+> **Image size:** ~120 MB compressed / ~260 MB on disk (includes `all-MiniLM-L6-v2` embedding model, statically linked Rust binary).
+
+### macOS / Linux — single command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.sh | sh
+```
+
+After installation:
+
+```bash
+isartor          # start the server on port 8080
+isartor demo     # run the deflection demo (no API key needed)
+isartor init     # generate a commented config scaffold
+```
+
+### Windows (PowerShell) — single command
 
 ```powershell
-irm https://raw.githubusercontent.com/isartor-ai/isartor/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.ps1 | iex
 ```
 
 ### Build from Source
