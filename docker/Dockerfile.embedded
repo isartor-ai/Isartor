@@ -1,29 +1,37 @@
 # ============================================================================
-# Dockerfile.sidecar — Level 2 "mid-tier" gateway image
+# Dockerfile.embedded — Embedded-inference gateway image
 #
-# Standard multi-stage build targeting debian-slim.  Unlike the Level 1
-# minimal/musl build, this one uses glibc and a small runtime with a
-# shell (useful for health-check curl/wget inside Compose).
+# Builds the Isartor binary with the embedded-inference feature (candle +
+# Hugging Face model download) and packages it in a slim Debian runtime that
+# includes wget (used by the Compose health check) and TLS root certs (needed
+# for Hugging Face HTTPS downloads).
 #
 # Build:
-#   docker build -f docker/Dockerfile.sidecar -t isartor:sidecar .
+#   docker build -f docker/Dockerfile.embedded -t isartor:embedded .
+#
+# Run:
+#   docker run -p 8080:8080 isartor:embedded
 #
 # Used by:
-#   docker/docker-compose.sidecar.yml
+#   docker/docker-compose.embedded.yml
 # ============================================================================
 
 # ── Stage 1: Builder ────────────────────────────────────────────────────────
 FROM rust:1.85-bookworm AS builder
 
+# cmake and g++ are needed by aws-lc-sys (TLS crypto) and tokenizers.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends cmake g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 
-# Optional build-time flags forwarded from Compose (e.g. --no-default-features).
-ARG CARGO_OPTS=""
-
 # ── Dependency caching layer ────────────────────────────────────────────────
+# Copy only the manifests first so that dependency compilation is cached
+# independently of source changes.
 COPY Cargo.toml Cargo.lock* ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs \
-    && cargo build --release ${CARGO_OPTS} \
+    && cargo build --release \
     && rm -rf src
 
 # ── Application build ──────────────────────────────────────────────────────
@@ -31,12 +39,13 @@ COPY src/ src/
 COPY benches/ benches/
 COPY demo/ demo/
 RUN touch src/main.rs \
-    && cargo build --release ${CARGO_OPTS}
+    && cargo build --release
 
 # ── Stage 2: Slim runtime ──────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
-# Install only what we need for health checks and TLS root certs.
+# Install wget (used by Compose health check) and TLS root certs
+# (required for Hugging Face HTTPS model downloads at runtime).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
@@ -44,13 +53,18 @@ RUN apt-get update \
 COPY --from=builder /build/target/release/isartor /usr/local/bin/isartor
 
 LABEL org.opencontainers.image.title="isartor"
-LABEL org.opencontainers.image.description="Isartor AI Gateway — Level 2 sidecar image"
+LABEL org.opencontainers.image.description="Isartor AI Gateway — embedded-inference image"
+
+# Create a non-root user with a home directory so the HF model cache
+# (mounted at /home/isartor/.cache/huggingface) is writable at runtime.
+RUN groupadd -r isartor \
+    && useradd -r -m -d /home/isartor -g isartor isartor \
+    && mkdir -p /home/isartor/.cache/huggingface \
+    && chown -R isartor:isartor /home/isartor
 
 ENV ISARTOR_HOST_PORT=0.0.0.0:8080
 EXPOSE 8080
 
-# Run as non-root.
-RUN groupadd -r isartor && useradd -r -g isartor isartor
 USER isartor
 
 ENTRYPOINT ["isartor"]

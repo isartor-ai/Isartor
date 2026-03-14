@@ -108,7 +108,9 @@ services:
   gateway:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.sidecar
+      args:
+        CARGO_OPTS: "--no-default-features"
     container_name: isartor-gateway
     depends_on:
       slm-generation:
