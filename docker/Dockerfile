@@ -10,6 +10,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 COPY benches/ benches/
+COPY demo/ demo/
 
 # Build the release binary (glibc, default target).
 RUN cargo build --release \
