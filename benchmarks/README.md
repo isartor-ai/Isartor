@@ -88,9 +88,9 @@ ISARTOR_URL=http://localhost:3000 python3 benchmarks/run.py --all
   Errors         :     0
   Deflection rate: 60.1%
   P50 latency    :  0.3 ms
-  P95 latency    :  4.5 ms
-  P99 latency    :  8.1 ms
-  Cost saved     : $0.0051  ($0.0000051/req)
+  P95 latency    :  8.5 ms
+  P99 latency    :  9.1 ms
+  Cost saved     : $0.1503  ($0.000150/req)
 
 ### faq_loop
 
@@ -99,11 +99,11 @@ ISARTOR_URL=http://localhost:3000 python3 benchmarks/run.py --all
 | L1a (exact)        |    412 |       41.2%  |            0.3 ms |
 | L1b (semantic)     |    189 |       18.9%  |            3.1 ms |
 | L2  (SLM)          |      0 |        0.0%  |               -   |
-| L3  (cloud)        |    399 |       39.9%  |          820.0 ms |
+| L3  (cloud)        |    399 |       39.9%  |            8.2 ms |
 | **Total deflected**| **601** | **60.1%** | |
-| **Cost saved**     |        |              | **$0.000051/req** |
+| **Cost saved**     |        |              | **$0.000150/req** |
 
-> Overall latency — P50: 0.3 ms | P95: 4.5 ms | P99: 820.1 ms
+> Overall latency — P50: 0.3 ms | P95: 8.5 ms | P99: 9.1 ms
 ```
 
 - **L1a (exact)** — request matched an exact (SHA-256) cache entry
