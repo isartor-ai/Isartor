@@ -209,6 +209,9 @@ def main() -> None:
 
     elif args.input:
         input_path = Path(args.input)
+        if not input_path.exists():
+            print(f"Error: input fixture file not found: {input_path}", file=sys.stderr)
+            sys.exit(1)
         prompts = load_prompts(input_path)
         if args.requests > 0:
             prompts = prompts[: args.requests]
