@@ -42,7 +42,7 @@ def load_prompts(path: Path) -> list[str]:
 
 def run_benchmark(url: str, prompts: list[str], label: str) -> dict:
     """
-    Send each prompt to ``url/api/v1/chat`` and collect per-request statistics.
+    Send each prompt to ``url/api/chat`` and collect per-request statistics.
 
     The server is expected to return the ``X-Isartor-Layer`` response header
     with one of the values: ``l1a``, ``l1b``, ``l2``, ``l3``.
@@ -53,7 +53,7 @@ def run_benchmark(url: str, prompts: list[str], label: str) -> dict:
     for prompt in prompts:
         start = time.perf_counter()
         req = urllib.request.Request(
-            f"{url}/api/v1/chat",
+            f"{url}/api/chat",
             data=json.dumps({"prompt": prompt}).encode(),
             headers={"Content-Type": "application/json"},
         )
