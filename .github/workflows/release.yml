@@ -99,6 +99,42 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
+          body: |
+            ## Zero-Config Quick Start
+
+            ### Docker (no API key required)
+            ```bash
+            docker run -p 8080:8080 ghcr.io/isartor-ai/isartor:latest
+            ```
+            > Image size: ~120 MB compressed. Startup: < 30 s. Health: `GET http://localhost:8080/health`
+
+            ### macOS / Linux — single command
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.sh | sh
+            ```
+
+            ### Windows (PowerShell) — single command
+            ```powershell
+            irm https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.ps1 | iex
+            ```
+
+            ### After installation
+            ```bash
+            isartor          # start the server on port 8080
+            isartor demo     # replay 50 demo prompts, print deflection table (no API key needed)
+            isartor init     # generate a commented config scaffold
+            ```
+
+            ## Binaries
+
+            | Platform | File |
+            |----------|------|
+            | Linux x86_64 (musl) | `isartor-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz` |
+            | Linux arm64 (musl)  | `isartor-${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz` |
+            | macOS x86_64        | `isartor-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz` |
+            | macOS arm64 (M1/M2) | `isartor-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz` |
+            | Windows x86_64      | `isartor-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip` |
+
           files: |
             dist/**/*.tar.gz
             dist/**/*.zip
