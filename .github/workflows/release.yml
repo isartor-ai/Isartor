@@ -61,22 +61,17 @@ jobs:
         id: compress
         shell: bash
         run: |
-          BIN_NAME=${{ env.PROJECT_NAME }}
-          VERSION=${{ steps.version.outputs.tag }}
-          TARGET=${{ matrix.target }}
-          case "${{ runner.os }}" in
-            Linux|macOS)
-              BIN_PATH=target/${TARGET}/release/${BIN_NAME}
-              ARCHIVE=${BIN_NAME}-${VERSION}-${TARGET}.tar.gz
-              tar -czf $ARCHIVE -C target/${TARGET}/release ${BIN_NAME}
-              ;;
-            Windows)
-              BIN_PATH=target/${TARGET}/release/${BIN_NAME}.exe
-              ARCHIVE=${BIN_NAME}-${VERSION}-${TARGET}.zip
-              7z a $ARCHIVE $BIN_PATH
-              ;;
-          esac
-          echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
+          BIN_NAME="${{ env.PROJECT_NAME }}"
+          VERSION="${{ steps.version.outputs.tag }}"
+          TARGET="${{ matrix.target }}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            ARCHIVE="${BIN_NAME}-${VERSION}-${TARGET}.zip"
+            7z a "${ARCHIVE}" "./target/${TARGET}/release/${BIN_NAME}.exe"
+          else
+            ARCHIVE="${BIN_NAME}-${VERSION}-${TARGET}.tar.gz"
+            tar -czf "${ARCHIVE}" -C "target/${TARGET}/release" "${BIN_NAME}"
+          fi
+          echo "archive=${ARCHIVE}" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
