@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use axum::{middleware as axum_mw, response::IntoResponse, routing::post, Json, Router};
 use clap::{Parser, Subcommand};
+use anyhow::bail;
 
 use isartor::config::AppConfig;
 use isartor::handler;
 use isartor::health::{self, DemoModeFlag};
 use isartor::middleware;
-
 #[derive(Parser)]
 #[command(
     name = "isartor",
@@ -230,7 +230,10 @@ async fn run_standalone_demo() -> anyhow::Result<()> {
             "  ⚠  Deflection rate {:.1}% is below the 50% acceptance threshold.",
             stats.deflection_pct
         );
-        std::process::exit(1);
+        bail!(
+            "Deflection rate {:.1}% is below the 50% acceptance threshold.",
+            stats.deflection_pct
+        );
     }
 
     Ok(())
