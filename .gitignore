@@ -7,3 +7,5 @@
 /.vscode
 *.log
 .fastembed_cache/
+__pycache__/
+*.pyc
