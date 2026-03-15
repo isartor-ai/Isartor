@@ -286,9 +286,8 @@ async fn run_standalone_demo() -> anyhow::Result<()> {
 async fn run_connectivity_check() -> anyhow::Result<()> {
     let config = AppConfig::load()?;
 
-    let l3_configured = !config.external_llm_api_key.is_empty()
-        || !config.external_llm_url.is_empty();
-    let otel_configured = config.enable_monitoring;
+    // L3 is considered configured only if an external LLM API key is present.
+    let l3_configured = !config.external_llm_api_key.is_empty();
 
     let redis_configured = config.cache_backend == isartor::config::CacheBackend::Redis;
     let is_redis_internal = isartor::core::is_internal_endpoint(&config.redis_url);
