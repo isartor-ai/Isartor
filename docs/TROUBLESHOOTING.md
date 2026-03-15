@@ -331,6 +331,36 @@ export ISARTOR__LLM_PROVIDER=groq
 
 # DeepSeek
 export ISARTOR__LLM_PROVIDER=deepseek
+
+# Cohere
+export ISARTOR__LLM_PROVIDER=cohere
+
+# Galadriel
+export ISARTOR__LLM_PROVIDER=galadriel
+
+# Hyperbolic
+export ISARTOR__LLM_PROVIDER=hyperbolic
+
+# HuggingFace Inference API
+export ISARTOR__LLM_PROVIDER=huggingface
+
+# Mira
+export ISARTOR__LLM_PROVIDER=mira
+
+# Moonshot (Kimi)
+export ISARTOR__LLM_PROVIDER=moonshot
+
+# Ollama (local — no API key required)
+export ISARTOR__LLM_PROVIDER=ollama
+
+# OpenRouter
+export ISARTOR__LLM_PROVIDER=openrouter
+
+# Perplexity
+export ISARTOR__LLM_PROVIDER=perplexity
+
+# Together AI
+export ISARTOR__LLM_PROVIDER=together
 ```
 
 ---

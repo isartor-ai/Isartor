@@ -173,19 +173,33 @@ pub struct AppConfig {
     pub embedding_sidecar: EmbeddingSidecarSettings,
 
     // ── Layer 3 — External LLM ──────────────────────────────────────
-    /// LLM provider: "openai", "azure", "anthropic", "xai", "gemini",
-    /// "mistral", "groq", or "deepseek".
+    /// LLM provider. Supported values (all via rig-core):
+    /// "openai", "azure", "anthropic", "xai", "gemini", "mistral",
+    /// "groq", "deepseek", "cohere", "galadriel", "hyperbolic",
+    /// "huggingface", "mira", "moonshot", "ollama", "openrouter",
+    /// "perplexity", "together".
+    /// Unknown values fall through to the default "openai" branch.
     pub llm_provider: String,
 
     /// Base URL for the external LLM API.
-    ///   - OpenAI:    https://api.openai.com/v1/chat/completions
-    ///   - Azure:     https://<resource>.openai.azure.com
-    ///   - Anthropic: https://api.anthropic.com/v1/messages
-    ///   - xAI:       https://api.x.ai/v1/chat/completions
-    ///   - Gemini:    https://generativelanguage.googleapis.com
-    ///   - Mistral:   https://api.mistral.ai/v1/chat/completions
-    ///   - Groq:      https://api.groq.com/openai/v1
-    ///   - DeepSeek:  https://api.deepseek.com
+    ///   - OpenAI:      https://api.openai.com/v1/chat/completions
+    ///   - Azure:       https://<resource>.openai.azure.com
+    ///   - Anthropic:   https://api.anthropic.com/v1/messages
+    ///   - xAI:         https://api.x.ai/v1/chat/completions
+    ///   - Gemini:      https://generativelanguage.googleapis.com
+    ///   - Mistral:     https://api.mistral.ai/v1/chat/completions
+    ///   - Groq:        https://api.groq.com/openai/v1
+    ///   - DeepSeek:    https://api.deepseek.com
+    ///   - Cohere:      https://api.cohere.ai
+    ///   - Galadriel:   https://api.galadriel.com
+    ///   - Hyperbolic:  https://api.hyperbolic.xyz/v1
+    ///   - HuggingFace: https://api-inference.huggingface.co
+    ///   - Mira:        https://api.mira.network
+    ///   - Moonshot:    https://api.moonshot.cn/v1
+    ///   - Ollama:      http://localhost:11434 (local, no API key needed)
+    ///   - OpenRouter:  https://openrouter.ai/api/v1
+    ///   - Perplexity:  https://api.perplexity.ai
+    ///   - Together:    https://api.together.xyz
     pub external_llm_url: String,
 
     /// Model name to request from the external LLM.

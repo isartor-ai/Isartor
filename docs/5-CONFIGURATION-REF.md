@@ -17,9 +17,9 @@
 | slm_router.model_path   | ISARTOR__MODEL_PATH            | string   | (baked-in)             | Path to GGUF model file (embedded mode)          |
 | fallback.openai_api_key | ISARTOR__OPENAI_API_KEY        | string   | (none)                 | OpenAI API key for Layer 3 fallback              |
 | fallback.anthropic_api_key| ISARTOR__ANTHROPIC_API_KEY   | string   | (none)                 | Anthropic API key for Layer 3 fallback           |
-| llm.provider            | ISARTOR__LLM_PROVIDER          | string   | openai                 | LLM provider: openai, azure, anthropic, xai, gemini, mistral, groq, deepseek |
+| llm.provider            | ISARTOR__LLM_PROVIDER          | string   | openai                 | LLM provider (see below for full list)           |
 | llm.model               | ISARTOR__EXTERNAL_LLM_MODEL    | string   | gpt-4o-mini            | Model name to request from the provider          |
-| llm.api_key             | ISARTOR__EXTERNAL_LLM_API_KEY  | string   | (none)                 | API key for the configured LLM provider          |
+| llm.api_key             | ISARTOR__EXTERNAL_LLM_API_KEY  | string   | (none)                 | API key for the configured LLM provider (not needed for ollama) |
 
 ## Sections
 
@@ -40,9 +40,14 @@
 
 ### Layer 3: Cloud Fallbacks
 - `fallback.openai_api_key`, `fallback.anthropic_api_key`: API keys for external LLMs
-- `llm.provider`: Select the active provider — `openai` (default), `azure`, `anthropic`, `xai`, `gemini`, `mistral`, `groq`, or `deepseek`
-- `llm.model`: Model name for the selected provider (e.g. `gpt-4o-mini`, `gemini-2.0-flash`, `mistral-small-latest`, `llama-3.1-8b-instant`, `deepseek-chat`)
-- `llm.api_key`: API key for the configured provider
+- `llm.provider`: Select the active provider. All providers are powered by [rig-core](https://crates.io/crates/rig-core):
+  - `openai` (default), `azure`, `anthropic`, `xai`
+  - `gemini`, `mistral`, `groq`, `deepseek`
+  - `cohere`, `galadriel`, `hyperbolic`, `huggingface`
+  - `mira`, `moonshot`, `ollama` (local, no key), `openrouter`
+  - `perplexity`, `together`
+- `llm.model`: Model name for the selected provider (e.g. `gpt-4o-mini`, `gemini-2.0-flash`, `mistral-small-latest`, `llama-3.1-8b-instant`, `deepseek-chat`, `command-r`, `sonar`, `moonshot-v1-128k`)
+- `llm.api_key`: API key for the configured provider (not needed for `ollama`)
 
 ---
 

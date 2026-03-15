@@ -5,7 +5,11 @@ use std::time::Duration;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::completion::Prompt;
-use rig::providers::{anthropic, azure, deepseek, gemini, groq, mistral, openai, xai};
+use rig::client::Nothing;
+use rig::providers::{
+    anthropic, azure, cohere, deepseek, galadriel, gemini, groq, huggingface, hyperbolic, mira,
+    mistral, moonshot, ollama, openai, openrouter, perplexity, together, xai,
+};
 
 use crate::clients::slm::SlmClient;
 use crate::config::AppConfig;
@@ -141,6 +145,87 @@ impl AppState {
                     .expect("Failed to initialize DeepSeek client");
                 Arc::new(RigAgent {
                     name: "deepseek",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "cohere" => {
+                let client = cohere::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize Cohere client");
+                Arc::new(RigAgent {
+                    name: "cohere",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "galadriel" => {
+                let client = galadriel::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize Galadriel client");
+                Arc::new(RigAgent {
+                    name: "galadriel",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "hyperbolic" => {
+                let client = hyperbolic::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize Hyperbolic client");
+                Arc::new(RigAgent {
+                    name: "hyperbolic",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "huggingface" => {
+                let client = huggingface::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize HuggingFace client");
+                Arc::new(RigAgent {
+                    name: "huggingface",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "mira" => {
+                let client = mira::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize Mira client");
+                Arc::new(RigAgent {
+                    name: "mira",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "moonshot" => {
+                let client = moonshot::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize Moonshot client");
+                Arc::new(RigAgent {
+                    name: "moonshot",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "ollama" => {
+                // Ollama is a local provider — no API key required.
+                let client = ollama::Client::new(Nothing)
+                    .expect("Failed to initialize Ollama client");
+                Arc::new(RigAgent {
+                    name: "ollama",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "openrouter" => {
+                let client = openrouter::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize OpenRouter client");
+                Arc::new(RigAgent {
+                    name: "openrouter",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "perplexity" => {
+                let client = perplexity::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize Perplexity client");
+                Arc::new(RigAgent {
+                    name: "perplexity",
+                    agent: client.agent(&config.external_llm_model).build(),
+                })
+            }
+            "together" => {
+                let client = together::Client::new(&config.external_llm_api_key)
+                    .expect("Failed to initialize Together AI client");
+                Arc::new(RigAgent {
+                    name: "together",
                     agent: client.agent(&config.external_llm_model).build(),
                 })
             }
@@ -326,6 +411,66 @@ mod tests {
     async fn app_state_new_deepseek_provider() {
         let state = AppState::new(make_test_config("deepseek"), shared_test_embedder());
         assert_eq!(state.llm_agent.provider_name(), "deepseek");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_cohere_provider() {
+        let state = AppState::new(make_test_config("cohere"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "cohere");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_galadriel_provider() {
+        let state = AppState::new(make_test_config("galadriel"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "galadriel");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_hyperbolic_provider() {
+        let state = AppState::new(make_test_config("hyperbolic"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "hyperbolic");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_huggingface_provider() {
+        let state = AppState::new(make_test_config("huggingface"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "huggingface");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_mira_provider() {
+        let state = AppState::new(make_test_config("mira"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "mira");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_moonshot_provider() {
+        let state = AppState::new(make_test_config("moonshot"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "moonshot");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_ollama_provider() {
+        let state = AppState::new(make_test_config("ollama"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "ollama");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_openrouter_provider() {
+        let state = AppState::new(make_test_config("openrouter"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "openrouter");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_perplexity_provider() {
+        let state = AppState::new(make_test_config("perplexity"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "perplexity");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_together_provider() {
+        let state = AppState::new(make_test_config("together"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "together");
     }
 
     #[tokio::test]
