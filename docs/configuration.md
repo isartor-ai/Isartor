@@ -78,12 +78,14 @@ export ISARTOR__LAYER2__SIDECAR_URL="http://127.0.0.1:8081"
 
 ### Layer 3 — External Cloud LLM
 
+All providers are powered by [rig-core](https://crates.io/crates/rig-core).
+
 | Variable | Type | Default | Description |
 | --- | --- | --- | --- |
-| `ISARTOR__LLM_PROVIDER` | `String` | `openai` | Provider: `openai`, `azure`, `anthropic`, `xai` |
-| `ISARTOR__EXTERNAL_LLM_URL` | `String` | `https://api.openai.com/v1/chat/completions` | Base URL for the external LLM API |
+| `ISARTOR__LLM_PROVIDER` | `String` | `openai` | Provider: `openai`, `azure`, `anthropic`, `xai`, `gemini`, `mistral`, `groq`, `deepseek`, `cohere`, `galadriel`, `hyperbolic`, `huggingface`, `mira`, `moonshot`, `ollama`, `openrouter`, `perplexity`, `together` |
+| `ISARTOR__EXTERNAL_LLM_URL` | `String` | `https://api.openai.com/v1/chat/completions` | Base URL for the external LLM API (currently only used for the `azure` provider; other providers use their built-in endpoints) |
 | `ISARTOR__EXTERNAL_LLM_MODEL` | `String` | `gpt-4o-mini` | Model name to request |
-| `ISARTOR__EXTERNAL_LLM_API_KEY` | `String` | *(empty)* | API key for the cloud LLM provider |
+| `ISARTOR__EXTERNAL_LLM_API_KEY` | `String` | *(empty)* | API key for the cloud LLM provider (not needed for Ollama) |
 
 ### Azure OpenAI (Layer 3)
 
@@ -253,6 +255,118 @@ ISARTOR__LLM_PROVIDER=xai
 ISARTOR__EXTERNAL_LLM_URL=https://api.x.ai/v1/chat/completions
 ISARTOR__EXTERNAL_LLM_MODEL=grok-2
 ISARTOR__EXTERNAL_LLM_API_KEY=xai-...
+```
+
+### Google Gemini
+
+```bash
+ISARTOR__LLM_PROVIDER=gemini
+ISARTOR__EXTERNAL_LLM_MODEL=gemini-2.0-flash
+ISARTOR__EXTERNAL_LLM_API_KEY=AIza...
+```
+
+### Mistral AI
+
+```bash
+ISARTOR__LLM_PROVIDER=mistral
+ISARTOR__EXTERNAL_LLM_MODEL=mistral-small-latest
+ISARTOR__EXTERNAL_LLM_API_KEY=...
+```
+
+### Groq (Llama, Mixtral)
+
+```bash
+ISARTOR__LLM_PROVIDER=groq
+ISARTOR__EXTERNAL_LLM_MODEL=llama-3.1-8b-instant
+ISARTOR__EXTERNAL_LLM_API_KEY=gsk_...
+```
+
+### DeepSeek
+
+```bash
+ISARTOR__LLM_PROVIDER=deepseek
+ISARTOR__EXTERNAL_LLM_MODEL=deepseek-chat
+ISARTOR__EXTERNAL_LLM_API_KEY=sk-...
+```
+
+### Cohere
+
+```bash
+ISARTOR__LLM_PROVIDER=cohere
+ISARTOR__EXTERNAL_LLM_MODEL=command-r
+ISARTOR__EXTERNAL_LLM_API_KEY=...
+```
+
+### Galadriel
+
+```bash
+ISARTOR__LLM_PROVIDER=galadriel
+ISARTOR__EXTERNAL_LLM_MODEL=gpt-4o
+ISARTOR__EXTERNAL_LLM_API_KEY=...
+```
+
+### Hyperbolic
+
+```bash
+ISARTOR__LLM_PROVIDER=hyperbolic
+ISARTOR__EXTERNAL_LLM_MODEL=deepseek-ai/DeepSeek-R1
+ISARTOR__EXTERNAL_LLM_API_KEY=...
+```
+
+### HuggingFace Inference API
+
+```bash
+ISARTOR__LLM_PROVIDER=huggingface
+ISARTOR__EXTERNAL_LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
+ISARTOR__EXTERNAL_LLM_API_KEY=hf_...
+```
+
+### Mira
+
+```bash
+ISARTOR__LLM_PROVIDER=mira
+ISARTOR__EXTERNAL_LLM_MODEL=gpt-4o
+ISARTOR__EXTERNAL_LLM_API_KEY=...
+```
+
+### Moonshot (Kimi)
+
+```bash
+ISARTOR__LLM_PROVIDER=moonshot
+ISARTOR__EXTERNAL_LLM_MODEL=moonshot-v1-128k
+ISARTOR__EXTERNAL_LLM_API_KEY=...
+```
+
+### Ollama (local — no API key required)
+
+```bash
+ISARTOR__LLM_PROVIDER=ollama
+ISARTOR__EXTERNAL_LLM_MODEL=llama3.2
+# No API key needed — Ollama runs locally on http://localhost:11434
+```
+
+### OpenRouter
+
+```bash
+ISARTOR__LLM_PROVIDER=openrouter
+ISARTOR__EXTERNAL_LLM_MODEL=openai/gpt-4o-mini
+ISARTOR__EXTERNAL_LLM_API_KEY=sk-or-...
+```
+
+### Perplexity
+
+```bash
+ISARTOR__LLM_PROVIDER=perplexity
+ISARTOR__EXTERNAL_LLM_MODEL=sonar
+ISARTOR__EXTERNAL_LLM_API_KEY=pplx-...
+```
+
+### Together AI
+
+```bash
+ISARTOR__LLM_PROVIDER=together
+ISARTOR__EXTERNAL_LLM_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+ISARTOR__EXTERNAL_LLM_API_KEY=...
 ```
 
 ---
