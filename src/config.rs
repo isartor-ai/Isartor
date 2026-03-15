@@ -31,6 +31,37 @@ pub enum CacheMode {
     Both,
 }
 
+/// Supported external LLM providers.
+///
+/// This is used for the `llm_provider` configuration field. The string values
+/// are deserialized in a case-insensitive (lowercase) manner via Serde. Any
+/// unsupported provider string will cause configuration loading to fail,
+/// avoiding silent fallbacks to unintended providers.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LlmProvider {
+    /// Default provider if none is specified explicitly.
+    #[default]
+    Openai,
+    Azure,
+    Anthropic,
+    Xai,
+    Gemini,
+    Mistral,
+    Groq,
+    Deepseek,
+    Cohere,
+    Galadriel,
+    Hyperbolic,
+    Huggingface,
+    Mira,
+    Moonshot,
+    Ollama,
+    Openrouter,
+    Perplexity,
+    Together,
+}
+
 /// Cache backend for Layer 1a exact-match cache.
 ///
 /// Set via `ISARTOR__CACHE_BACKEND` env var.
@@ -173,14 +204,44 @@ pub struct AppConfig {
     pub embedding_sidecar: EmbeddingSidecarSettings,
 
     // ── Layer 3 — External LLM ──────────────────────────────────────
-    /// LLM provider: "openai", "azure", "anthropic", or "xai".
-    pub llm_provider: String,
+    /// LLM provider. Supported values (all via rig-core):
+    /// "openai", "azure", "anthropic", "xai", "gemini", "mistral",
+    /// "groq", "deepseek", "cohere", "galadriel", "hyperbolic",
+    /// "huggingface", "mira", "moonshot", "ollama", "openrouter",
+    /// "perplexity", "together".
+    /// Any unsupported value will cause configuration loading to fail
+    /// instead of silently falling back to "openai".
+    pub llm_provider: LlmProvider,
 
     /// Base URL for the external LLM API.
-    ///   - OpenAI:    https://api.openai.com/v1/chat/completions
-    ///   - Azure:     https://<resource>.openai.azure.com
-    ///   - Anthropic: https://api.anthropic.com/v1/messages
-    ///   - xAI:       https://api.x.ai/v1/chat/completions
+    ///   - OpenAI:      https://api.openai.com/v1/chat/completions
+    /// Base URL for the external LLM HTTP endpoint.
+    ///
+    /// When `llm_provider` is `"azure"`, this value is passed as the Azure
+    /// endpoint (e.g. via `azure_endpoint(...)`).
+    ///
+    /// For other providers, the `rig-core` client currently uses its own
+    /// built-in default endpoints and ignores this setting. The following
+    /// URLs are provided for documentation/reference only and may not be
+    /// affected by changing `external_llm_url`:
+    ///
+    ///   - Azure:       https://<resource>.openai.azure.com
+    ///   - Anthropic:   https://api.anthropic.com/v1/messages
+    ///   - xAI:         https://api.x.ai/v1/chat/completions
+    ///   - Gemini:      https://generativelanguage.googleapis.com
+    ///   - Mistral:     https://api.mistral.ai/v1/chat/completions
+    ///   - Groq:        https://api.groq.com/openai/v1
+    ///   - DeepSeek:    https://api.deepseek.com
+    ///   - Cohere:      https://api.cohere.ai
+    ///   - Galadriel:   https://api.galadriel.com
+    ///   - Hyperbolic:  https://api.hyperbolic.xyz/v1
+    ///   - HuggingFace: https://api-inference.huggingface.co
+    ///   - Mira:        https://api.mira.network
+    ///   - Moonshot:    https://api.moonshot.cn/v1
+    ///   - Ollama:      http://localhost:11434 (local, no API key needed)
+    ///   - OpenRouter:  https://openrouter.ai/api/v1
+    ///   - Perplexity:  https://api.perplexity.ai
+    ///   - Together:    https://api.together.xyz
     pub external_llm_url: String,
 
     /// Model name to request from the external LLM.
