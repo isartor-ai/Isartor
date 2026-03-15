@@ -5,12 +5,13 @@
 Isartor is architecturally the most air-gap-friendly LLM gateway available.
 Its pure-Rust statically compiled binary embeds all inference models at build
 time, requires no runtime dependencies, and validates licenses with an offline
-HMAC check — making it the only LLM gateway that can provably never phone home.
+HMAC check — so Isartor itself does not initiate unsolicited telemetry or
+license calls to external services.
 
-The zero-phone-home guarantee is enforced at two levels: the `--offline` flag
-blocks all outbound cloud connections at the application layer, and our CI
-phone-home audit test (see `tests/phone_home_audit.rs`) verifies this on every
-commit.
+The zero-phone-home guarantee applies to Isartor-managed network paths: the
+`--offline` flag disables L3 cloud routing and external observability backends
+at the application layer, and our CI phone-home audit test (see
+`tests/phone_home_audit.rs`) exercises these code paths on every commit.
 
 Supported regulated industries: **defense**, **healthcare (HIPAA)**,
 **finance (SOX)**, and **government (FedRAMP)**.
