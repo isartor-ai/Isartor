@@ -53,11 +53,17 @@ fn extract_host(url: &str) -> String {
     } else {
         url
     };
+    // Strip optional `userinfo@` (e.g. "user:pass@" or ":password@") from the authority.
+    let without_userinfo = if let Some(at) = without_scheme.rfind('@') {
+        &without_scheme[at + 1..]
+    } else {
+        without_scheme
+    };
     // Strip path.
-    let without_path = without_scheme
+    let without_path = without_userinfo
         .split('/')
         .next()
-        .unwrap_or(without_scheme);
+        .unwrap_or(without_userinfo);
     // Strip port.
     // Handle IPv6 addresses like `[::1]:4317` specially.
     if without_path.starts_with('[') {
