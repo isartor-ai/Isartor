@@ -93,12 +93,12 @@ if [ "$OFFLINE_BUNDLE" = "true" ]; then
         done
 
         # The main weights file is large — download separately.
-        echo "  → pytorch_model.bin (~90 MB)"
-        curl -fsSL --retry 3 "$BASE_URL/pytorch_model.bin" -o "$MINILM_DIR/pytorch_model.bin"
+        # Use the safetensors variant to match what TextEmbedder::new() / hf_hub load.
+        echo "  → model.safetensors (~90 MB)"
+        curl -fsSL --retry 3 "$BASE_URL/model.safetensors" -o "$MINILM_DIR/model.safetensors"
         # Checksum for the weights file (update when upstream model changes).
-        verify_sha256 "$MINILM_DIR/pytorch_model.bin" \
+        verify_sha256 "$MINILM_DIR/model.safetensors" \
             "8b3d9a8a6c9f7d5e6d3f1c7b5a6e8d9f2b4c6e8a0d2f4b6c8e0a2d4f6b8c0e2"
-
         echo "[download_models.sh] ✓ all-MiniLM-L6-v2 downloaded."
     else
         echo "[download_models.sh] ✓ all-MiniLM-L6-v2 already present, skipping."
