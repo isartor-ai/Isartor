@@ -314,25 +314,34 @@ async fn offline_mode_cache_hits_still_succeed() {
             call_count: call_count.clone(),
             response: "warm-up answer",
         };
-        let state = build_audit_state(Arc::new(agent), CacheMode::Exact, false, "http://127.0.0.1:1");
-        let app = audit_app(state.clone());
+        let state =
+            build_audit_state(Arc::new(agent), CacheMode::Exact, false, "http://127.0.0.1:1");
+        let app = audit_app(state);
         let resp = app.oneshot(json_req("warm prompt")).await.unwrap();
         assert_eq!(resp.status(), 200);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
-
-        // Now re-query in offline mode using the same cache state.
-        // We keep the same `state` Arc (same cache) but with offline=true config.
-        // To do this we need to rebuild state with the same cache contents.
-        // For simplicity: re-warm via the pre-populated state directly.
-        let app2 = audit_app(state.clone());
-        // Mutate config offline_mode to true via a new config copy.
-        // Since AppState.config is Arc<AppConfig> we can't mutate it.
-        // Instead we verify the cache deflects before reaching the handler.
-        let resp2 = app2.oneshot(json_req("warm prompt")).await.unwrap();
-        assert_eq!(resp2.status(), 200, "Second request should be cache hit");
-        // Still 1 L3 call total.
-        assert_eq!(call_count.load(Ordering::SeqCst), 1);
     }
+
+    // Now re-query in offline mode. The cache, previously warmed, should
+    // still satisfy this request without any additional L3 calls.
+    let offline_agent = CountingAgent {
+        call_count: call_count.clone(),
+        response: "warm-up answer",
+    };
+    let offline_state =
+        build_audit_state(Arc::new(offline_agent), CacheMode::Exact, true, "http://127.0.0.1:1");
+    let offline_app = audit_app(offline_state);
+    let resp2 = offline_app
+        .oneshot(json_req("warm prompt"))
+        .await
+        .unwrap();
+    assert_eq!(
+        resp2.status(),
+        200,
+        "Second request should be cache hit even in offline mode"
+    );
+    // Still 1 L3 call total: the offline request must be served from cache.
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
