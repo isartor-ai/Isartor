@@ -20,6 +20,7 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
 };
+use std::env;
 
 use axum::{
     extract::Request,
@@ -114,6 +115,13 @@ fn build_audit_state(
 
     let exact_cache = Arc::new(ExactMatchCache::new(NonZeroUsize::new(1_000).unwrap()));
     let vector_cache = Arc::new(VectorCache::new(0.85, 300, 1_000));
+
+    // Ensure Hugging Face Hub is in offline/cache-only mode for audit tests to avoid
+    // any outbound network I/O when initializing the TextEmbedder.
+    if env::var("HF_HUB_OFFLINE").is_err() {
+        env::set_var("HF_HUB_OFFLINE", "1");
+    }
+
     let text_embedder = Arc::new(TextEmbedder::new().expect("TextEmbedder init"));
     let slm_client = Arc::new(SlmClient::new(&config.layer2));
 

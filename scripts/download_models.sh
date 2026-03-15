@@ -2,18 +2,21 @@
 # =============================================================================
 # scripts/download_models.sh
 #
-# Downloads the required Isartor models to ./models/ for offline / air-gapped
-# deployments.  Called during Docker build when BUNDLE_MODELS=true.
+# Downloads the required Isartor models to ./models/ (or $MODELS_DIR) so they
+# can be baked into container images or cached on disk ahead of time for
+# offline / air-gapped deployments. Called during Docker build when
+# BUNDLE_MODELS=true.
 #
 # Usage:
 #   ./scripts/download_models.sh [--offline-bundle]
 #
 # With --offline-bundle: downloads all models and saves them to ./models/
-#   so they are available without internet access at container startup.
+#   (or $MODELS_DIR) for inclusion in Docker images or other build artifacts.
 #
-# At runtime Isartor checks for models in ./models/ (or the path set via
-# ISARTOR__EMBEDDED__MODEL_PATH) and skips the HuggingFace Hub download if
-# the files are already present.
+# Note: the Isartor runtime currently downloads models from the HuggingFace
+# Hub at startup; pre-downloaded files in ./models/ are not yet automatically
+# detected or used by TextEmbedder::new(). This script only performs the
+# download-and-verify step; it does not change runtime behavior.
 #
 # Security: all downloaded files are verified against expected SHA-256
 # checksums before they are used. If verification fails the script exits

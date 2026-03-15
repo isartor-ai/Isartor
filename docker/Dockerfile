@@ -5,6 +5,7 @@ FROM rust:latest AS builder
 RUN apt-get update && apt-get install -y cmake g++ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
+RUN mkdir -p /build/models
 
 # Optional build-time flags forwarded from Compose (e.g. --no-default-features).
 ARG CARGO_OPTS=""
