@@ -68,6 +68,32 @@ pub fn init_telemetry(config: &Arc<AppConfig>) -> anyhow::Result<OtelGuard> {
         });
     }
 
+    // ── Offline mode: disable OTel exporter to prevent phone-home ───
+    if config.offline_mode {
+        let is_external = !crate::core::is_internal_endpoint(&config.otel_exporter_endpoint);
+
+        if is_external {
+            // Fall back to console-only: an external OTel push would be a
+            // phone-home violation in an air-gapped environment.
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt::layer().pretty())
+                .init();
+
+            tracing::warn!(
+                otel.endpoint = %config.otel_exporter_endpoint,
+                "Telemetry: OTel exporter DISABLED (offline mode — \
+                 external endpoint would escape the perimeter). \
+                 Set ISARTOR__OTEL_EXPORTER_ENDPOINT to an internal \
+                 collector to enable telemetry in offline mode."
+            );
+            return Ok(OtelGuard {
+                tracer_provider: None,
+                meter_provider: None,
+            });
+        }
+    }
+
     // ── Full OTel mode ───────────────────────────────────────────
     let endpoint = &config.otel_exporter_endpoint;
 

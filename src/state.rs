@@ -225,6 +225,7 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: false,
             otel_exporter_endpoint: String::new(),
+            offline_mode: false,
             local_slm_url: "http://localhost:11434/api/generate".into(),
             local_slm_model: "llama3".into(),
             layer2: crate::config::Layer2Settings {

@@ -14,11 +14,14 @@ use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::state::AppState;
 
-/// Layer 3 — Fallback handler.
+    /// Layer 3 — Fallback handler.
 ///
 /// Runs **only** if every preceding middleware layer decided it could
 /// not handle the request. Dispatches the prompt to the configured
 /// LLM provider via `rig-core`.
+///
+/// When `offline_mode` is `true` the handler immediately returns HTTP 503
+/// rather than attempting any outbound cloud connection.
 pub async fn chat_handler(request: Request) -> impl IntoResponse {
     let span = info_span!(
         "layer3_llm",
@@ -43,6 +46,28 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
                     .into_response();
             }
         };
+
+        // ------------------------------------------------------------------
+        // 0. Offline mode guard — immediately reject L3 cloud calls.
+        // ------------------------------------------------------------------
+        if state.config.offline_mode {
+            tracing::warn!(
+                "Layer 3: request blocked — ISARTOR__OFFLINE_MODE=true"
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "offline_mode_active",
+                    "message": "This request could not be resolved locally. \
+                                Cloud routing is disabled in offline mode.",
+                    "layer_reached": "L3",
+                    "suggestion": "Lower your semantic similarity threshold \
+                                   (ISARTOR__SIMILARITY_THRESHOLD) to increase \
+                                   local deflection rate."
+                })),
+            )
+                .into_response();
+        }
 
         // ------------------------------------------------------------------
     // 1. Extract the prompt from the buffered body (set by body_buffer
@@ -234,6 +259,7 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            offline_mode: false,
         });
 
         Arc::new(AppState {

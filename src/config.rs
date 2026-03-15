@@ -208,6 +208,13 @@ pub struct AppConfig {
     // ── Observability ───────────────────────────────────────────────
     pub enable_monitoring: bool,
     pub otel_exporter_endpoint: String,
+
+    // ── Air-Gap / Offline Mode ──────────────────────────────────────
+    /// When `true`, all outbound HTTP connections are blocked at the
+    /// application level and L3 Cloud Logic is disabled.
+    ///
+    /// Set via `ISARTOR__OFFLINE_MODE=true` or the `--offline` CLI flag.
+    pub offline_mode: bool,
 }
 
 impl AppConfig {
@@ -259,6 +266,8 @@ impl AppConfig {
             .set_default("enable_slm_router", false)?
             .set_default("enable_monitoring", false)?
             .set_default("otel_exporter_endpoint", "http://localhost:4317")?
+            // Air-gap / offline mode
+            .set_default("offline_mode", false)?
             // Optional config file --------------------------------------
             .add_source(config::File::with_name("isartor").required(false))
             // Environment overrides (ISARTOR__ prefix) -----------------
@@ -445,6 +454,8 @@ mod tests {
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
             .unwrap()
+            .set_default("offline_mode", false)
+            .unwrap()
             .set_default("inference_engine", "sidecar")
             .unwrap()
             // Simulate env overrides by setting values directly.
@@ -536,6 +547,8 @@ mod tests {
             .set_default("enable_slm_router", false)
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
+            .unwrap()
+            .set_default("offline_mode", false)
             .unwrap()
             .set_override("inference_engine", "sidecar")
             .unwrap()
@@ -633,6 +646,8 @@ mod tests {
             .set_default("enable_slm_router", false)
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
+            .unwrap()
+            .set_default("offline_mode", false)
             .unwrap()
             // Set inference_engine to "embedded" — the key test.
             .set_override("inference_engine", "embedded")

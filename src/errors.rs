@@ -55,6 +55,12 @@ pub enum GatewayError {
 
     /// Internal misconfiguration (missing state, missing extensions).
     Configuration { message: String },
+
+    /// Outbound connection blocked because offline mode is active.
+    OfflineModeViolation {
+        attempted_url: String,
+        message: String,
+    },
 }
 
 impl GatewayError {
@@ -68,6 +74,8 @@ impl GatewayError {
             // Validation and config errors are always fatal.
             Self::Validation { .. } => ErrorClass::Fatal,
             Self::Configuration { .. } => ErrorClass::Fatal,
+            // Offline mode violations are always fatal.
+            Self::OfflineModeViolation { .. } => ErrorClass::Fatal,
         }
     }
 
@@ -85,6 +93,7 @@ impl GatewayError {
             Self::CloudLlm { .. } => "L3_Cloud",
             Self::Validation { .. } => "Validation",
             Self::Configuration { .. } => "Configuration",
+            Self::OfflineModeViolation { .. } => "OfflineMode",
         }
     }
 
@@ -152,6 +161,12 @@ impl fmt::Display for GatewayError {
             }
             Self::Configuration { message } => {
                 write!(f, "[config] {message}")
+            }
+            Self::OfflineModeViolation {
+                attempted_url,
+                message,
+            } => {
+                write!(f, "[offline] blocked {attempted_url}: {message}")
             }
         }
     }

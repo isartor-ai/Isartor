@@ -387,6 +387,7 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: true,
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            offline_mode: false,
         });
 
         Arc::new(AppState {
@@ -604,6 +605,7 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: false, // ← L2 disabled
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            offline_mode: false,
         });
 
         let state = Arc::new(AppState {

@@ -272,6 +272,7 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            offline_mode: false,
         })
     }
 
