@@ -39,8 +39,9 @@ jobs:
       - name: Start Isartor server
         run: |
           # Use a well-known key so the harness can authenticate.
-          # The server reads ISARTOR_GATEWAY_API_KEY (prefix + separator from config.rs).
-          ISARTOR_GATEWAY_API_KEY=benchmark-key ./target/release/isartor &
+          # The config crate uses prefix "ISARTOR" + separator "__", so the correct
+          # env var is ISARTOR__GATEWAY_API_KEY (double underscore).
+          ISARTOR__GATEWAY_API_KEY=benchmark-key ./target/release/isartor &
           echo "ISARTOR_PID=$!" >> "$GITHUB_ENV"
           # Wait until the server is accepting connections (up to 30 s)
           for i in $(seq 1 30); do

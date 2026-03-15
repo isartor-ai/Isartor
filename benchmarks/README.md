@@ -15,7 +15,7 @@ docker run -p 8080:8080 \
 ISARTOR__GATEWAY_API_KEY=changeme cargo run --release
 
 # 2. Ensure the benchmark harness uses the same API key (for the X-API-Key header)
-export ISARTOR__GATEWAY_API_KEY=changeme
+export ISARTOR_API_KEY=changeme
 
 # 3. Run both built-in fixtures and save results (make shortcut)
 make benchmark
@@ -231,7 +231,7 @@ make benchmark
 If you have configured a custom API key, export it before running:
 
 ```bash
-export ISARTOR_GATEWAY_API_KEY=your-secret-key   # server
+export ISARTOR__GATEWAY_API_KEY=your-secret-key  # server
 export ISARTOR_API_KEY=your-secret-key            # harness
 make benchmark
 ```
