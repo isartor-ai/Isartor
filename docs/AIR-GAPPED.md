@@ -51,7 +51,8 @@ Complete these steps before deploying Isartor in an air-gapped environment:
 
 4. **Disable L3 or point it at an internal LLM endpoint**
 
-   - To run fully local (cache + SLM only): leave `ISARTOR__EXTERNAL_LLM_API_KEY` unset.
+   - For strictly air-gapped / zero-egress deployments, you **must** enable offline mode (step 3). Leaving `ISARTOR__EXTERNAL_LLM_API_KEY` unset *alone* does **not** prevent the gateway from attempting outbound L3 calls to the default external endpoint on cache misses.
+   - To run fully local (cache + SLM only) with no outbound attempts, enable offline mode **and** leave `ISARTOR__EXTERNAL_LLM_API_KEY` unset.
    - To route L3 to a self-hosted model, see [Connecting to an Internal LLM](#connecting-to-an-internal-llm).
 
 5. **Run `isartor connectivity-check`** to confirm zero external connections:
