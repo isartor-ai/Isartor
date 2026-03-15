@@ -319,6 +319,8 @@ async fn run_connectivity_check() -> anyhow::Result<()> {
     }
 
     // OTel — observability endpoint
+    // OTel is considered configured when the endpoint is not the default localhost address.
+    let otel_configured = !isartor::core::is_internal_endpoint(&config.otel_exporter_endpoint);
     println!();
     println!("Optional (observability / monitoring):");
     {
