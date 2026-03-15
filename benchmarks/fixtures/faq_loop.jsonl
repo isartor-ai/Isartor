@@ -498,3 +498,503 @@
 {"prompt": "How do I get accessibility support?"}
 {"prompt": "Is there a reduced-motion option?"}
 {"prompt": "Does the service support Braille displays?"}
+{"prompt": "How do I reset my password?"}
+{"prompt": "I forgot my password, what do I do?"}
+{"prompt": "How to recover my account?"}
+{"prompt": "Can I change my email address?"}
+{"prompt": "How do I update my account details?"}
+{"prompt": "How do I delete my account?"}
+{"prompt": "Can I have multiple accounts?"}
+{"prompt": "How do I log in?"}
+{"prompt": "I cannot log into my account."}
+{"prompt": "Why is my account locked?"}
+{"prompt": "How do I unlock my account?"}
+{"prompt": "What are the password requirements?"}
+{"prompt": "How do I enable two-factor authentication?"}
+{"prompt": "How do I disable 2FA?"}
+{"prompt": "Can I log in with Google?"}
+{"prompt": "Is social login supported?"}
+{"prompt": "How do I change my username?"}
+{"prompt": "Can I merge two accounts?"}
+{"prompt": "How do I verify my email?"}
+{"prompt": "I did not receive a verification email."}
+{"prompt": "How long does account verification take?"}
+{"prompt": "What do I do if my account is suspended?"}
+{"prompt": "Can I reactivate a deleted account?"}
+{"prompt": "How do I view my account history?"}
+{"prompt": "How do I see my past orders?"}
+{"prompt": "How much does it cost?"}
+{"prompt": "What are your pricing plans?"}
+{"prompt": "Is there a free tier?"}
+{"prompt": "What is included in the free plan?"}
+{"prompt": "How do I upgrade my plan?"}
+{"prompt": "How do I downgrade my subscription?"}
+{"prompt": "Can I cancel anytime?"}
+{"prompt": "What happens when I cancel?"}
+{"prompt": "Do you offer discounts?"}
+{"prompt": "Is there a student discount?"}
+{"prompt": "Do you have nonprofit pricing?"}
+{"prompt": "How do I apply a coupon code?"}
+{"prompt": "Do prices include tax?"}
+{"prompt": "How am I billed?"}
+{"prompt": "Can I pay monthly instead of annually?"}
+{"prompt": "How do I update my payment method?"}
+{"prompt": "Do you accept PayPal?"}
+{"prompt": "What credit cards do you accept?"}
+{"prompt": "How do I get a receipt?"}
+{"prompt": "Can I get an invoice?"}
+{"prompt": "Why was I charged twice?"}
+{"prompt": "How do I dispute a charge?"}
+{"prompt": "Is there a money-back guarantee?"}
+{"prompt": "What is the refund timeline?"}
+{"prompt": "How long does it take to get a refund?"}
+{"prompt": "The app is not working."}
+{"prompt": "Why is the website down?"}
+{"prompt": "I am getting an error message."}
+{"prompt": "How do I report a bug?"}
+{"prompt": "The page is loading slowly."}
+{"prompt": "Why is my request timing out?"}
+{"prompt": "How do I clear my cache?"}
+{"prompt": "Which browsers are supported?"}
+{"prompt": "Does this work on mobile?"}
+{"prompt": "Is there an iOS app?"}
+{"prompt": "Is there an Android app?"}
+{"prompt": "How do I install the desktop app?"}
+{"prompt": "What are the system requirements?"}
+{"prompt": "How do I update the application?"}
+{"prompt": "I lost my data, can it be recovered?"}
+{"prompt": "How do I export my data?"}
+{"prompt": "How do I import data?"}
+{"prompt": "How do I integrate with Slack?"}
+{"prompt": "Is there an API?"}
+{"prompt": "Where is the API documentation?"}
+{"prompt": "How do I get an API key?"}
+{"prompt": "What are the API rate limits?"}
+{"prompt": "Is there a webhook feature?"}
+{"prompt": "How do I set up SSO?"}
+{"prompt": "What authentication methods are supported?"}
+{"prompt": "Do you ship internationally?"}
+{"prompt": "Which countries do you deliver to?"}
+{"prompt": "Is there a shipping fee?"}
+{"prompt": "How much is shipping?"}
+{"prompt": "Can I pick up my order in store?"}
+{"prompt": "Do you ship to PO boxes?"}
+{"prompt": "How do I change my delivery address?"}
+{"prompt": "Can I reroute my package?"}
+{"prompt": "My package is lost, what do I do?"}
+{"prompt": "The tracking number is not working."}
+{"prompt": "My order was delivered to the wrong address."}
+{"prompt": "Why does my tracking show delivered but I got nothing?"}
+{"prompt": "How do I track my order?"}
+{"prompt": "Is a signature required for delivery?"}
+{"prompt": "Can I schedule a delivery time?"}
+{"prompt": "What happens if I miss the delivery?"}
+{"prompt": "Can I hold my package at the carrier?"}
+{"prompt": "How do I change my shipping speed?"}
+{"prompt": "Do you offer white-glove delivery?"}
+{"prompt": "Is there a surcharge for remote areas?"}
+{"prompt": "When will my backordered item ship?"}
+{"prompt": "How do I split a shipment?"}
+{"prompt": "Can I combine multiple orders for shipping?"}
+{"prompt": "What is the maximum package weight?"}
+{"prompt": "How are fragile items packaged?"}
+{"prompt": "Is my data safe?"}
+{"prompt": "How is my personal information protected?"}
+{"prompt": "Do you sell my data?"}
+{"prompt": "What data do you collect?"}
+{"prompt": "How do I request my personal data?"}
+{"prompt": "How do I delete my personal data?"}
+{"prompt": "Is the service GDPR compliant?"}
+{"prompt": "Is the service HIPAA compliant?"}
+{"prompt": "Are you SOC 2 certified?"}
+{"prompt": "What encryption do you use?"}
+{"prompt": "Is my data stored in the cloud?"}
+{"prompt": "Where are your servers located?"}
+{"prompt": "How do I report a security vulnerability?"}
+{"prompt": "What is your security policy?"}
+{"prompt": "Has there been a data breach?"}
+{"prompt": "What do I do if my account is compromised?"}
+{"prompt": "How do I change my privacy settings?"}
+{"prompt": "Can I opt out of data collection?"}
+{"prompt": "How do I unsubscribe from marketing emails?"}
+{"prompt": "Why am I receiving spam?"}
+{"prompt": "Do you use cookies?"}
+{"prompt": "How do I manage cookie preferences?"}
+{"prompt": "What is your cookie policy?"}
+{"prompt": "How long do you keep my data?"}
+{"prompt": "Can I request a copy of my data?"}
+{"prompt": "How do I contact customer support?"}
+{"prompt": "What are your support hours?"}
+{"prompt": "Is there a phone number I can call?"}
+{"prompt": "Do you have live chat?"}
+{"prompt": "How long does it take to get a response?"}
+{"prompt": "What is the support email address?"}
+{"prompt": "Where can I submit a ticket?"}
+{"prompt": "How do I escalate an issue?"}
+{"prompt": "Can I speak to a manager?"}
+{"prompt": "Is support available on weekends?"}
+{"prompt": "Do you have a community forum?"}
+{"prompt": "Where is the knowledge base?"}
+{"prompt": "Is there a user guide?"}
+{"prompt": "Do you have video tutorials?"}
+{"prompt": "Where can I find help articles?"}
+{"prompt": "How do I check for outages?"}
+{"prompt": "Is there a status page?"}
+{"prompt": "How do I get a dedicated account manager?"}
+{"prompt": "What SLA do you offer?"}
+{"prompt": "Do you offer onboarding assistance?"}
+{"prompt": "Can I request a new feature?"}
+{"prompt": "How do I submit product feedback?"}
+{"prompt": "Is there a public roadmap?"}
+{"prompt": "When will a feature be added?"}
+{"prompt": "How do I join the beta program?"}
+{"prompt": "What features are included?"}
+{"prompt": "What is the storage limit?"}
+{"prompt": "How many users can I add?"}
+{"prompt": "Can I add team members?"}
+{"prompt": "Is there a user limit?"}
+{"prompt": "How do I invite a collaborator?"}
+{"prompt": "Can I set user permissions?"}
+{"prompt": "Is there an admin dashboard?"}
+{"prompt": "How do I manage team roles?"}
+{"prompt": "Can I create custom workflows?"}
+{"prompt": "Does it support automation?"}
+{"prompt": "Is there a mobile-friendly interface?"}
+{"prompt": "Can I use this offline?"}
+{"prompt": "Does the product have dark mode?"}
+{"prompt": "How do I customise the interface?"}
+{"prompt": "Is there a command-line interface?"}
+{"prompt": "Do you have a browser extension?"}
+{"prompt": "How many projects can I create?"}
+{"prompt": "Is there a template library?"}
+{"prompt": "Can I use a custom domain?"}
+{"prompt": "Do you support multiple languages?"}
+{"prompt": "Is the product available in my language?"}
+{"prompt": "How do I set my timezone?"}
+{"prompt": "What file formats are supported?"}
+{"prompt": "How large a file can I upload?"}
+{"prompt": "How do I reset my password?"}
+{"prompt": "I forgot my password, what do I do?"}
+{"prompt": "How to recover my account?"}
+{"prompt": "Can I change my email address?"}
+{"prompt": "How do I update my account details?"}
+{"prompt": "How do I delete my account?"}
+{"prompt": "Can I have multiple accounts?"}
+{"prompt": "How do I log in?"}
+{"prompt": "I cannot log into my account."}
+{"prompt": "Why is my account locked?"}
+{"prompt": "How do I unlock my account?"}
+{"prompt": "What are the password requirements?"}
+{"prompt": "How do I enable two-factor authentication?"}
+{"prompt": "How do I disable 2FA?"}
+{"prompt": "Can I log in with Google?"}
+{"prompt": "Is social login supported?"}
+{"prompt": "How do I change my username?"}
+{"prompt": "Can I merge two accounts?"}
+{"prompt": "How do I verify my email?"}
+{"prompt": "I did not receive a verification email."}
+{"prompt": "How long does account verification take?"}
+{"prompt": "What do I do if my account is suspended?"}
+{"prompt": "Can I reactivate a deleted account?"}
+{"prompt": "How do I view my account history?"}
+{"prompt": "How do I see my past orders?"}
+{"prompt": "How much does it cost?"}
+{"prompt": "What are your pricing plans?"}
+{"prompt": "Is there a free tier?"}
+{"prompt": "What is included in the free plan?"}
+{"prompt": "How do I upgrade my plan?"}
+{"prompt": "How do I downgrade my subscription?"}
+{"prompt": "Can I cancel anytime?"}
+{"prompt": "What happens when I cancel?"}
+{"prompt": "Do you offer discounts?"}
+{"prompt": "Is there a student discount?"}
+{"prompt": "Do you have nonprofit pricing?"}
+{"prompt": "How do I apply a coupon code?"}
+{"prompt": "Do prices include tax?"}
+{"prompt": "How am I billed?"}
+{"prompt": "Can I pay monthly instead of annually?"}
+{"prompt": "How do I update my payment method?"}
+{"prompt": "Do you accept PayPal?"}
+{"prompt": "What credit cards do you accept?"}
+{"prompt": "How do I get a receipt?"}
+{"prompt": "Can I get an invoice?"}
+{"prompt": "Why was I charged twice?"}
+{"prompt": "How do I dispute a charge?"}
+{"prompt": "Is there a money-back guarantee?"}
+{"prompt": "What is the refund timeline?"}
+{"prompt": "How long does it take to get a refund?"}
+{"prompt": "The app is not working."}
+{"prompt": "Why is the website down?"}
+{"prompt": "I am getting an error message."}
+{"prompt": "How do I report a bug?"}
+{"prompt": "The page is loading slowly."}
+{"prompt": "Why is my request timing out?"}
+{"prompt": "How do I clear my cache?"}
+{"prompt": "Which browsers are supported?"}
+{"prompt": "Does this work on mobile?"}
+{"prompt": "Is there an iOS app?"}
+{"prompt": "Is there an Android app?"}
+{"prompt": "How do I install the desktop app?"}
+{"prompt": "What are the system requirements?"}
+{"prompt": "How do I update the application?"}
+{"prompt": "I lost my data, can it be recovered?"}
+{"prompt": "How do I export my data?"}
+{"prompt": "How do I import data?"}
+{"prompt": "How do I integrate with Slack?"}
+{"prompt": "Is there an API?"}
+{"prompt": "Where is the API documentation?"}
+{"prompt": "How do I get an API key?"}
+{"prompt": "What are the API rate limits?"}
+{"prompt": "Is there a webhook feature?"}
+{"prompt": "How do I set up SSO?"}
+{"prompt": "What authentication methods are supported?"}
+{"prompt": "Do you ship internationally?"}
+{"prompt": "Which countries do you deliver to?"}
+{"prompt": "Is there a shipping fee?"}
+{"prompt": "How much is shipping?"}
+{"prompt": "Can I pick up my order in store?"}
+{"prompt": "Do you ship to PO boxes?"}
+{"prompt": "How do I change my delivery address?"}
+{"prompt": "Can I reroute my package?"}
+{"prompt": "My package is lost, what do I do?"}
+{"prompt": "The tracking number is not working."}
+{"prompt": "My order was delivered to the wrong address."}
+{"prompt": "Why does my tracking show delivered but I got nothing?"}
+{"prompt": "How do I track my order?"}
+{"prompt": "Is a signature required for delivery?"}
+{"prompt": "Can I schedule a delivery time?"}
+{"prompt": "What happens if I miss the delivery?"}
+{"prompt": "Can I hold my package at the carrier?"}
+{"prompt": "How do I change my shipping speed?"}
+{"prompt": "Do you offer white-glove delivery?"}
+{"prompt": "Is there a surcharge for remote areas?"}
+{"prompt": "When will my backordered item ship?"}
+{"prompt": "How do I split a shipment?"}
+{"prompt": "Can I combine multiple orders for shipping?"}
+{"prompt": "What is the maximum package weight?"}
+{"prompt": "How are fragile items packaged?"}
+{"prompt": "Is my data safe?"}
+{"prompt": "How is my personal information protected?"}
+{"prompt": "Do you sell my data?"}
+{"prompt": "What data do you collect?"}
+{"prompt": "How do I request my personal data?"}
+{"prompt": "How do I delete my personal data?"}
+{"prompt": "Is the service GDPR compliant?"}
+{"prompt": "Is the service HIPAA compliant?"}
+{"prompt": "Are you SOC 2 certified?"}
+{"prompt": "What encryption do you use?"}
+{"prompt": "Is my data stored in the cloud?"}
+{"prompt": "Where are your servers located?"}
+{"prompt": "How do I report a security vulnerability?"}
+{"prompt": "What is your security policy?"}
+{"prompt": "Has there been a data breach?"}
+{"prompt": "What do I do if my account is compromised?"}
+{"prompt": "How do I change my privacy settings?"}
+{"prompt": "Can I opt out of data collection?"}
+{"prompt": "How do I unsubscribe from marketing emails?"}
+{"prompt": "Why am I receiving spam?"}
+{"prompt": "Do you use cookies?"}
+{"prompt": "How do I manage cookie preferences?"}
+{"prompt": "What is your cookie policy?"}
+{"prompt": "How long do you keep my data?"}
+{"prompt": "Can I request a copy of my data?"}
+{"prompt": "How do I contact customer support?"}
+{"prompt": "What are your support hours?"}
+{"prompt": "Is there a phone number I can call?"}
+{"prompt": "Do you have live chat?"}
+{"prompt": "How long does it take to get a response?"}
+{"prompt": "What is the support email address?"}
+{"prompt": "Where can I submit a ticket?"}
+{"prompt": "How do I escalate an issue?"}
+{"prompt": "Can I speak to a manager?"}
+{"prompt": "Is support available on weekends?"}
+{"prompt": "Do you have a community forum?"}
+{"prompt": "Where is the knowledge base?"}
+{"prompt": "Is there a user guide?"}
+{"prompt": "Do you have video tutorials?"}
+{"prompt": "Where can I find help articles?"}
+{"prompt": "How do I check for outages?"}
+{"prompt": "Is there a status page?"}
+{"prompt": "How do I get a dedicated account manager?"}
+{"prompt": "What SLA do you offer?"}
+{"prompt": "Do you offer onboarding assistance?"}
+{"prompt": "Can I request a new feature?"}
+{"prompt": "How do I submit product feedback?"}
+{"prompt": "Is there a public roadmap?"}
+{"prompt": "When will a feature be added?"}
+{"prompt": "How do I join the beta program?"}
+{"prompt": "What features are included?"}
+{"prompt": "What is the storage limit?"}
+{"prompt": "How many users can I add?"}
+{"prompt": "Can I add team members?"}
+{"prompt": "Is there a user limit?"}
+{"prompt": "How do I invite a collaborator?"}
+{"prompt": "Can I set user permissions?"}
+{"prompt": "Is there an admin dashboard?"}
+{"prompt": "How do I manage team roles?"}
+{"prompt": "Can I create custom workflows?"}
+{"prompt": "Does it support automation?"}
+{"prompt": "Is there a mobile-friendly interface?"}
+{"prompt": "Can I use this offline?"}
+{"prompt": "Does the product have dark mode?"}
+{"prompt": "How do I customise the interface?"}
+{"prompt": "Is there a command-line interface?"}
+{"prompt": "Do you have a browser extension?"}
+{"prompt": "How many projects can I create?"}
+{"prompt": "Is there a template library?"}
+{"prompt": "Can I use a custom domain?"}
+{"prompt": "Do you support multiple languages?"}
+{"prompt": "Is the product available in my language?"}
+{"prompt": "How do I set my timezone?"}
+{"prompt": "What file formats are supported?"}
+{"prompt": "How large a file can I upload?"}
+{"prompt": "How do I reset my password?"}
+{"prompt": "I forgot my password, what do I do?"}
+{"prompt": "How to recover my account?"}
+{"prompt": "Can I change my email address?"}
+{"prompt": "How do I update my account details?"}
+{"prompt": "How do I delete my account?"}
+{"prompt": "Can I have multiple accounts?"}
+{"prompt": "How do I log in?"}
+{"prompt": "I cannot log into my account."}
+{"prompt": "Why is my account locked?"}
+{"prompt": "How do I unlock my account?"}
+{"prompt": "What are the password requirements?"}
+{"prompt": "How do I enable two-factor authentication?"}
+{"prompt": "How do I disable 2FA?"}
+{"prompt": "Can I log in with Google?"}
+{"prompt": "Is social login supported?"}
+{"prompt": "How do I change my username?"}
+{"prompt": "Can I merge two accounts?"}
+{"prompt": "How do I verify my email?"}
+{"prompt": "I did not receive a verification email."}
+{"prompt": "How long does account verification take?"}
+{"prompt": "What do I do if my account is suspended?"}
+{"prompt": "Can I reactivate a deleted account?"}
+{"prompt": "How do I view my account history?"}
+{"prompt": "How do I see my past orders?"}
+{"prompt": "How much does it cost?"}
+{"prompt": "What are your pricing plans?"}
+{"prompt": "Is there a free tier?"}
+{"prompt": "What is included in the free plan?"}
+{"prompt": "How do I upgrade my plan?"}
+{"prompt": "How do I downgrade my subscription?"}
+{"prompt": "Can I cancel anytime?"}
+{"prompt": "What happens when I cancel?"}
+{"prompt": "Do you offer discounts?"}
+{"prompt": "Is there a student discount?"}
+{"prompt": "Do you have nonprofit pricing?"}
+{"prompt": "How do I apply a coupon code?"}
+{"prompt": "Do prices include tax?"}
+{"prompt": "How am I billed?"}
+{"prompt": "Can I pay monthly instead of annually?"}
+{"prompt": "How do I update my payment method?"}
+{"prompt": "Do you accept PayPal?"}
+{"prompt": "What credit cards do you accept?"}
+{"prompt": "How do I get a receipt?"}
+{"prompt": "Can I get an invoice?"}
+{"prompt": "Why was I charged twice?"}
+{"prompt": "How do I dispute a charge?"}
+{"prompt": "Is there a money-back guarantee?"}
+{"prompt": "What is the refund timeline?"}
+{"prompt": "How long does it take to get a refund?"}
+{"prompt": "The app is not working."}
+{"prompt": "Why is the website down?"}
+{"prompt": "I am getting an error message."}
+{"prompt": "How do I report a bug?"}
+{"prompt": "The page is loading slowly."}
+{"prompt": "Why is my request timing out?"}
+{"prompt": "How do I clear my cache?"}
+{"prompt": "Which browsers are supported?"}
+{"prompt": "Does this work on mobile?"}
+{"prompt": "Is there an iOS app?"}
+{"prompt": "Is there an Android app?"}
+{"prompt": "How do I install the desktop app?"}
+{"prompt": "What are the system requirements?"}
+{"prompt": "How do I update the application?"}
+{"prompt": "I lost my data, can it be recovered?"}
+{"prompt": "How do I export my data?"}
+{"prompt": "How do I import data?"}
+{"prompt": "How do I integrate with Slack?"}
+{"prompt": "Is there an API?"}
+{"prompt": "Where is the API documentation?"}
+{"prompt": "How do I get an API key?"}
+{"prompt": "What are the API rate limits?"}
+{"prompt": "Is there a webhook feature?"}
+{"prompt": "How do I set up SSO?"}
+{"prompt": "What authentication methods are supported?"}
+{"prompt": "Do you ship internationally?"}
+{"prompt": "Which countries do you deliver to?"}
+{"prompt": "Is there a shipping fee?"}
+{"prompt": "How much is shipping?"}
+{"prompt": "Can I pick up my order in store?"}
+{"prompt": "Do you ship to PO boxes?"}
+{"prompt": "How do I change my delivery address?"}
+{"prompt": "Can I reroute my package?"}
+{"prompt": "My package is lost, what do I do?"}
+{"prompt": "The tracking number is not working."}
+{"prompt": "My order was delivered to the wrong address."}
+{"prompt": "Why does my tracking show delivered but I got nothing?"}
+{"prompt": "How do I track my order?"}
+{"prompt": "Is a signature required for delivery?"}
+{"prompt": "Can I schedule a delivery time?"}
+{"prompt": "What happens if I miss the delivery?"}
+{"prompt": "Can I hold my package at the carrier?"}
+{"prompt": "How do I change my shipping speed?"}
+{"prompt": "Do you offer white-glove delivery?"}
+{"prompt": "Is there a surcharge for remote areas?"}
+{"prompt": "When will my backordered item ship?"}
+{"prompt": "How do I split a shipment?"}
+{"prompt": "Can I combine multiple orders for shipping?"}
+{"prompt": "What is the maximum package weight?"}
+{"prompt": "How are fragile items packaged?"}
+{"prompt": "Is my data safe?"}
+{"prompt": "How is my personal information protected?"}
+{"prompt": "Do you sell my data?"}
+{"prompt": "What data do you collect?"}
+{"prompt": "How do I request my personal data?"}
+{"prompt": "How do I delete my personal data?"}
+{"prompt": "Is the service GDPR compliant?"}
+{"prompt": "Is the service HIPAA compliant?"}
+{"prompt": "Are you SOC 2 certified?"}
+{"prompt": "What encryption do you use?"}
+{"prompt": "Is my data stored in the cloud?"}
+{"prompt": "Where are your servers located?"}
+{"prompt": "How do I report a security vulnerability?"}
+{"prompt": "What is your security policy?"}
+{"prompt": "Has there been a data breach?"}
+{"prompt": "What do I do if my account is compromised?"}
+{"prompt": "How do I change my privacy settings?"}
+{"prompt": "Can I opt out of data collection?"}
+{"prompt": "How do I unsubscribe from marketing emails?"}
+{"prompt": "Why am I receiving spam?"}
+{"prompt": "Do you use cookies?"}
+{"prompt": "How do I manage cookie preferences?"}
+{"prompt": "What is your cookie policy?"}
+{"prompt": "How long do you keep my data?"}
+{"prompt": "Can I request a copy of my data?"}
+{"prompt": "How do I contact customer support?"}
+{"prompt": "What are your support hours?"}
+{"prompt": "Is there a phone number I can call?"}
+{"prompt": "Do you have live chat?"}
+{"prompt": "How long does it take to get a response?"}
+{"prompt": "What is the support email address?"}
+{"prompt": "Where can I submit a ticket?"}
+{"prompt": "How do I escalate an issue?"}
+{"prompt": "Can I speak to a manager?"}
+{"prompt": "Is support available on weekends?"}
+{"prompt": "Do you have a community forum?"}
+{"prompt": "Where is the knowledge base?"}
+{"prompt": "Is there a user guide?"}
+{"prompt": "Do you have video tutorials?"}
+{"prompt": "Where can I find help articles?"}
+{"prompt": "How do I check for outages?"}
+{"prompt": "Is there a status page?"}
+{"prompt": "How do I get a dedicated account manager?"}
+{"prompt": "What SLA do you offer?"}
+{"prompt": "Do you offer onboarding assistance?"}
+{"prompt": "Can I request a new feature?"}
+{"prompt": "How do I submit product feedback?"}
+{"prompt": "Is there a public roadmap?"}
+{"prompt": "When will a feature be added?"}
+{"prompt": "How do I join the beta program?"}
