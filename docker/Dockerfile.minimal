@@ -1,0 +1,68 @@
+# ============================================================================
+# Dockerfile.minimal — Level 1 "single-binary" deployment image
+#
+# Produces a ~5–10 MB image containing only the statically-linked Isartor
+# binary on top of a distroless/scratch base.  No libc, no shell, no baggage.
+#
+# Build:
+#   docker build -f docker/Dockerfile.minimal -t isartor:minimal .
+#
+# Run:
+#   docker run -p 8080:8080 isartor:minimal
+# ============================================================================
+
+# ── Stage 1: Builder ────────────────────────────────────────────────────────
+FROM rust:1.85-bookworm AS builder
+
+# Install the musl target + toolchain for fully-static linking.
+# g++ is needed for C++ native-code crates (esaxx-rs, onig_sys, etc.).
+RUN rustup target add x86_64-unknown-linux-musl \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends musl-tools cmake g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Tell cc-rs to use the host g++ for musl C++ builds.
+ENV CXX_x86_64_unknown_linux_musl=g++ \
+    CC_x86_64_unknown_linux_musl=musl-gcc
+
+# Force static CRT linking for the entire build.
+ENV RUSTFLAGS="-C target-feature=+crt-static"
+
+WORKDIR /build
+
+# ── Dependency caching layer ────────────────────────────────────────────────
+# Copy only the manifests first so that dependency compilation is cached
+# independently of source changes.
+COPY Cargo.toml Cargo.lock* ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+    && cargo build --release --target x86_64-unknown-linux-musl \
+    && rm -rf src
+
+# ── Application build ──────────────────────────────────────────────────────
+COPY src/ src/
+COPY demo/ demo/
+RUN touch src/main.rs \
+    && cargo build --release --target x86_64-unknown-linux-musl
+
+# Verify the binary is truly static.
+RUN file target/x86_64-unknown-linux-musl/release/isartor \
+    | grep -q "statically linked" \
+    && echo "✅ Binary is statically linked" \
+    || (echo "❌ Binary is NOT statically linked" && exit 1)
+
+# ── Stage 2: Minimal runtime ───────────────────────────────────────────────
+FROM gcr.io/distroless/static-debian12
+
+LABEL org.opencontainers.image.title="isartor"
+LABEL org.opencontainers.image.description="Isartor AI Gateway — Level 1 minimal image"
+
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/isartor /isartor
+
+# Default configuration — override at deploy time via env vars or config file.
+ENV ISARTOR_HOST_PORT=0.0.0.0:8080
+EXPOSE 8080
+
+# Run as non-root (distroless provides uid 65534 = nobody).
+USER 65534
+
+ENTRYPOINT ["/isartor"]

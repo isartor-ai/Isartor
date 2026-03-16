@@ -11,22 +11,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         include:
-          # Linux (musl, static)
+          # Linux (musl, static) - fastest & cheapest
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-          # macOS (universal)
+          # macOS (only on main/tags, most expensive)
           - os: macos-latest
             target: x86_64-apple-darwin
+            if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
           - os: macos-latest
             target: aarch64-apple-darwin
-          # Windows
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+            if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+
     env:
       PROJECT_NAME: isartor
     steps:
@@ -95,6 +94,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -156,6 +156,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
