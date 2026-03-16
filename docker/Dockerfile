@@ -16,7 +16,7 @@
 
 # --- Multi-arch static build for amd64/arm64 ---
 ARG TARGETARCH
-FROM rust:1.85-bookworm AS builder
+FROM rust:nightly AS builder
 
 # Map Docker TARGETARCH to Rust musl target triple
 ARG TARGETARCH
