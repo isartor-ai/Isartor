@@ -1,0 +1,15 @@
+target/
+.git/
+.gitignore
+.github/
+README.md
+CONTRIBUTING.md
+LICENSE
+docs/
+tests/
+*.swp
+*.swo
+.DS_Store
+.cargo/registry/
+.cargo/git/
+.env*
