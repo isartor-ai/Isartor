@@ -14,7 +14,7 @@ use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::state::AppState;
 
-    /// Layer 3 — Fallback handler.
+/// Layer 3 — Fallback handler.
 ///
 /// Runs **only** if every preceding middleware layer decided it could
 /// not handle the request. Dispatches the prompt to the configured

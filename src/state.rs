@@ -1,12 +1,12 @@
 #![allow(dead_code)]
+use std::env;
 use std::sync::Arc;
 use std::time::Duration;
-use std::env;
 
 use rig::agent::Agent;
 use rig::client::CompletionClient;
-use rig::completion::Prompt;
 use rig::client::Nothing;
+use rig::completion::Prompt;
 use rig::providers::{
     anthropic, azure, cohere, deepseek, galadriel, gemini, groq, huggingface, hyperbolic, mira,
     mistral, moonshot, ollama, openai, openrouter, perplexity, together, xai,
@@ -206,8 +206,8 @@ impl AppState {
                 // If an external LLM URL is configured, use it to override the default Ollama host.
                 // This allows running Ollama on a non-localhost host/port (e.g., via ISARTOR__EXTERNAL_LLM_URL).
                 env::set_var("OLLAMA_HOST", &config.external_llm_url);
-                let client = ollama::Client::new(Nothing)
-                    .expect("Failed to initialize Ollama client");
+                let client =
+                    ollama::Client::new(Nothing).expect("Failed to initialize Ollama client");
                 Arc::new(RigAgent {
                     name: "ollama",
                     agent: client.agent(&config.external_llm_model).build(),
@@ -370,7 +370,7 @@ mod tests {
     async fn app_state_new_default_openai_provider() {
         let state = AppState::new(make_test_config("openai"), shared_test_embedder());
         assert_eq!(state.llm_agent.provider_name(), "openai");
-        assert_eq!(state.config.llm_provider, "openai");
+        assert_eq!(state.config.llm_provider, "openai".into());
     }
 
     #[tokio::test]

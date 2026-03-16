@@ -11,7 +11,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 // - Full request objects
 // - Layer routing logic
 // - Cache hit/miss scenarios
-// 
+//
 // For now, we provide structure that can be expanded with actual implementations
 
 fn bench_e2e_layer1a_exact_match(c: &mut Criterion) {

@@ -22,6 +22,7 @@ ARG CARGO_OPTS=""
 
 # ── Dependency caching layer ────────────────────────────────────────────────
 COPY Cargo.toml Cargo.lock* ./
+COPY benches/ benches/
 RUN mkdir src && echo 'fn main() {}' > src/main.rs \
     && cargo build --release ${CARGO_OPTS} \
     && rm -rf src

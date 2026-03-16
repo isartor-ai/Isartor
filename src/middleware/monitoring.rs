@@ -126,12 +126,12 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
         FinalLayer::Cloud => "l3",
         FinalLayer::AuthBlocked => "l0",
     };
-    let deflected_header_value =
-        if resolved_early || matches!(final_layer, FinalLayer::AuthBlocked) {
-            "true"
-        } else {
-            "false"
-        };
+    let deflected_header_value = if resolved_early || matches!(final_layer, FinalLayer::AuthBlocked)
+    {
+        "true"
+    } else {
+        "false"
+    };
 
     let mut response = response;
     response.headers_mut().insert(

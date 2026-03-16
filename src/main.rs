@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use anyhow::bail;
 use axum::{middleware as axum_mw, response::IntoResponse, routing::post, Json, Router};
 use clap::{Parser, Subcommand};
-use anyhow::bail;
 
 use isartor::config::AppConfig;
 use isartor::handler;
@@ -288,7 +288,6 @@ async fn run_connectivity_check() -> anyhow::Result<()> {
 
     // L3 is considered configured only if an external LLM API key is present.
     let l3_configured = !config.external_llm_api_key.is_empty();
-    let otel_configured = config.enable_monitoring;
 
     let redis_configured = config.cache_backend == isartor::config::CacheBackend::Redis;
     let is_redis_internal = isartor::core::is_internal_endpoint(&config.redis_url);
@@ -303,15 +302,27 @@ async fn run_connectivity_check() -> anyhow::Result<()> {
     println!("Required (L3 cloud routing):");
     match config.llm_provider.as_str() {
         "azure" => {
-            let status = if l3_configured { "[CONFIGURED]" } else { "[NOT CONFIGURED]" };
+            let status = if l3_configured {
+                "[CONFIGURED]"
+            } else {
+                "[NOT CONFIGURED]"
+            };
             println!("  → {}  {}", config.external_llm_url, status);
         }
         "anthropic" => {
-            let status = if l3_configured { "[CONFIGURED]" } else { "[NOT CONFIGURED]" };
+            let status = if l3_configured {
+                "[CONFIGURED]"
+            } else {
+                "[NOT CONFIGURED]"
+            };
             println!("  → api.anthropic.com:443  {}", status);
         }
         _ => {
-            let status = if l3_configured { "[CONFIGURED]" } else { "[NOT CONFIGURED]" };
+            let status = if l3_configured {
+                "[CONFIGURED]"
+            } else {
+                "[NOT CONFIGURED]"
+            };
             println!("  → api.openai.com:443     {}", status);
         }
     }
@@ -325,7 +336,11 @@ async fn run_connectivity_check() -> anyhow::Result<()> {
     println!();
     println!("Optional (observability / monitoring):");
     {
-        let status = if otel_configured { "[CONFIGURED]" } else { "[NOT CONFIGURED]" };
+        let status = if otel_configured {
+            "[CONFIGURED]"
+        } else {
+            "[NOT CONFIGURED]"
+        };
         println!("  → {}  {}", config.otel_exporter_endpoint, status);
         if config.offline_mode && otel_configured {
             let is_ext = !isartor::core::is_internal_endpoint(&config.otel_exporter_endpoint);

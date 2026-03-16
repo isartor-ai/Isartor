@@ -17,11 +17,7 @@ pub fn is_internal_endpoint(url: &str) -> bool {
     let host = extract_host(url);
 
     // Loopback / link-local literals.
-    if host == "localhost"
-        || host == "127.0.0.1"
-        || host == "::1"
-        || host.starts_with("127.")
-    {
+    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host.starts_with("127.") {
         return true;
     }
 
@@ -86,10 +82,7 @@ fn is_private_ipv4(host: &str) -> bool {
     if parts.len() != 4 {
         return false;
     }
-    let octets: Vec<u8> = parts
-        .iter()
-        .filter_map(|p| p.parse::<u8>().ok())
-        .collect();
+    let octets: Vec<u8> = parts.iter().filter_map(|p| p.parse::<u8>().ok()).collect();
     if octets.len() != 4 {
         return false;
     }
@@ -135,7 +128,9 @@ mod tests {
     fn external_hostname_is_not_internal() {
         assert!(!is_internal_endpoint("https://api.openai.com"));
         assert!(!is_internal_endpoint("https://api.anthropic.com"));
-        assert!(!is_internal_endpoint("http://my-localhost.example.com:4317"));
+        assert!(!is_internal_endpoint(
+            "http://my-localhost.example.com:4317"
+        ));
     }
 
     #[test]

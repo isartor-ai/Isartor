@@ -15,19 +15,14 @@
 //    attempt is made.
 // =============================================================================
 
+use std::env;
 use std::num::NonZeroUsize;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
 };
-use std::env;
 
-use axum::{
-    extract::Request,
-    middleware as axum_mw,
-    routing::post,
-    Router,
-};
+use axum::{extract::Request, middleware as axum_mw, routing::post, Router};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
@@ -181,13 +176,22 @@ async fn l1a_cache_hits_make_zero_l3_calls() {
         response: "cached answer",
     };
 
-    let state = build_audit_state(Arc::new(agent), CacheMode::Exact, false, "http://127.0.0.1:1");
+    let state = build_audit_state(
+        Arc::new(agent),
+        CacheMode::Exact,
+        false,
+        "http://127.0.0.1:1",
+    );
 
     // First request — cache miss — reaches L3.
     let app = audit_app(state.clone());
     let resp = app.oneshot(json_req("What is 2+2?")).await.unwrap();
     assert_eq!(resp.status(), 200);
-    assert_eq!(call_count.load(Ordering::SeqCst), 1, "First request must hit L3");
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        1,
+        "First request must hit L3"
+    );
 
     // 100 repeat requests — all should be L1a hits.
     for _ in 0..100 {
@@ -219,7 +223,12 @@ async fn mixed_prompts_no_extra_calls() {
         response: "answer",
     };
 
-    let state = build_audit_state(Arc::new(agent), CacheMode::Exact, false, "http://127.0.0.1:1");
+    let state = build_audit_state(
+        Arc::new(agent),
+        CacheMode::Exact,
+        false,
+        "http://127.0.0.1:1",
+    );
 
     let unique_prompts = [
         "Tell me about Rust",
@@ -272,7 +281,12 @@ async fn offline_mode_blocks_l3_and_returns_503() {
     };
 
     // offline = true
-    let state = build_audit_state(Arc::new(agent), CacheMode::Exact, true, "http://127.0.0.1:1");
+    let state = build_audit_state(
+        Arc::new(agent),
+        CacheMode::Exact,
+        true,
+        "http://127.0.0.1:1",
+    );
 
     for i in 0..10 {
         let app = audit_app(state.clone());
@@ -322,8 +336,12 @@ async fn offline_mode_cache_hits_still_succeed() {
             call_count: call_count.clone(),
             response: "warm-up answer",
         };
-        let state =
-            build_audit_state(Arc::new(agent), CacheMode::Exact, false, "http://127.0.0.1:1");
+        let state = build_audit_state(
+            Arc::new(agent),
+            CacheMode::Exact,
+            false,
+            "http://127.0.0.1:1",
+        );
         let app = audit_app(state);
         let resp = app.oneshot(json_req("warm prompt")).await.unwrap();
         assert_eq!(resp.status(), 200);
@@ -336,13 +354,14 @@ async fn offline_mode_cache_hits_still_succeed() {
         call_count: call_count.clone(),
         response: "warm-up answer",
     };
-    let offline_state =
-        build_audit_state(Arc::new(offline_agent), CacheMode::Exact, true, "http://127.0.0.1:1");
+    let offline_state = build_audit_state(
+        Arc::new(offline_agent),
+        CacheMode::Exact,
+        true,
+        "http://127.0.0.1:1",
+    );
     let offline_app = audit_app(offline_state);
-    let resp2 = offline_app
-        .oneshot(json_req("warm prompt"))
-        .await
-        .unwrap();
+    let resp2 = offline_app.oneshot(json_req("warm prompt")).await.unwrap();
     assert_eq!(
         resp2.status(),
         200,
@@ -391,7 +410,10 @@ async fn wiremock_only_configured_l3_url_receives_requests() {
     // Send 3 unique prompts (each will reach L3 mock once via CountingAgent).
     for i in 0..3 {
         let app = audit_app(state.clone());
-        let resp = app.oneshot(json_req(&format!("unique audit prompt {i}"))).await.unwrap();
+        let resp = app
+            .oneshot(json_req(&format!("unique audit prompt {i}")))
+            .await
+            .unwrap();
         assert_eq!(resp.status(), 200);
     }
 

@@ -270,8 +270,6 @@ pub struct AppConfig {
     /// instead of silently falling back to "openai".
     pub llm_provider: LlmProvider,
 
-    /// Base URL for the external LLM API.
-    ///   - OpenAI:      https://api.openai.com/v1/chat/completions
     /// Base URL for the external LLM HTTP endpoint.
     ///
     /// When `llm_provider` is `"azure"`, this value is passed as the Azure
@@ -498,7 +496,7 @@ mod tests {
                 );
                 assert_eq!(config.embedding_sidecar.model_name, "all-minilm");
                 assert_eq!(config.embedding_sidecar.timeout_seconds, 10);
-                assert_eq!(config.llm_provider, "openai");
+                assert_eq!(config.llm_provider, "openai".into());
                 assert_eq!(config.external_llm_model, "gpt-4o-mini");
                 assert!(!config.enable_monitoring);
                 assert!(!config.enable_slm_router);
@@ -792,7 +790,7 @@ mod tests {
             || {
                 let config = AppConfig::load().expect("load must succeed");
                 assert_eq!(config.inference_engine, InferenceEngineMode::Embedded);
-                assert_eq!(config.llm_provider, "azure");
+                assert_eq!(config.llm_provider, "azure".into());
                 assert_eq!(config.external_llm_api_key, "test-key-123");
                 assert_eq!(config.layer2.sidecar_url, "http://custom:9999");
             },
