@@ -43,6 +43,7 @@ jobs:
     name: Test Coverage
     runs-on: ubuntu-latest
     needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
