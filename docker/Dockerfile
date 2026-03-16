@@ -55,6 +55,7 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs && \
 
 # Application build
 COPY src/ src/
+COPY demo/ demo/
 RUN touch src/main.rs && \
         if [ "$TARGETARCH" = "amd64" ]; then \
             export RUST_MUSL_TARGET="x86_64-unknown-linux-musl"; \
