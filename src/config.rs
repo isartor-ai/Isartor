@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use serde::Deserialize;
+use std::fs;
 
 /// Inference Engine mode
 ///
@@ -397,8 +398,83 @@ impl AppConfig {
             .add_source(config::Environment::with_prefix("ISARTOR").separator("__"))
             .build()?;
 
-        Ok(cfg.try_deserialize()?)
+        let mut app: AppConfig = cfg.try_deserialize()?;
+
+        // Docker-friendly secret support: allow reading sensitive values from files
+        // (e.g. Docker / Compose secrets mounted under /run/secrets/*).
+        apply_secret_file_overrides(&mut app)?;
+        validate_provider_config(&app)?;
+
+        Ok(app)
     }
+}
+
+fn read_secret_file_env(var_names: &[&str]) -> anyhow::Result<Option<String>> {
+    for var in var_names {
+        let Ok(path) = std::env::var(var) else {
+            continue;
+        };
+
+        let path = path.trim();
+        if path.is_empty() {
+            continue;
+        }
+
+        let content = fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("failed to read secret file {var}={path}: {e}"))?;
+        let secret = content.trim().to_string();
+
+        if secret.is_empty() {
+            return Err(anyhow::anyhow!(
+                "secret file {var}={path} is empty (after trimming whitespace)"
+            ));
+        }
+
+        return Ok(Some(secret));
+    }
+
+    Ok(None)
+}
+
+fn apply_secret_file_overrides(cfg: &mut AppConfig) -> anyhow::Result<()> {
+    // Prefer explicit env/config value; only fall back to *_FILE when unset.
+    if cfg.external_llm_api_key.trim().is_empty() {
+        if let Some(secret) = read_secret_file_env(&[
+            "ISARTOR__EXTERNAL_LLM_API_KEY_FILE",
+            "ISARTOR_EXTERNAL_LLM_API_KEY_FILE",
+        ])? {
+            cfg.external_llm_api_key = secret;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_provider_config(cfg: &AppConfig) -> anyhow::Result<()> {
+    if cfg.llm_provider == LlmProvider::Azure {
+        if cfg.external_llm_api_key.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Azure OpenAI selected but no API key configured. Set ISARTOR__EXTERNAL_LLM_API_KEY or ISARTOR__EXTERNAL_LLM_API_KEY_FILE"
+            ));
+        }
+        if cfg.external_llm_url.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Azure OpenAI selected but ISARTOR__EXTERNAL_LLM_URL is empty (expected: https://<resource>.openai.azure.com)"
+            ));
+        }
+        if cfg.azure_deployment_id.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Azure OpenAI selected but ISARTOR__AZURE_DEPLOYMENT_ID is empty"
+            ));
+        }
+        if cfg.azure_api_version.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "Azure OpenAI selected but ISARTOR__AZURE_API_VERSION is empty"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -785,6 +861,9 @@ mod tests {
                 ("ISARTOR__INFERENCE_ENGINE", Some("embedded")),
                 ("ISARTOR__LLM_PROVIDER", Some("azure")),
                 ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("test-key-123")),
+                ("ISARTOR__EXTERNAL_LLM_URL", Some("https://example.openai.azure.com")),
+                ("ISARTOR__AZURE_DEPLOYMENT_ID", Some("my-deployment")),
+                ("ISARTOR__AZURE_API_VERSION", Some("2024-08-01-preview")),
                 ("ISARTOR__LAYER2__SIDECAR_URL", Some("http://custom:9999")),
             ],
             || {
@@ -795,5 +874,67 @@ mod tests {
                 assert_eq!(config.layer2.sidecar_url, "http://custom:9999");
             },
         );
+    }
+
+    #[test]
+    fn external_llm_api_key_file_is_used_when_key_empty() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let tmp = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = tmp.join(format!("isartor-secret-{}-{nanos}", std::process::id()));
+
+        std::fs::write(&path, "file-secret-key\n").unwrap();
+
+        let path_str = path.to_string_lossy().to_string();
+
+        temp_env::with_vars(
+            vec![
+                ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("")),
+                ("ISARTOR__EXTERNAL_LLM_API_KEY_FILE", Some(path_str.as_str())),
+            ],
+            || {
+                let config = AppConfig::load().expect("load must succeed");
+                assert_eq!(config.external_llm_api_key, "file-secret-key");
+            },
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn azure_provider_accepts_key_from_file() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let tmp = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = tmp.join(format!("isartor-azure-secret-{}-{nanos}", std::process::id()));
+
+        std::fs::write(&path, "azure-secret").unwrap();
+        let path_str = path.to_string_lossy().to_string();
+
+        temp_env::with_vars(
+            vec![
+                ("ISARTOR__LLM_PROVIDER", Some("azure")),
+                ("ISARTOR__EXTERNAL_LLM_URL", Some("https://example.openai.azure.com")),
+                ("ISARTOR__AZURE_DEPLOYMENT_ID", Some("my-deployment")),
+                ("ISARTOR__AZURE_API_VERSION", Some("2024-08-01-preview")),
+                ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("")),
+                ("ISARTOR__EXTERNAL_LLM_API_KEY_FILE", Some(path_str.as_str())),
+            ],
+            || {
+                let config = AppConfig::load().expect("load must succeed");
+                assert_eq!(config.llm_provider, "azure".into());
+                assert_eq!(config.external_llm_api_key, "azure-secret");
+            },
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }

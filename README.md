@@ -100,6 +100,22 @@ docker run -p 8080:8080 \
   ghcr.io/isartor-ai/isartor:latest
 ```
 
+To use **Azure OpenAI** for Layer 3 (recommended: Docker secrets via `*_FILE`):
+
+```bash
+# Put your key in a file (no trailing newline is ideal, but Isartor trims whitespace)
+echo -n "YOUR_AZURE_OPENAI_KEY" > ./azure_openai_key
+
+docker run -p 8080:8080 \
+  -e ISARTOR__LLM_PROVIDER=azure \
+  -e ISARTOR__EXTERNAL_LLM_URL=https://<resource>.openai.azure.com \
+  -e ISARTOR__AZURE_DEPLOYMENT_ID=<deployment> \
+  -e ISARTOR__AZURE_API_VERSION=2024-08-01-preview \
+  -e ISARTOR__EXTERNAL_LLM_API_KEY_FILE=/run/secrets/azure_openai_key \
+  -v $(pwd)/azure_openai_key:/run/secrets/azure_openai_key:ro \
+  ghcr.io/isartor-ai/isartor:latest
+```
+
 The startup banner appears after all layers are ready (< 30 s on a modern machine).
 Verify with:
 
