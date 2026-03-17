@@ -51,7 +51,6 @@ jobs:
     name: Build (${{ matrix.os }} / ${{ matrix.target }})
     needs: meta
     runs-on: ${{ matrix.os }}
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.targets == 'all' || (github.event.inputs.targets == 'linux' && matrix.os == 'ubuntu-latest') || (github.event.inputs.targets == 'macos' && matrix.os == 'macos-latest') }}
     strategy:
       fail-fast: false
       matrix:
