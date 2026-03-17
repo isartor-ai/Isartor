@@ -87,7 +87,26 @@ RUN set -e && \
     fi) && \
     cp "/build/target/$RUST_TARGET/release/isartor" /isartor
 
-# ── Stage 2: Runtime ────────────────────────────────────────────────────────
+# ── Stage 2: Runtime (prebuilt binary) ──────────────────────────────────────
+# Used by CI to avoid compiling under QEMU during multi-arch buildx builds.
+FROM gcr.io/distroless/static-debian12 AS runtime-prebuilt
+
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.title="isartor"
+LABEL org.opencontainers.image.description="Isartor AI Gateway — Multi-arch minimal static image"
+
+COPY docker-dist/isartor-${TARGETARCH} /isartor
+
+ENV ISARTOR_HOST_PORT=0.0.0.0:8080
+EXPOSE 8080
+
+# Run as non-root (distroless provides uid 65534 = nobody).
+USER 65534
+
+ENTRYPOINT ["/isartor"]
+
+# ── Stage 3: Runtime (build from source) ────────────────────────────────────
 FROM gcr.io/distroless/static-debian12
 
 LABEL org.opencontainers.image.title="isartor"
