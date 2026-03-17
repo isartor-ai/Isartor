@@ -27,9 +27,10 @@ jobs:
           set -euo pipefail
           RUN_ID='${{ github.event.workflow_run.id }}'
           REPO='${{ github.repository }}'
+          TAG='${{ github.event.workflow_run.head_branch }}'
 
           mkdir -p dist
-          gh run download "$RUN_ID" --repo "$REPO" --dir dist --pattern 'isartor-*'
+          gh run download "$RUN_ID" --repo "$REPO" --dir dist --pattern "isartor-${TAG}-*"
 
           echo "Downloaded artifacts:"
           find dist -maxdepth 3 -type f | sort
