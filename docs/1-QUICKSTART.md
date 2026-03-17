@@ -27,9 +27,13 @@ If this repository is **private** (recommended):
 
 ```bash
 gh auth login
-# fetch file contents via GitHub API (authenticated) and execute
 
-gh api -H "Accept: application/vnd.github.raw" /repos/isartor-ai/Isartor/contents/install.sh -f ref=main | sh
+tmp="$(mktemp)" && \
+  GH_PAGER=cat gh api graphql \
+    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Blob{text}}}}' \
+    -f owner='isartor-ai' -f name='Isartor' -f expr='main:install.sh' \
+    --jq .data.repository.object.text > "$tmp" && \
+  sh "$tmp" && rm "$tmp"
 ```
 
 ## Path C: Windows (Binary)
@@ -45,7 +49,8 @@ If this repository is **private** (recommended):
 ```powershell
 gh auth login
 
-gh api -H "Accept: application/vnd.github.raw" /repos/isartor-ai/Isartor/contents/install.ps1 -f ref=main | iex
+$script = gh api graphql -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Blob{text}}}}' -f owner='isartor-ai' -f name='Isartor' -f expr='main:install.ps1' --jq .data.repository.object.text
+iex $script
 ```
 
 ---

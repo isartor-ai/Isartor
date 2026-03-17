@@ -34,7 +34,7 @@ try {
     Write-Host ""
     Write-Host "If $Repo is a private repository, authenticate first:"
     Write-Host "  gh auth login"
-    Write-Host "  gh api -H \"Accept: application/vnd.github.raw\" /repos/$Repo/contents/install.ps1 -f ref=main | iex"
+    Write-Host "  gh api graphql -f query='query(\$owner:String!,\$name:String!,\$expr:String!){repository(owner:\$owner,name:\$name){object(expression:\$expr){... on Blob{text}}}}' -f owner='$($Repo.Split('/')[0])' -f name='$($Repo.Split('/')[1])' -f expr='main:install.ps1' --jq .data.repository.object.text | iex"
     Write-Host ""
     Write-Host "Or set a token (needs repo scope for private repos):"
     Write-Host "  setx GITHUB_TOKEN <token>"
