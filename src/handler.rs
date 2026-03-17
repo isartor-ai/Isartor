@@ -145,21 +145,30 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
             // If the LLM is down, try to serve a previously-cached
             // answer for this exact prompt so the user still gets
             // *something* useful.
-            let exact_key = hex::encode(Sha256::digest(prompt.as_bytes()));
-            if let Some(cached) = state.exact_cache.get(&exact_key) {
-                tracing::info!(
-                    cache.key = %exact_key,
-                    "Layer 3: Serving stale cache entry as fallback"
-                );
-                crate::metrics::record_error("L3_StaleFallback", "fallback_used");
-                let mut response = (
-                    StatusCode::OK,
-                    [(axum::http::header::CONTENT_TYPE, "application/json")],
-                    cached,
-                )
-                    .into_response();
-                response.extensions_mut().insert(FinalLayer::Cloud);
-                return response;
+            // Cache keys are now namespaced by endpoint format (e.g. "native|<prompt>")
+            // to prevent cross-endpoint schema poisoning. For stale fallback, we try
+            // the new namespaced key first, then fall back to the legacy key for
+            // backwards compatibility with older cache entries.
+            let legacy_key = hex::encode(Sha256::digest(prompt.as_bytes()));
+            let namespaced_input = format!("native|{prompt}");
+            let namespaced_key = hex::encode(Sha256::digest(namespaced_input.as_bytes()));
+
+            for exact_key in [namespaced_key, legacy_key] {
+                if let Some(cached) = state.exact_cache.get(&exact_key) {
+                    tracing::info!(
+                        cache.key = %exact_key,
+                        "Layer 3: Serving stale cache entry as fallback"
+                    );
+                    crate::metrics::record_error("L3_StaleFallback", "fallback_used");
+                    let mut response = (
+                        StatusCode::OK,
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        cached,
+                    )
+                        .into_response();
+                    response.extensions_mut().insert(FinalLayer::Cloud);
+                    return response;
+                }
             }
 
             let mut response = (
@@ -556,7 +565,8 @@ mod tests {
 
         // Pre-populate the exact cache with a stale entry for "fallback test".
         let prompt = "fallback test";
-        let key = hex::encode(Sha256::digest(prompt.as_bytes()));
+        let key_input = format!("native|{prompt}");
+        let key = hex::encode(Sha256::digest(key_input.as_bytes()));
         let cached_json = serde_json::to_string(&ChatResponse {
             layer: 3,
             message: "stale cached answer".into(),
