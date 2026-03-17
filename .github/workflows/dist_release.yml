@@ -1,0 +1,63 @@
+name: Publish dist release
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  dist_release:
+    name: Publish to isartor-dist
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts from triggering run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_PAGER: cat
+        run: |
+          set -euo pipefail
+          RUN_ID='${{ github.event.workflow_run.id }}'
+          REPO='${{ github.repository }}'
+
+          mkdir -p dist
+          gh run download "$RUN_ID" --repo "$REPO" --dir dist
+
+          echo "Downloaded artifacts:"
+          find dist -maxdepth 3 -type f | sort
+
+          mapfile -t FILES < <(find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) | sort)
+          if [[ "${#FILES[@]}" -eq 0 ]]; then
+            echo "No release assets found in downloaded artifacts."
+            exit 1
+          fi
+
+      - name: Create/update release in isartor-dist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
+          GH_PAGER: cat
+        run: |
+          set -euo pipefail
+          TAG='${{ github.event.workflow_run.head_branch }}'
+          DIST_REPO='isartor-ai/isartor-dist'
+
+          mapfile -t FILES < <(find dist -type f \( -name '*.tar.gz' -o -name '*.zip' \) | sort)
+
+          if gh release view "$TAG" --repo "$DIST_REPO" >/dev/null 2>&1; then
+            echo "Dist release $TAG already exists."
+          else
+            gh release create "$TAG" --repo "$DIST_REPO" \
+              --title "$TAG" \
+              --notes "Automated public release published from the private source repository (Isartor)."
+          fi
+
+          gh release upload "$TAG" --repo "$DIST_REPO" --clobber "${FILES[@]}"
