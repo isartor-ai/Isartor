@@ -332,6 +332,11 @@ pub struct AppConfig {
     ///
     /// Set via `ISARTOR__OFFLINE_MODE=true` or the `--offline` CLI flag.
     pub offline_mode: bool,
+
+    // ── CONNECT Proxy ───────────────────────────────────────────────
+    /// Socket address the CONNECT proxy will bind to (e.g. "0.0.0.0:8081").
+    /// Used by `isartor connect copilot` to intercept Copilot CLI traffic.
+    pub proxy_port: String,
 }
 
 impl AppConfig {
@@ -385,6 +390,8 @@ impl AppConfig {
             .set_default("otel_exporter_endpoint", "http://localhost:4317")?
             // Air-gap / offline mode
             .set_default("offline_mode", false)?
+            // CONNECT proxy
+            .set_default("proxy_port", "0.0.0.0:8081")?
             // Optional config file --------------------------------------
             .add_source(config::File::with_name("isartor").required(false))
             // Environment overrides (ISARTOR__ prefix) -----------------
@@ -680,6 +687,8 @@ mod tests {
             .unwrap()
             .set_default("offline_mode", false)
             .unwrap()
+            .set_default("proxy_port", "0.0.0.0:8081")
+            .unwrap()
             .set_default("inference_engine", "sidecar")
             .unwrap()
             // Simulate env overrides by setting values directly.
@@ -773,6 +782,8 @@ mod tests {
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
             .unwrap()
             .set_default("offline_mode", false)
+            .unwrap()
+            .set_default("proxy_port", "0.0.0.0:8081")
             .unwrap()
             .set_override("inference_engine", "sidecar")
             .unwrap()
@@ -873,6 +884,8 @@ mod tests {
             .unwrap()
             .set_default("offline_mode", false)
             .unwrap()
+            .set_default("proxy_port", "0.0.0.0:8081")
+            .unwrap()
             // Set inference_engine to "embedded" — the key test.
             .set_override("inference_engine", "embedded")
             .unwrap()
@@ -893,7 +906,10 @@ mod tests {
                 ("ISARTOR__INFERENCE_ENGINE", Some("embedded")),
                 ("ISARTOR__LLM_PROVIDER", Some("azure")),
                 ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("test-key-123")),
-                ("ISARTOR__EXTERNAL_LLM_URL", Some("https://example.openai.azure.com")),
+                (
+                    "ISARTOR__EXTERNAL_LLM_URL",
+                    Some("https://example.openai.azure.com"),
+                ),
                 ("ISARTOR__AZURE_DEPLOYMENT_ID", Some("my-deployment")),
                 ("ISARTOR__AZURE_API_VERSION", Some("2024-08-01-preview")),
                 ("ISARTOR__LAYER2__SIDECAR_URL", Some("http://custom:9999")),
@@ -926,7 +942,10 @@ mod tests {
         temp_env::with_vars(
             vec![
                 ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("")),
-                ("ISARTOR__EXTERNAL_LLM_API_KEY_FILE", Some(path_str.as_str())),
+                (
+                    "ISARTOR__EXTERNAL_LLM_API_KEY_FILE",
+                    Some(path_str.as_str()),
+                ),
             ],
             || {
                 let config = AppConfig::load().expect("load must succeed");
@@ -946,7 +965,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = tmp.join(format!("isartor-azure-secret-{}-{nanos}", std::process::id()));
+        let path = tmp.join(format!(
+            "isartor-azure-secret-{}-{nanos}",
+            std::process::id()
+        ));
 
         std::fs::write(&path, "azure-secret").unwrap();
         let path_str = path.to_string_lossy().to_string();
@@ -954,11 +976,17 @@ mod tests {
         temp_env::with_vars(
             vec![
                 ("ISARTOR__LLM_PROVIDER", Some("azure")),
-                ("ISARTOR__EXTERNAL_LLM_URL", Some("https://example.openai.azure.com")),
+                (
+                    "ISARTOR__EXTERNAL_LLM_URL",
+                    Some("https://example.openai.azure.com"),
+                ),
                 ("ISARTOR__AZURE_DEPLOYMENT_ID", Some("my-deployment")),
                 ("ISARTOR__AZURE_API_VERSION", Some("2024-08-01-preview")),
                 ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("")),
-                ("ISARTOR__EXTERNAL_LLM_API_KEY_FILE", Some(path_str.as_str())),
+                (
+                    "ISARTOR__EXTERNAL_LLM_API_KEY_FILE",
+                    Some(path_str.as_str()),
+                ),
             ],
             || {
                 let config = AppConfig::load().expect("load must succeed");

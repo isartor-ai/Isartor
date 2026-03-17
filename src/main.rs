@@ -220,10 +220,35 @@ async fn main() -> anyhow::Result<()> {
     let app = public.merge(authenticated);
 
     // ------------------------------------------------------------------
-    // 5. Start the server.
+    // 5. Start the server and CONNECT proxy.
     // ------------------------------------------------------------------
     let listener = tokio::net::TcpListener::bind(&config.host_port).await?;
-    tracing::info!(addr = %config.host_port, "Listening");
+    tracing::info!(addr = %config.host_port, "API gateway listening");
+
+    // ------------------------------------------------------------------
+    // 5b. Start the CONNECT proxy (for Copilot CLI interception).
+    //     Graceful degradation: if the proxy fails to start, log a
+    //     warning and continue with just the API gateway.
+    // ------------------------------------------------------------------
+    let proxy_addr = config.proxy_port.clone();
+    let proxy_state = app_state.clone();
+    let proxy_handle = match isartor::proxy::tls::IsartorCa::load_or_generate() {
+        Ok(ca) => {
+            let ca = Arc::new(ca);
+            tracing::info!(addr = %proxy_addr, "CONNECT proxy starting");
+            Some(tokio::spawn(async move {
+                if let Err(e) =
+                    isartor::proxy::connect::run_connect_proxy(&proxy_addr, ca, proxy_state).await
+                {
+                    tracing::error!(error = %e, "CONNECT proxy exited with error");
+                }
+            }))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "CONNECT proxy disabled: CA generation failed");
+            None
+        }
+    };
 
     // ------------------------------------------------------------------
     // 6. First-run demo — runs concurrently with the server.
@@ -249,7 +274,25 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    axum::serve(listener, app).await?;
+    // Run API gateway (and proxy if started) until either exits.
+    let api_server = axum::serve(listener, app);
+    match proxy_handle {
+        Some(proxy) => {
+            tokio::select! {
+                result = api_server => {
+                    result?;
+                }
+                result = proxy => {
+                    if let Err(e) = result {
+                        tracing::error!(error = %e, "CONNECT proxy task panicked");
+                    }
+                }
+            }
+        }
+        None => {
+            api_server.await?;
+        }
+    }
 
     Ok(())
 }

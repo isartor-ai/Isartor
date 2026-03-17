@@ -12,7 +12,9 @@ use crate::core::prompt::extract_prompt;
 use crate::core::retry::{execute_with_retry, RetryConfig};
 use crate::errors::GatewayError;
 use crate::middleware::body_buffer::BufferedBody;
-use crate::models::{ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage};
+use crate::models::{
+    ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage,
+};
 use crate::state::AppState;
 
 /// Layer 3 — Fallback handler.
@@ -24,7 +26,6 @@ use crate::state::AppState;
 /// When `offline_mode` is `true` the handler immediately returns HTTP 503
 /// rather than attempting any outbound cloud connection.
 pub async fn chat_handler(request: Request) -> impl IntoResponse {
-
     let span = info_span!(
         "layer3_llm",
         ai.prompt.length_bytes = tracing::field::Empty,
@@ -246,7 +247,12 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             let agent = agent.clone();
             let prompt = prompt_for_retry.clone();
             let provider = provider_for_err.clone();
-            async move { agent.chat(&prompt).await.map_err(|e| GatewayError::from_llm_error(&provider, &e)) }
+            async move {
+                agent
+                    .chat(&prompt)
+                    .await
+                    .map_err(|e| GatewayError::from_llm_error(&provider, &e))
+            }
         })
         .await;
 
@@ -334,7 +340,10 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
         let prompt = extract_prompt(&body_bytes);
 
         let provider_name = state.llm_agent.provider_name();
-        tracing::info!(provider = provider_name, "Anthropic compat: forwarding to LLM");
+        tracing::info!(
+            provider = provider_name,
+            "Anthropic compat: forwarding to LLM"
+        );
 
         let retry_cfg = RetryConfig::default();
         let agent = state.llm_agent.clone();
@@ -345,7 +354,12 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
             let agent = agent.clone();
             let prompt = prompt_for_retry.clone();
             let provider = provider_for_err.clone();
-            async move { agent.chat(&prompt).await.map_err(|e| GatewayError::from_llm_error(&provider, &e)) }
+            async move {
+                agent
+                    .chat(&prompt)
+                    .await
+                    .map_err(|e| GatewayError::from_llm_error(&provider, &e))
+            }
         })
         .await;
 
@@ -462,6 +476,7 @@ mod tests {
             enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
             offline_mode: false,
+            proxy_port: "0.0.0.0:8081".into(),
         });
 
         Arc::new(AppState {

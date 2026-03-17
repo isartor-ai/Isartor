@@ -22,6 +22,7 @@ pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod pipeline;
+pub mod proxy;
 #[cfg(feature = "embedded-inference")]
 pub mod services;
 pub mod state;

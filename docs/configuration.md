@@ -101,6 +101,12 @@ All providers are powered by [rig-core](https://crates.io/crates/rig-core).
 | `ISARTOR__ENABLE_MONITORING` | `bool` | `false` | Enable OpenTelemetry trace and metric export |
 | `ISARTOR__OTEL_EXPORTER_ENDPOINT` | `String` | `http://localhost:4317` | OTel Collector gRPC endpoint |
 
+### CONNECT Proxy
+
+| Variable | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ISARTOR__PROXY_PORT` | `String` | `0.0.0.0:8081` | Socket address the CONNECT proxy binds to (for Copilot CLI TLS MITM interception) |
+
 
 ### Embedded Classifier (Compiled Defaults)
 

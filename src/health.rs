@@ -42,6 +42,7 @@ pub struct HealthResponse {
     pub layers: LayerStatus,
     pub uptime_seconds: u64,
     pub demo_mode: bool,
+    pub proxy: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,6 +91,7 @@ pub async fn health_handler(
         },
         uptime_seconds: uptime_seconds(),
         demo_mode: demo_mode.0,
+        proxy: "active",
     })
 }
 

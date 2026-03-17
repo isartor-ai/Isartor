@@ -60,11 +60,19 @@ parking_lot = "0.12"
 ahash = "0.8"
 redis = { version = "0.25", features = ["tokio-comp"] }
 
+# TLS MITM proxy (CONNECT proxy for Copilot CLI)
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"
+rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
+
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "5"
 rpassword = "5"
 toml_edit = "0.22"
+uuid = { version = "1", features = ["v4"] }
+time = "0.3"
 
 # Progress bars (first-run UX)
 indicatif = "0.17"

@@ -58,6 +58,7 @@
 | `isartor demo` | Run the deflection demo (no API key needed) |
 | `isartor connectivity-check` | Audit outbound connections |
 | `isartor connect <client>` | Configure AI clients to route through Isartor |
+| `isartor connect copilot` | Configure Copilot CLI with CONNECT proxy + TLS MITM |
 | `isartor set-key --provider <name>` | Set LLM provider API key (writes to `isartor.toml` or env file) |
 
 ---

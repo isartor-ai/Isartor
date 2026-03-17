@@ -425,6 +425,7 @@ mod tests {
             enable_slm_router: true,
             otel_exporter_endpoint: "http://localhost:4317".into(),
             offline_mode: false,
+            proxy_port: "0.0.0.0:8081".into(),
         });
 
         Arc::new(AppState {
@@ -643,6 +644,7 @@ mod tests {
             enable_slm_router: false, // ← L2 disabled
             otel_exporter_endpoint: "http://localhost:4317".into(),
             offline_mode: false,
+            proxy_port: "0.0.0.0:8081".into(),
         });
 
         let state = Arc::new(AppState {
