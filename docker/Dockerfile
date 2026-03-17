@@ -87,6 +87,15 @@ RUN set -e && \
     fi) && \
     cp "/build/target/$RUST_TARGET/release/isartor" /isartor
 
+# ── Stage 1.5: Create writable /tmp for distroless ─────────────────────────
+# Distroless images may not ship with /tmp. If we rely on `WORKDIR /tmp`,
+# Docker will create it as root with 0755, which is NOT writable for the
+# non-root runtime user. We pre-create /tmp as 1777 and copy it in.
+FROM alpine:3.20 AS tmpdir
+RUN mkdir -p /tmp/huggingface \
+    && chmod 1777 /tmp \
+    && chmod 1777 /tmp/huggingface
+
 # ── Stage 2: Runtime (prebuilt binary) ──────────────────────────────────────
 # Used by CI to avoid compiling under QEMU during multi-arch buildx builds.
 FROM gcr.io/distroless/static-debian12 AS runtime-prebuilt
@@ -97,6 +106,9 @@ LABEL org.opencontainers.image.title="isartor"
 LABEL org.opencontainers.image.description="Isartor AI Gateway — Multi-arch minimal static image"
 
 COPY docker-dist/isartor-${TARGETARCH} /isartor
+
+# Ensure /tmp exists and is writable for the non-root user.
+COPY --from=tmpdir /tmp /tmp
 
 ENV ISARTOR_HOST_PORT=0.0.0.0:8080 \
     HOME=/tmp \
@@ -116,6 +128,9 @@ LABEL org.opencontainers.image.title="isartor"
 LABEL org.opencontainers.image.description="Isartor AI Gateway — Multi-arch minimal static image"
 
 COPY --from=builder /isartor /isartor
+
+# Ensure /tmp exists and is writable for the non-root user.
+COPY --from=tmpdir /tmp /tmp
 
 ENV ISARTOR_HOST_PORT=0.0.0.0:8080 \
     HOME=/tmp \

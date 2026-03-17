@@ -46,7 +46,10 @@ COPY --from=builder /build/target/release/isartor /usr/local/bin/isartor
 LABEL org.opencontainers.image.title="isartor"
 LABEL org.opencontainers.image.description="Isartor AI Gateway — Level 2 sidecar image"
 
-ENV ISARTOR_HOST_PORT=0.0.0.0:8080
+ENV ISARTOR_HOST_PORT=0.0.0.0:8080 \
+    HOME=/tmp \
+    HF_HOME=/tmp/huggingface
+WORKDIR /tmp
 EXPOSE 8080
 
 # Run as non-root.

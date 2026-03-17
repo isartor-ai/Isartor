@@ -138,13 +138,14 @@ docker run -d \
   -e ISARTOR__GATEWAY_API_KEY="my-secret-key" \
   -e ISARTOR__EXTERNAL_LLM_API_KEY="sk-..." \
   -e ISARTOR__CACHE_MODE="both" \
-  -v isartor-models:/root/.cache/huggingface \
+  -e HF_HOME=/tmp/huggingface \
+  -v isartor-models:/tmp/huggingface \
   isartor:latest
 ```
 
-> **Note:** The `-v` flag mounts a named volume for the model cache so the ~1.5 GB GGUF download persists across container restarts.
-
-> **Important:** The current Dockerfile produces a distroless image without the embedded candle model. For Level 1 container deployment with embedded inference, you may need a custom Dockerfile that includes the candle feature flags. See the [architecture decisions](architecture-decisions.md) for details.
+> **Note:** The `-v` flag mounts a named volume for the Hugging Face cache so the model downloads persist across container restarts.
+>
+> The official Docker image runs as **non-root** and uses `HF_HOME=/tmp/huggingface` to ensure the cache is writable.
 
 ---
 
@@ -266,7 +267,7 @@ huggingface-cli download google/gemma-2-2b-it \
 scp -r ./models/ user@target-host:/var/cache/isartor/
 ```
 
-The embedded classifier checks `~/.cache/huggingface/` by default. Set `HF_HOME` or `HF_HUB_CACHE` to point to your pre-cached directory if needed.
+By default, hf-hub uses `~/.cache/huggingface/`. In the official Docker image, Isartor sets `HF_HOME=/tmp/huggingface` (non-root safe). Set `HF_HOME` or `ISARTOR_HF_CACHE_DIR` to point to your pre-cached directory if needed.
 
 ---
 

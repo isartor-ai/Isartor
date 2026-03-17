@@ -33,6 +33,7 @@ Failed to initialize candle TextEmbedder (all-MiniLM-L6-v2)
 |-------|-----|
 | Model files not downloaded | Run once with internet access; candle auto-downloads to `~/.cache/huggingface/` |
 | Corrupted model cache | Delete `~/.cache/huggingface/` and restart |
+| Cache directory not writable (`Permission denied (os error 13)`) | Set `HF_HOME` (or `ISARTOR_HF_CACHE_DIR`) to a writable path (e.g. `/tmp/huggingface`). In Docker, mount a volume there: `-e HF_HOME=/tmp/huggingface -v isartor-hf:/tmp/huggingface`. |
 | Insufficient memory | Ensure ≥ 256 MB available for the embedding model |
 
 ### 1.2 `Address already in use`
