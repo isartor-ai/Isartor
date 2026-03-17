@@ -99,7 +99,7 @@ jobs:
               -e HOME=/tmp \
               -v "$PWD":/io -w /io \
               ghcr.io/rust-cross/cargo-zigbuild:latest \
-              bash -lc "rustup target add ${{ matrix.target }} && cargo zigbuild --release --target ${{ matrix.target }}"
+              bash -lc "cargo zigbuild --release --target ${{ matrix.target }}"
           else
             cargo build --release --target ${{ matrix.target }}
           fi
