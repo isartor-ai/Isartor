@@ -330,37 +330,35 @@ async fn offline_mode_blocks_l3_and_returns_503() {
 async fn offline_mode_cache_hits_still_succeed() {
     let call_count = Arc::new(AtomicU32::new(0));
 
+    // Build a single state so the in-memory cache is shared across requests.
+    let agent = CountingAgent {
+        call_count: call_count.clone(),
+        response: "warm-up answer",
+    };
+    let mut state = build_audit_state(
+        Arc::new(agent),
+        CacheMode::Exact,
+        false,
+        "http://127.0.0.1:1",
+    );
+
     // First: warm the cache with offline=false.
     {
-        let agent = CountingAgent {
-            call_count: call_count.clone(),
-            response: "warm-up answer",
-        };
-        let state = build_audit_state(
-            Arc::new(agent),
-            CacheMode::Exact,
-            false,
-            "http://127.0.0.1:1",
-        );
-        let app = audit_app(state);
+        let app = audit_app(state.clone());
         let resp = app.oneshot(json_req("warm prompt")).await.unwrap();
         assert_eq!(resp.status(), 200);
         assert_eq!(call_count.load(Ordering::SeqCst), 1);
     }
 
-    // Now re-query in offline mode. The cache, previously warmed, should
-    // still satisfy this request without any additional L3 calls.
-    let offline_agent = CountingAgent {
-        call_count: call_count.clone(),
-        response: "warm-up answer",
-    };
-    let offline_state = build_audit_state(
-        Arc::new(offline_agent),
-        CacheMode::Exact,
-        true,
-        "http://127.0.0.1:1",
-    );
-    let offline_app = audit_app(offline_state);
+    // Flip offline mode on the same state: cache hits must still return 200
+    // without touching L3.
+    {
+        let st = Arc::get_mut(&mut state).expect("state must be uniquely owned");
+        let cfg = Arc::get_mut(&mut st.config).expect("config must be uniquely owned");
+        cfg.offline_mode = true;
+    }
+
+    let offline_app = audit_app(state);
     let resp2 = offline_app.oneshot(json_req("warm prompt")).await.unwrap();
     assert_eq!(
         resp2.status(),
