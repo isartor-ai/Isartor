@@ -98,7 +98,9 @@ LABEL org.opencontainers.image.description="Isartor AI Gateway — Multi-arch mi
 
 COPY docker-dist/isartor-${TARGETARCH} /isartor
 
-ENV ISARTOR_HOST_PORT=0.0.0.0:8080
+ENV ISARTOR_HOST_PORT=0.0.0.0:8080 \
+    HOME=/tmp \
+    HF_HOME=/tmp/huggingface
 EXPOSE 8080
 
 # Run as non-root (distroless provides uid 65534 = nobody).
@@ -114,7 +116,9 @@ LABEL org.opencontainers.image.description="Isartor AI Gateway — Multi-arch mi
 
 COPY --from=builder /isartor /isartor
 
-ENV ISARTOR_HOST_PORT=0.0.0.0:8080
+ENV ISARTOR_HOST_PORT=0.0.0.0:8080 \
+    HOME=/tmp \
+    HF_HOME=/tmp/huggingface
 EXPOSE 8080
 
 # Run as non-root (distroless provides uid 65534 = nobody).

@@ -32,7 +32,7 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
 use candle_transformers::models::quantized_qwen2::ModelWeights;
-use hf_hub::api::tokio::Api;
+use hf_hub::api::tokio::{Api, ApiBuilder};
 use hf_hub::Repo;
 use tokenizers::Tokenizer;
 use tokio::sync::Mutex;
@@ -223,7 +223,18 @@ impl EmbeddedClassifier {
         );
 
         // ── Step 1: Locate model files ───────────────────────────
-        let api = Api::new().context("failed to create Hugging Face API client")?;
+        let cache_dir = crate::hf::writable_hf_hub_cache_dir()
+            .context("failed to determine a writable hf-hub cache directory")?;
+        let api = ApiBuilder::from_env()
+            .with_progress(false)
+            .with_cache_dir(cache_dir.clone())
+            .build()
+            .with_context(|| {
+                format!(
+                    "failed to create Hugging Face API client (cache_dir: {})",
+                    cache_dir.display()
+                )
+            })?;
 
         // If a local model_path is configured (e.g. baked into Docker image),
         // use it directly; otherwise download via hf-hub.

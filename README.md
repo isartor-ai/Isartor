@@ -83,12 +83,21 @@ export ISARTOR__VLLM_MODEL=meta-llama/Llama-3-8B-Instruct
 
 ## Quick Start
 
-### Docker (Recommended — zero configuration)
+### Docker (Recommended — minimal configuration)
 
-All required ML models are baked into the image. No API key needed for the cache layers.
+The image ships a statically linked `isartor` binary and downloads the embedding model on first start (then reuses the on-disk hf-hub cache). No API key is needed for the cache layers.
 
 ```bash
 docker run -p 8080:8080 ghcr.io/isartor-ai/isartor:latest
+```
+
+To persist the model cache across restarts (recommended):
+
+```bash
+docker run -p 8080:8080 \
+  -e HF_HOME=/tmp/huggingface \
+  -v isartor-hf:/tmp/huggingface \
+  ghcr.io/isartor-ai/isartor:latest
 ```
 
 The startup banner appears after all layers are ready (< 30 s on a modern machine).

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config as BertConfig};
-use hf_hub::api::sync::Api;
+use hf_hub::api::sync::ApiBuilder;
 use std::sync::Mutex;
 use tokenizers::Tokenizer;
 
@@ -30,8 +30,20 @@ impl TextEmbedder {
         let device = Device::Cpu;
         let repo_id = "sentence-transformers/all-MiniLM-L6-v2";
 
-        // Download model artifacts via hf-hub sync API
-        let api = Api::new().context("Failed to initialise Hugging Face Hub API")?;
+        let cache_dir = crate::hf::writable_hf_hub_cache_dir()
+            .context("Failed to determine a writable hf-hub cache directory")?;
+
+        // Download model artifacts via hf-hub sync API.
+        let api = ApiBuilder::from_env()
+            .with_progress(false)
+            .with_cache_dir(cache_dir.clone())
+            .build()
+            .with_context(|| {
+                format!(
+                    "Failed to initialise Hugging Face Hub API (cache_dir: {})",
+                    cache_dir.display()
+                )
+            })?;
         let repo = api.model(repo_id.to_string());
 
         let config_path = repo

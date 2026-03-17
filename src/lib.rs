@@ -15,6 +15,7 @@ pub mod factory;
 pub mod first_run;
 pub mod handler;
 pub mod health;
+pub mod hf;
 pub mod layer1;
 pub mod metrics;
 pub mod middleware;
