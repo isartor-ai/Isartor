@@ -1,33 +1,71 @@
 $ErrorActionPreference = "Stop"
 
-$Repo = "isartor-ai/Isartor"
+$Repo = if ($env:ISARTOR_REPO) { $env:ISARTOR_REPO } else { "isartor-ai/Isartor" }
 $BinName = "isartor.exe"
 $Target = "x86_64-pc-windows-msvc"
-$InstallDir = "$env:USERPROFILE\.local\bin"
+$InstallDir = if ($env:ISARTOR_INSTALL_DIR) { $env:ISARTOR_INSTALL_DIR } else { "$env:USERPROFILE\.local\bin" }
 
-Write-Host "Installing $BinName..."
+$Token = if ($env:ISARTOR_GITHUB_TOKEN) { $env:ISARTOR_GITHUB_TOKEN } elseif ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $env:GH_TOKEN }
+
+function Get-GitHubHeaders([string]$Accept) {
+    $h = @{
+        "Accept" = $Accept
+        "X-GitHub-Api-Version" = "2022-11-28"
+        "User-Agent" = "isartor-installer"
+    }
+
+    if ($Token) {
+        $h["Authorization"] = "Bearer $Token"
+    }
+
+    return $h
+}
+
+Write-Host "Installing $BinName from $Repo..."
 
 # Fetch latest release tag
 $LatestReleaseUrl = "https://api.github.com/repos/$Repo/releases/latest"
 Write-Host "Fetching latest release information..."
-$ReleaseData = Invoke-RestMethod -Uri $LatestReleaseUrl
-$Tag = $ReleaseData.tag_name
 
+try {
+    $ReleaseData = Invoke-RestMethod -Uri $LatestReleaseUrl -Headers (Get-GitHubHeaders "application/vnd.github+json")
+} catch {
+    Write-Error "Could not fetch the latest release from GitHub."
+    Write-Host ""
+    Write-Host "If $Repo is a private repository, authenticate first:"
+    Write-Host "  gh auth login"
+    Write-Host "  gh api -H \"Accept: application/vnd.github.raw\" /repos/$Repo/contents/install.ps1?ref=main | iex"
+    Write-Host ""
+    Write-Host "Or set a token (needs repo scope for private repos):"
+    Write-Host "  setx GITHUB_TOKEN <token>"
+    throw
+}
+
+$Tag = $ReleaseData.tag_name
 if (-Not $Tag) {
     Write-Error "Could not determine the latest release tag."
     exit 1
 }
 
 $Archive = "isartor-${Tag}-${Target}.zip"
-$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$Archive"
-
-Write-Host "Downloading $Archive from $DownloadUrl ..."
-
 $TmpDir = Join-Path $env:TEMP "isartor-install-$([System.IO.Path]::GetRandomFileName())"
 New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
 
 $ArchivePath = Join-Path $TmpDir $Archive
-Invoke-WebRequest -Uri $DownloadUrl -OutFile $ArchivePath
+
+$Asset = $null
+if ($ReleaseData.assets) {
+    $Asset = $ReleaseData.assets | Where-Object { $_.name -eq $Archive } | Select-Object -First 1
+}
+
+if ($Asset -and $Token) {
+    Write-Host "Downloading $Archive via GitHub API ..."
+    Invoke-WebRequest -Uri $Asset.url -Headers (Get-GitHubHeaders "application/octet-stream") -OutFile $ArchivePath
+} else {
+    $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$Archive"
+    Write-Host "Downloading $Archive from $DownloadUrl ..."
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $ArchivePath
+}
 
 Write-Host "Extracting..."
 Expand-Archive -Path $ArchivePath -DestinationPath $TmpDir -Force

@@ -176,13 +176,29 @@ jobs:
             > Image size: ~120 MB compressed. Startup: < 30 s. Health: `GET http://localhost:8080/health`
 
             ### macOS / Linux — single command
+
+            Public repo:
             ```bash
             curl -fsSL https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.sh | sh
             ```
 
+            Private repo (recommended):
+            ```bash
+            gh auth login
+            gh api -H "Accept: application/vnd.github.raw" /repos/isartor-ai/Isartor/contents/install.sh?ref=main | sh
+            ```
+
             ### Windows (PowerShell) — single command
+
+            Public repo:
             ```powershell
             irm https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.ps1 | iex
+            ```
+
+            Private repo (recommended):
+            ```powershell
+            gh auth login
+            gh api -H "Accept: application/vnd.github.raw" /repos/isartor-ai/Isartor/contents/install.ps1?ref=main | iex
             ```
 
             ### After installation
