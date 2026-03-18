@@ -87,7 +87,7 @@ rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "5"
-rpassword = "5"
+rpassword = "7"
 toml_edit = "0.22"
 uuid = { version = "1", features = ["v4"] }
 time = "0.3"
