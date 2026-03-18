@@ -99,7 +99,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
 
 # Progress bars (first-run UX)
-indicatif = "0.17"
+indicatif = "0.18"
 
 # Time formatting
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
