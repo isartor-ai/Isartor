@@ -91,7 +91,7 @@ RUN set -e && \
 # Distroless images may not ship with /tmp. If we rely on `WORKDIR /tmp`,
 # Docker will create it as root with 0755, which is NOT writable for the
 # non-root runtime user. We pre-create /tmp as 1777 and copy it in.
-FROM alpine:3.20 AS tmpdir
+FROM alpine:3.23 AS tmpdir
 RUN mkdir -p /tmp/huggingface \
     && chmod 1777 /tmp \
     && chmod 1777 /tmp/huggingface
