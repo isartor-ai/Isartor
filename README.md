@@ -141,6 +141,8 @@ isartor              # start the server on port 8080
 isartor demo         # run the deflection demo (no API key needed)
 isartor init         # generate a commented config scaffold
 isartor set-key -p openai  # configure your LLM provider API key
+isartor stop         # stop a running Isartor instance (uses PID file)
+isartor update       # self-update to the latest version from GitHub releases
 ```
 
 ### Windows (PowerShell) — single command

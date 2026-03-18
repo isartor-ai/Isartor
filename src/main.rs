@@ -38,6 +38,10 @@ enum Commands {
     Connect(isartor::cli::connect::ConnectArgs),
     /// Set the API key for an LLM provider (writes to isartor.toml or env file).
     SetKey(isartor::cli::set_key::SetKeyArgs),
+    /// Stop a running Isartor server.
+    Stop(isartor::cli::stop::StopArgs),
+    /// Update Isartor to the latest release.
+    Update(isartor::cli::update::UpdateArgs),
 }
 
 #[tokio::main]
@@ -62,6 +66,14 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::SetKey(args)) => {
             isartor::cli::set_key::handle_set_key(args).await?;
+            return Ok(());
+        }
+        Some(Commands::Stop(args)) => {
+            isartor::cli::stop::handle_stop(args)?;
+            return Ok(());
+        }
+        Some(Commands::Update(args)) => {
+            isartor::cli::update::handle_update(args).await?;
             return Ok(());
         }
         None => {}
@@ -225,6 +237,11 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&config.host_port).await?;
     tracing::info!(addr = %config.host_port, "API gateway listening");
 
+    // Write PID file so `isartor stop` can find us.
+    if let Err(e) = isartor::cli::stop::write_pid_file() {
+        tracing::warn!(error = %e, "Failed to write PID file");
+    }
+
     // ------------------------------------------------------------------
     // 5b. Start the CONNECT proxy (for Copilot CLI interception).
     //     Graceful degradation: if the proxy fails to start, log a
@@ -293,6 +310,9 @@ async fn main() -> anyhow::Result<()> {
             api_server.await?;
         }
     }
+
+    // Clean up PID file on shutdown.
+    isartor::cli::stop::remove_pid_file();
 
     Ok(())
 }

@@ -87,10 +87,17 @@ rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "5"
+libc = "0.2"
 rpassword = "5"
 toml_edit = "0.22"
 uuid = { version = "1", features = ["v4"] }
 time = "0.3"
+
+# Self-update (archive extraction)
+flate2 = "1"
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
 
 # Progress bars (first-run UX)
 indicatif = "0.17"
