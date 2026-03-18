@@ -92,6 +92,13 @@ You are a classification engine. Classify the user prompt into exactly one of \
 these categories: [SIMPLE_LOOKUP, CODING_TASK, CREATIVE_WRITING, COMPLEX_REASONING]. \
 Return only the category name and nothing else.";
 
+const SIMPLE_COMPLEX_SYSTEM_PROMPT: &str = "\
+You are a request classifier. Decide whether the following user prompt \
+is SIMPLE (can be answered with a short factual response, a greeting, or \
+basic knowledge) or COMPLEX (requires deep reasoning, code generation, \
+creative writing, or multi-step analysis).\n\n\
+Reply with EXACTLY one word: SIMPLE or COMPLEX.";
+
 impl SlmClient {
     /// Create a new `SlmClient` from the application's `Layer2Settings`.
     ///
@@ -218,6 +225,68 @@ impl SlmClient {
             .unwrap_or_default();
 
         Ok(content)
+    }
+
+    /// Returns true when the sidecar classifies the prompt as SIMPLE.
+    pub async fn classify_simple_or_complex(&self, user_prompt: &str) -> anyhow::Result<bool> {
+        let request_body = ChatCompletionRequest {
+            model: self.model_name.clone(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: SIMPLE_COMPLEX_SYSTEM_PROMPT.to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: user_prompt.to_string(),
+                },
+            ],
+            temperature: Some(0.0),
+            max_tokens: Some(10),
+            stream: Some(false),
+        };
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+        let resp = self
+            .http_client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("SlmClient: simple/complex request failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("SlmClient: simple/complex returned {status}: {body}");
+        }
+
+        let completion: ChatCompletionResponse = resp.json().await.map_err(|e| {
+            anyhow::anyhow!("SlmClient: failed to parse simple/complex response: {e}")
+        })?;
+
+        let content = completion
+            .choices
+            .into_iter()
+            .next()
+            .map(|c| c.message.content)
+            .unwrap_or_default()
+            .trim()
+            .to_uppercase();
+
+        Ok(content.contains("SIMPLE"))
+    }
+
+    pub async fn answer_prompt(&self, user_prompt: &str) -> anyhow::Result<String> {
+        self.chat_completion(
+            vec![ChatMessage {
+                role: "user".to_string(),
+                content: user_prompt.to_string(),
+            }],
+            None,
+            None,
+        )
+        .await
     }
 
     /// Returns the base URL of the sidecar.

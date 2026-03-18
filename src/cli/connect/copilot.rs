@@ -161,12 +161,13 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
             "1. Start Isartor:  isartor\n\
              2. Activate proxy: {source_cmd}\n\
              3. Use Copilot CLI normally — traffic routes through Isartor\n\
-             \n\
-             CONNECT proxy: {proxy_url}  (intercepting Copilot HTTPS traffic)\n\
-             NODE_EXTRA_CA_CERTS: {node_ca}\n\
-             \n\
-             Note: The CA at {node_ca} is trusted by Node.js only (via NODE_EXTRA_CA_CERTS).\n\
-             No system-level trust changes are made."
+              \n\
+              CONNECT proxy: {proxy_url}  (intercepting Copilot HTTPS traffic)\n\
+              NODE_EXTRA_CA_CERTS: {node_ca}\n\
+              Layer 3 for proxied Copilot traffic: Copilot upstream passthrough (no extra Layer 3 API key required)\n\
+              \n\
+              Note: The CA at {node_ca} is trusted by Node.js only (via NODE_EXTRA_CA_CERTS).\n\
+              No system-level trust changes are made."
         ),
         changes_made: changes,
         test_result: Some(test),

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.23] - 2026-03-18
+
+### Added
+- Proxy-layer visibility for recent CONNECT-routed client requests through logs, `/debug/proxy/recent`, `/health`, and `isartor connect status`
+- Repo-specific `.github/copilot-instructions.md` for future Copilot sessions
+
+### Changed
+- CONNECT proxy Layer 3 now preserves the native upstream for Copilot, Claude Code, and Antigravity instead of requiring a separately configured Isartor Layer 3 provider key for those proxied paths
+- `isartor connect claude` and `isartor connect antigravity` now configure proxy-based routing with local CA trust so native client authentication can continue upstream
+- Integration docs now describe multi-client CONNECT proxy behavior and supported intercepted upstream domains
+
+## [0.1.22] - 2026-03-18
+
 ### Added
 - Windows x86_64 build target in release pipeline
 - SECURITY.md, CODE_OF_CONDUCT.md, CODEOWNERS
@@ -57,7 +70,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.23...HEAD
+[0.1.23]: https://github.com/isartor-ai/Isartor/compare/v0.1.22...v0.1.23
+[0.1.22]: https://github.com/isartor-ai/Isartor/compare/v0.1.19...v0.1.22
 [0.1.19]: https://github.com/isartor-ai/Isartor/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/isartor-ai/Isartor/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/isartor-ai/Isartor/compare/v0.1.16...v0.1.17

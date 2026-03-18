@@ -15,6 +15,8 @@ use axum::response::IntoResponse;
 use serde::Serialize;
 
 use crate::config::AppConfig;
+use crate::proxy::connect;
+use crate::state::AppState;
 
 // ── Startup timestamp ────────────────────────────────────────────────
 
@@ -43,6 +45,8 @@ pub struct HealthResponse {
     pub uptime_seconds: u64,
     pub demo_mode: bool,
     pub proxy: &'static str,
+    pub proxy_layer3: &'static str,
+    pub proxy_recent_requests: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -66,6 +70,7 @@ pub struct LayerStatus {
 pub async fn health_handler(
     Extension(config): Extension<Arc<AppConfig>>,
     Extension(demo_mode): Extension<DemoModeFlag>,
+    Extension(_app_state): Extension<Arc<AppState>>,
 ) -> impl IntoResponse {
     let l1b_status = match config.cache_mode {
         crate::config::CacheMode::Exact => "disabled",
@@ -92,6 +97,8 @@ pub async fn health_handler(
         uptime_seconds: uptime_seconds(),
         demo_mode: demo_mode.0,
         proxy: "active",
+        proxy_layer3: "native_upstream_passthrough",
+        proxy_recent_requests: connect::recent_proxy_decisions_count(),
     })
 }
 

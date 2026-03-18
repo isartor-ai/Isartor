@@ -75,17 +75,21 @@ Isartor ships a helper CLI to configure popular clients to route through the gat
 # Show what’s connected and test the gateway
 isartor connect status --gateway-url http://localhost:8080 --gateway-api-key changeme
 
-# Claude Code (writes ~/.claude/settings.json)
+# Claude Code (CONNECT proxy + TLS MITM)
 isartor connect claude --gateway-url http://localhost:8080 --gateway-api-key changeme
 
 # GitHub Copilot CLI (CONNECT proxy + TLS MITM — see below)
 isartor connect copilot --gateway-url http://localhost:8080 --gateway-api-key changeme
+
+# Antigravity (CONNECT proxy + TLS MITM)
+isartor connect antigravity --gateway-url http://localhost:8080 --gateway-api-key changeme
 ```
 
 ### GitHub Copilot CLI (CONNECT Proxy)
 
-Copilot CLI hard-codes its endpoints and only respects `HTTPS_PROXY`. Isartor intercepts
-Copilot traffic using an HTTP CONNECT proxy with TLS MITM:
+Copilot CLI, Claude Code, and Antigravity can be routed through Isartor's HTTP CONNECT
+proxy so Isartor can preserve each client's native upstream as Layer 3 while still
+deflecting requests locally at L1/L2 when possible:
 
 1. A local CA certificate is generated at `~/.isartor/ca/isartor-ca.pem`
 2. The CONNECT proxy runs on `:8081` (configurable via `ISARTOR__PROXY_PORT`)
@@ -95,19 +99,19 @@ Copilot traffic using an HTTP CONNECT proxy with TLS MITM:
 # Step 1: Start Isartor (runs both API gateway :8080 and CONNECT proxy :8081)
 isartor
 
-# Step 2: Configure Copilot CLI
+# Step 2: Configure your client
 isartor connect copilot
 
 # Step 3: Activate in your shell
 source ~/.isartor/env/copilot.sh
 
-# Step 4: Use Copilot CLI normally — traffic routes through Isartor’s Deflection Stack
+# Step 4: Use the client normally — traffic routes through Isartor’s Deflection Stack
 ```
 
 **How it works:**
-- The proxy intercepts CONNECT requests to known Copilot domains
+- The proxy intercepts CONNECT requests to known Copilot, Anthropic, and Antigravity domains
 - TLS is terminated with a leaf certificate signed by the local CA
-- POST requests to `/v1/chat/completions` are routed through the Deflection Stack (L1a → L1b → L3)
+- POST requests to `/v1/chat/completions` and `/v1/messages` are routed through the Deflection Stack (L1a → L1b → L2 → client upstream L3)
 - All other traffic is tunnelled transparently
 
 **Intercepted domains:**
@@ -116,10 +120,15 @@ source ~/.isartor/env/copilot.sh
 - `api.individual.githubcopilot.com`
 - `api.business.githubcopilot.com`
 - `api.enterprise.githubcopilot.com`
+- `api.anthropic.com`
+- `cloudcode-pa.googleapis.com`
+- `daily-cloudcode-pa.googleapis.com`
+- `daily-cloudcode-pa.sandbox.googleapis.com`
 
 Notes:
 
 - The CA is only trusted by Node.js (via `NODE_EXTRA_CA_CERTS`). No system-level trust changes are made.
+- Claude Code and Antigravity integrations also export `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` for non-Node HTTPS stacks.
 - Some tools support overriding the OpenAI base URL directly (preferred). Point them at `http://localhost:8080/v1`.
 
 ---

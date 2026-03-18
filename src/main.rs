@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use anyhow::bail;
-use axum::{Json, Router, middleware as axum_mw, response::IntoResponse, routing::post};
+use axum::{
+    Json, Router, middleware as axum_mw,
+    response::IntoResponse,
+    routing::{get, post},
+};
 use clap::{Parser, Subcommand};
 
 use isartor::config::AppConfig;
@@ -222,16 +226,40 @@ async fn main() -> anyhow::Result<()> {
             },
         ));
 
+    let state_for_debug = app_state.clone();
+    let debug = Router::new()
+        .route(
+            "/debug/proxy/recent",
+            get(isartor::proxy::connect::recent_proxy_requests_handler),
+        )
+        .layer(axum_mw::from_fn(middleware::auth::auth_middleware))
+        .layer(axum_mw::from_fn(
+            middleware::monitoring::root_monitoring_middleware,
+        ))
+        .layer(axum_mw::from_fn(
+            middleware::body_buffer::buffer_body_middleware,
+        ))
+        .layer(axum_mw::from_fn(
+            move |mut req: axum::extract::Request, next: axum_mw::Next| {
+                let st = state_for_debug.clone();
+                async move {
+                    req.extensions_mut().insert(st);
+                    next.run(req).await
+                }
+            },
+        ));
+
     // Unauthenticated routes — bypass the Deflection Stack entirely.
     let demo_flag = DemoModeFlag(demo_mode);
     let health_config = config.clone();
     let public = Router::new()
         .route("/healthz", axum::routing::get(healthz))
         .route("/health", axum::routing::get(health::health_handler))
+        .layer(axum::Extension(app_state.clone()))
         .layer(axum::Extension(health_config))
         .layer(axum::Extension(demo_flag));
 
-    let app = public.merge(authenticated);
+    let app = public.merge(debug).merge(authenticated);
 
     // ------------------------------------------------------------------
     // 5. Start the server and CONNECT proxy.

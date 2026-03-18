@@ -1,18 +1,22 @@
-//! HTTP CONNECT proxy with TLS MITM for intercepting Copilot CLI traffic.
+//! HTTP CONNECT proxy with TLS MITM for intercepting supported AI client traffic.
 //!
 //! Runs a raw TCP listener (separate from the Axum gateway) that speaks
 //! the HTTP CONNECT protocol. Allowed domains get TLS-terminated with a
 //! leaf certificate signed by the local Isartor CA, then their request
 //! bodies are routed through the Deflection Stack (L1a exact cache →
-//! L1b semantic cache → L3 cloud LLM).
+//! L1b semantic cache → L2 local model → L3 native upstream passthrough).
 //!
-//! Non-allowed domains and non-chat-completion paths are tunnelled
+//! Non-allowed domains and non-supported paths are tunnelled
 //! transparently without interception.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
+use axum::{Json, extract::Query, response::IntoResponse};
 use bytes::BytesMut;
+use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -20,11 +24,15 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::config::CacheMode;
 use crate::core::prompt::extract_prompt;
+use crate::models::{
+    FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage, ProxyRecentResponse,
+    ProxyRouteDecision,
+};
 use crate::proxy::tls::IsartorCa;
 use crate::state::AppState;
 
 /// Domains that may be intercepted via TLS MITM.
-const ALLOWED_DOMAINS: &[&str] = &[
+const COPILOT_DOMAINS: &[&str] = &[
     "copilot-proxy.githubusercontent.com",
     "api.github.com",
     "api.individual.githubcopilot.com",
@@ -32,8 +40,133 @@ const ALLOWED_DOMAINS: &[&str] = &[
     "api.enterprise.githubcopilot.com",
 ];
 
+const CLAUDE_DOMAINS: &[&str] = &["api.anthropic.com"];
+
+const ANTIGRAVITY_DOMAINS: &[&str] = &[
+    "cloudcode-pa.googleapis.com",
+    "daily-cloudcode-pa.googleapis.com",
+    "daily-cloudcode-pa.sandbox.googleapis.com",
+];
+
+const ALLOWED_DOMAINS: &[&str] = &[
+    "copilot-proxy.githubusercontent.com",
+    "api.github.com",
+    "api.individual.githubcopilot.com",
+    "api.business.githubcopilot.com",
+    "api.enterprise.githubcopilot.com",
+    "api.anthropic.com",
+    "cloudcode-pa.googleapis.com",
+    "daily-cloudcode-pa.googleapis.com",
+    "daily-cloudcode-pa.sandbox.googleapis.com",
+];
+
 /// HTTP paths that trigger Deflection Stack interception.
-const INTERCEPTED_PATHS: &[&str] = &["/v1/chat/completions"];
+const INTERCEPTED_PATHS: &[&str] = &["/v1/chat/completions", "/v1/messages"];
+const RECENT_PROXY_DECISIONS_CAPACITY: usize = 200;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyClient {
+    Copilot,
+    Claude,
+    Antigravity,
+}
+
+impl ProxyClient {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Copilot => "copilot",
+            Self::Claude => "claude",
+            Self::Antigravity => "antigravity",
+        }
+    }
+
+    fn layer3_label(self) -> &'static str {
+        match self {
+            Self::Copilot => "copilot_upstream",
+            Self::Claude => "claude_upstream",
+            Self::Antigravity => "antigravity_upstream",
+        }
+    }
+}
+
+fn identify_proxy_client(hostname: &str) -> Option<ProxyClient> {
+    if !ALLOWED_DOMAINS.contains(&hostname) {
+        None
+    } else if COPILOT_DOMAINS.contains(&hostname) {
+        Some(ProxyClient::Copilot)
+    } else if CLAUDE_DOMAINS.contains(&hostname) {
+        Some(ProxyClient::Claude)
+    } else if ANTIGRAVITY_DOMAINS.contains(&hostname) {
+        Some(ProxyClient::Antigravity)
+    } else {
+        None
+    }
+}
+
+static RECENT_PROXY_DECISIONS: std::sync::OnceLock<Mutex<VecDeque<ProxyRouteDecision>>> =
+    std::sync::OnceLock::new();
+
+fn recent_proxy_decisions_store() -> &'static Mutex<VecDeque<ProxyRouteDecision>> {
+    RECENT_PROXY_DECISIONS
+        .get_or_init(|| Mutex::new(VecDeque::with_capacity(RECENT_PROXY_DECISIONS_CAPACITY)))
+}
+
+fn record_proxy_decision(decision: ProxyRouteDecision) {
+    let mut decisions = recent_proxy_decisions_store().lock();
+    decisions.push_front(decision);
+    while decisions.len() > RECENT_PROXY_DECISIONS_CAPACITY {
+        decisions.pop_back();
+    }
+}
+
+pub fn recent_proxy_decisions(limit: usize) -> Vec<ProxyRouteDecision> {
+    recent_proxy_decisions_store()
+        .lock()
+        .iter()
+        .take(limit.min(RECENT_PROXY_DECISIONS_CAPACITY))
+        .cloned()
+        .collect()
+}
+
+pub fn recent_proxy_decisions_count() -> usize {
+    recent_proxy_decisions_store().lock().len()
+}
+
+#[cfg(test)]
+fn clear_recent_proxy_decisions() {
+    recent_proxy_decisions_store().lock().clear();
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct RecentProxyQuery {
+    pub limit: Option<usize>,
+}
+
+pub async fn recent_proxy_requests_handler(
+    Query(query): Query<RecentProxyQuery>,
+) -> impl IntoResponse {
+    Json(ProxyRecentResponse {
+        entries: recent_proxy_decisions(query.limit.unwrap_or(20)),
+    })
+}
+
+enum ProxyInterceptResolution {
+    Local {
+        final_layer: FinalLayer,
+        resolved_by: &'static str,
+        response_body: String,
+    },
+    ForwardToUpstream {
+        final_layer: FinalLayer,
+        resolved_by: &'static str,
+    },
+    Blocked {
+        final_layer: FinalLayer,
+        resolved_by: &'static str,
+        status_code: u16,
+        response_body: String,
+    },
+}
 
 /// Start the CONNECT proxy on the given address.
 ///
@@ -102,7 +235,7 @@ async fn handle_connect(
     }
 
     // Decide: intercept or tunnel.
-    let should_intercept = ALLOWED_DOMAINS.iter().any(|d| hostname == *d);
+    let should_intercept = identify_proxy_client(&hostname).is_some();
 
     // Send 200 Connection Established — tunnel is open.
     client
@@ -147,16 +280,69 @@ async fn handle_mitm(
 
     // Only intercept POST to chat completions paths.
     if method == "POST" && INTERCEPTED_PATHS.iter().any(|p| path == *p) {
-        // Route through Deflection Stack.
-        match deflection_stack(&body, &path, &state).await {
-            Some((status_code, response_body)) => {
+        let start = Instant::now();
+        let prompt_hash = prompt_hash(&body);
+
+        let proxy_client = identify_proxy_client(hostname);
+        match resolve_intercepted_request(&body, &path, proxy_client, &state).await {
+            ProxyInterceptResolution::Local {
+                final_layer,
+                resolved_by,
+                response_body,
+            } => {
+                let resp = format_http_response(200, &response_body);
+                tls_stream.write_all(resp.as_bytes()).await?;
+                tls_stream.flush().await?;
+                emit_proxy_decision(
+                    proxy_client,
+                    hostname,
+                    &path,
+                    prompt_hash,
+                    final_layer,
+                    resolved_by,
+                    start.elapsed().as_millis() as u64,
+                );
+                return Ok(());
+            }
+            ProxyInterceptResolution::Blocked {
+                final_layer,
+                resolved_by,
+                status_code,
+                response_body,
+            } => {
                 let resp = format_http_response(status_code, &response_body);
                 tls_stream.write_all(resp.as_bytes()).await?;
                 tls_stream.flush().await?;
+                emit_proxy_decision(
+                    proxy_client,
+                    hostname,
+                    &path,
+                    prompt_hash,
+                    final_layer,
+                    resolved_by,
+                    start.elapsed().as_millis() as u64,
+                );
                 return Ok(());
             }
-            None => {
-                // Cache miss — forward to upstream.
+            ProxyInterceptResolution::ForwardToUpstream {
+                final_layer,
+                resolved_by,
+            } => {
+                let upstream_response =
+                    forward_to_upstream(hostname, port, &method, &path, &headers, &body).await?;
+                cache_response(&body, &path, &upstream_response, &state).await;
+                emit_proxy_decision(
+                    proxy_client,
+                    hostname,
+                    &path,
+                    prompt_hash,
+                    final_layer,
+                    resolved_by,
+                    start.elapsed().as_millis() as u64,
+                );
+                tls_stream.write_all(&upstream_response).await?;
+                tls_stream.flush().await?;
+                return Ok(());
             }
         }
     }
@@ -187,18 +373,24 @@ async fn handle_tunnel(mut client: TcpStream, hostname: &str, port: u16) -> Resu
 
 // ── Deflection Stack ─────────────────────────────────────────────────
 
-/// Run the prompt through the Isartor Deflection Stack (L1a → L1b → L3).
-///
-/// Returns `Some((status_code, body))` on a cache hit, or `None` on a miss
-/// (caller should forward to the real upstream).
-async fn deflection_stack(body: &[u8], path: &str, state: &Arc<AppState>) -> Option<(u16, String)> {
+/// Run the prompt through the proxy deflection stack (L1a → L1b → L2 → Copilot upstream).
+async fn resolve_intercepted_request(
+    body: &[u8],
+    path: &str,
+    proxy_client: Option<ProxyClient>,
+    state: &Arc<AppState>,
+) -> ProxyInterceptResolution {
     let prompt = extract_prompt(body);
 
     if prompt.is_empty() {
-        return None;
+        return ProxyInterceptResolution::ForwardToUpstream {
+            final_layer: FinalLayer::Cloud,
+            resolved_by: proxy_client
+                .map(ProxyClient::layer3_label)
+                .unwrap_or("native_upstream"),
+        };
     }
 
-    // Namespace-keyed to avoid cross-format cache collisions.
     let cache_ns = match path {
         "/v1/chat/completions" => "openai",
         "/v1/messages" => "anthropic",
@@ -207,25 +399,31 @@ async fn deflection_stack(body: &[u8], path: &str, state: &Arc<AppState>) -> Opt
     let cache_prompt = format!("{cache_ns}|{prompt}");
     let mode = &state.config.cache_mode;
 
-    // ── L1a: Exact-match cache ──────────────────────────────────────
     let exact_key = if *mode == CacheMode::Exact || *mode == CacheMode::Both {
         let key = hex::encode(Sha256::digest(cache_prompt.as_bytes()));
         if let Some(cached) = state.exact_cache.get(&key) {
             tracing::info!(cache.key = %key, "Proxy L1a: exact cache HIT");
-            return Some((200, cached));
+            return ProxyInterceptResolution::Local {
+                final_layer: FinalLayer::ExactCache,
+                resolved_by: "exact_cache",
+                response_body: cached,
+            };
         }
         Some(key)
     } else {
         None
     };
 
-    // ── L1b: Semantic cache ─────────────────────────────────────────
     let embedding: Option<Vec<f32>> = if *mode == CacheMode::Semantic || *mode == CacheMode::Both {
         match state.text_embedder.generate_embedding(&prompt) {
             Ok(emb) => {
                 if let Some(cached) = state.vector_cache.search(&emb).await {
                     tracing::info!("Proxy L1b: semantic cache HIT");
-                    return Some((200, cached));
+                    return ProxyInterceptResolution::Local {
+                        final_layer: FinalLayer::SemanticCache,
+                        resolved_by: "semantic_cache",
+                        response_body: cached,
+                    };
                 }
                 Some(emb)
             }
@@ -238,55 +436,196 @@ async fn deflection_stack(body: &[u8], path: &str, state: &Arc<AppState>) -> Opt
         None
     };
 
-    // ── L3: Cloud LLM ───────────────────────────────────────────────
-    if state.config.offline_mode {
-        tracing::debug!("Proxy: offline mode, skipping L3");
-        return None; // Let the caller forward to upstream (which will also fail, but keeps the flow consistent)
+    if let Some(response_body) = try_proxy_slm_resolution(&prompt, path, state).await {
+        if let Some(key) = exact_key {
+            state.exact_cache.put(key, response_body.clone());
+        }
+        if let Some(emb) = embedding {
+            state.vector_cache.insert(emb, response_body.clone()).await;
+        }
+
+        return ProxyInterceptResolution::Local {
+            final_layer: FinalLayer::Slm,
+            resolved_by: "slm",
+            response_body,
+        };
     }
 
-    match state.llm_agent.chat(&prompt).await {
-        Ok(llm_response) => {
-            // Build an OpenAI-compatible response (since Copilot expects this format).
-            let response_json = serde_json::json!({
-                "id": format!("isartor-{}", uuid::Uuid::new_v4()),
-                "object": "chat.completion",
-                "created": std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
-                "model": "isartor-proxy",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": llm_response,
+    if state.config.offline_mode {
+        tracing::debug!("Proxy: offline mode, blocking native upstream");
+        return ProxyInterceptResolution::Blocked {
+            final_layer: FinalLayer::Cloud,
+            resolved_by: "offline_blocked",
+            status_code: 503,
+            response_body: match path {
+                "/v1/messages" => serde_json::json!({
+                    "error": { "message": "offline mode active" }
+                })
+                .to_string(),
+                _ => serde_json::json!({
+                    "error": { "message": "offline mode active" }
+                })
+                .to_string(),
+            },
+        };
+    }
+
+    ProxyInterceptResolution::ForwardToUpstream {
+        final_layer: FinalLayer::Cloud,
+        resolved_by: proxy_client
+            .map(ProxyClient::layer3_label)
+            .unwrap_or("native_upstream"),
+    }
+}
+
+fn build_openai_proxy_response(content: String, model: String) -> String {
+    serde_json::to_string(&OpenAiChatResponse {
+        choices: vec![OpenAiChatChoice {
+            message: OpenAiMessage {
+                role: "assistant".to_string(),
+                content,
+            },
+            index: 0,
+            finish_reason: Some("stop".to_string()),
+        }],
+        model: Some(model),
+    })
+    .unwrap_or_else(|_| {
+        serde_json::json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": ""
+                },
+                "index": 0,
+                "finish_reason": "stop"
+            }]
+        })
+        .to_string()
+    })
+}
+
+fn build_anthropic_proxy_response(content: String, model: String) -> String {
+    serde_json::json!({
+        "type": "message",
+        "role": "assistant",
+        "model": model,
+        "content": [{"type": "text", "text": content}],
+        "stop_reason": "end_turn"
+    })
+    .to_string()
+}
+
+async fn try_proxy_slm_resolution(
+    prompt: &str,
+    path: &str,
+    state: &Arc<AppState>,
+) -> Option<String> {
+    if !state.config.enable_slm_router {
+        return None;
+    }
+
+    if state.config.inference_engine == crate::config::InferenceEngineMode::Embedded {
+        #[cfg(feature = "embedded-inference")]
+        {
+            if let Some(classifier) = &state.embedded_classifier {
+                match classifier.classify(prompt).await {
+                    Ok((label, _)) if label == "SIMPLE" => match classifier.execute(prompt).await {
+                        Ok(answer) => {
+                            let model = "embedded(gemma-2)".to_string();
+                            return Some(match path {
+                                "/v1/messages" => build_anthropic_proxy_response(answer, model),
+                                _ => build_openai_proxy_response(answer, model),
+                            });
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Proxy L2: embedded answer generation failed");
+                            return None;
+                        }
                     },
-                    "finish_reason": "stop"
-                }],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0
+                    Ok(_) => return None,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Proxy L2: embedded classification failed");
+                        return None;
+                    }
                 }
-            });
-            let resp_string = response_json.to_string();
-
-            // Cache the LLM response.
-            if let Some(key) = exact_key {
-                state.exact_cache.put(key, resp_string.clone());
             }
-            if let Some(emb) = embedding {
-                state.vector_cache.insert(emb, resp_string.clone()).await;
-            }
-
-            tracing::info!(provider = %state.llm_agent.provider_name(), "Proxy L3: LLM response cached");
-            Some((200, resp_string))
+            return None;
         }
+        #[cfg(not(feature = "embedded-inference"))]
+        {
+            tracing::warn!("Proxy L2: embedded inference requested but feature disabled");
+            return None;
+        }
+    }
+
+    match state.slm_client.classify_simple_or_complex(prompt).await {
+        Ok(true) => match state.slm_client.answer_prompt(prompt).await {
+            Ok(answer) => {
+                let model = state.config.layer2.model_name.clone();
+                Some(match path {
+                    "/v1/messages" => build_anthropic_proxy_response(answer, model),
+                    _ => build_openai_proxy_response(answer, model),
+                })
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Proxy L2: sidecar answer generation failed");
+                None
+            }
+        },
+        Ok(false) => None,
         Err(e) => {
-            tracing::warn!(error = %e, "Proxy L3: LLM call failed, forwarding to upstream");
+            tracing::warn!(error = %e, "Proxy L2: sidecar classification failed");
             None
         }
     }
+}
+
+fn prompt_hash(body: &[u8]) -> Option<String> {
+    let prompt = extract_prompt(body);
+    if prompt.is_empty() {
+        return None;
+    }
+    Some(hex::encode(Sha256::digest(prompt.as_bytes())))
+}
+
+fn emit_proxy_decision(
+    proxy_client: Option<ProxyClient>,
+    hostname: &str,
+    path: &str,
+    prompt_hash: Option<String>,
+    final_layer: FinalLayer,
+    resolved_by: &str,
+    latency_ms: u64,
+) {
+    let decision = ProxyRouteDecision {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        client: proxy_client
+            .map(ProxyClient::id)
+            .unwrap_or("unknown")
+            .to_string(),
+        hostname: hostname.to_string(),
+        path: path.to_string(),
+        prompt_hash,
+        final_layer: final_layer.as_header_value().to_string(),
+        resolved_by: resolved_by.to_string(),
+        deflected: final_layer.is_deflected(),
+        latency_ms,
+    };
+
+    tracing::info!(
+        client = %decision.client,
+        hostname = %decision.hostname,
+        path = %decision.path,
+        final_layer = %decision.final_layer,
+        resolved_by = %decision.resolved_by,
+        deflected = decision.deflected,
+        latency_ms = decision.latency_ms,
+        "Proxy request resolved"
+    );
+
+    record_proxy_decision(decision);
 }
 
 /// Cache a response received from the real upstream.
@@ -481,6 +820,93 @@ async fn send_error(stream: &mut TcpStream, code: u16, msg: &str) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroUsize;
+    use std::sync::Arc;
+
+    use wiremock::matchers::{body_string_contains, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use crate::clients::slm::SlmClient;
+    use crate::config::{
+        AppConfig, CacheBackend, CacheMode, EmbeddingSidecarSettings, InferenceEngineMode,
+        Layer2Settings, RouterBackend,
+    };
+    use crate::layer1::embeddings::shared_test_embedder;
+    use crate::layer1::layer1a_cache::ExactMatchCache;
+    use crate::state::{AppLlmAgent, AppState};
+    use crate::vector_cache::VectorCache;
+
+    struct PanicAgent;
+
+    #[async_trait::async_trait]
+    impl AppLlmAgent for PanicAgent {
+        async fn chat(&self, _prompt: &str) -> anyhow::Result<String> {
+            panic!("proxy resolution should not call generic llm_agent");
+        }
+        fn provider_name(&self) -> &'static str {
+            "panic"
+        }
+    }
+
+    fn test_config(
+        sidecar_url: &str,
+        enable_slm_router: bool,
+        offline_mode: bool,
+    ) -> Arc<AppConfig> {
+        Arc::new(AppConfig {
+            host_port: "127.0.0.1:0".into(),
+            inference_engine: InferenceEngineMode::Sidecar,
+            gateway_api_key: "test-key".into(),
+            cache_mode: CacheMode::Both,
+            cache_backend: CacheBackend::Memory,
+            redis_url: "redis://127.0.0.1:6379".into(),
+            router_backend: RouterBackend::Embedded,
+            vllm_url: "http://127.0.0.1:8000".into(),
+            vllm_model: "gemma-2-2b-it".into(),
+            embedding_model: "all-minilm".into(),
+            similarity_threshold: 0.85,
+            cache_ttl_secs: 300,
+            cache_max_capacity: 100,
+            layer2: Layer2Settings {
+                sidecar_url: sidecar_url.into(),
+                model_name: "phi-3-mini".into(),
+                timeout_seconds: 5,
+            },
+            local_slm_url: "http://localhost:11434/api/generate".into(),
+            local_slm_model: "llama3".into(),
+            embedding_sidecar: EmbeddingSidecarSettings {
+                sidecar_url: "http://127.0.0.1:8082".into(),
+                model_name: "test".into(),
+                timeout_seconds: 5,
+            },
+            llm_provider: "openai".into(),
+            external_llm_url: "https://api.openai.com/v1/chat/completions".into(),
+            external_llm_model: "gpt-4o-mini".into(),
+            external_llm_api_key: "".into(),
+            azure_deployment_id: "".into(),
+            azure_api_version: "".into(),
+            enable_monitoring: false,
+            enable_slm_router,
+            otel_exporter_endpoint: "http://localhost:4317".into(),
+            offline_mode,
+            proxy_port: "0.0.0.0:8081".into(),
+        })
+    }
+
+    fn test_state(sidecar_url: &str, enable_slm_router: bool, offline_mode: bool) -> Arc<AppState> {
+        let config = test_config(sidecar_url, enable_slm_router, offline_mode);
+        Arc::new(AppState {
+            config: config.clone(),
+            http_client: reqwest::Client::new(),
+            exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
+            vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            llm_agent: Arc::new(PanicAgent),
+            slm_client: Arc::new(SlmClient::new(&config.layer2)),
+            text_embedder: shared_test_embedder(),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        })
+    }
 
     #[test]
     fn test_parse_host_port() {
@@ -509,12 +935,232 @@ mod tests {
     fn test_allowed_domains() {
         assert!(ALLOWED_DOMAINS.contains(&"copilot-proxy.githubusercontent.com"));
         assert!(ALLOWED_DOMAINS.contains(&"api.github.com"));
+        assert!(ALLOWED_DOMAINS.contains(&"api.anthropic.com"));
+        assert!(ALLOWED_DOMAINS.contains(&"cloudcode-pa.googleapis.com"));
         assert!(!ALLOWED_DOMAINS.contains(&"evil.example.com"));
     }
 
     #[test]
     fn test_intercepted_paths() {
         assert!(INTERCEPTED_PATHS.contains(&"/v1/chat/completions"));
+        assert!(INTERCEPTED_PATHS.contains(&"/v1/messages"));
         assert!(!INTERCEPTED_PATHS.contains(&"/v1/models"));
+    }
+
+    #[tokio::test]
+    async fn proxy_resolution_uses_exact_cache_before_anything_else() {
+        let state = test_state("http://127.0.0.1:1", false, false);
+        let key = hex::encode(Sha256::digest(b"openai|hello"));
+        state.exact_cache.put(key, r#"{"cached":true}"#.to_string());
+
+        let result = resolve_intercepted_request(
+            br#"{"prompt":"hello"}"#,
+            "/v1/chat/completions",
+            Some(ProxyClient::Copilot),
+            &state,
+        )
+        .await;
+
+        match result {
+            ProxyInterceptResolution::Local {
+                final_layer,
+                resolved_by,
+                response_body,
+            } => {
+                assert_eq!(final_layer, FinalLayer::ExactCache);
+                assert_eq!(resolved_by, "exact_cache");
+                assert_eq!(response_body, r#"{"cached":true}"#);
+            }
+            _ => panic!("expected exact-cache local resolution"),
+        }
+    }
+
+    #[tokio::test]
+    async fn proxy_resolution_can_resolve_at_l2_via_sidecar() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_string_contains("Reply with EXACTLY one word: SIMPLE or COMPLEX."))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"SIMPLE"},"index":0,"finish_reason":"stop"}]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_string_contains("what is 2+2"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"local answer"},"index":0,"finish_reason":"stop"}], "model":"phi-3-mini"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = test_state(&server.uri(), true, false);
+        let result = resolve_intercepted_request(
+            br#"{"prompt":"what is 2+2"}"#,
+            "/v1/chat/completions",
+            Some(ProxyClient::Copilot),
+            &state,
+        )
+        .await;
+
+        match result {
+            ProxyInterceptResolution::Local {
+                final_layer,
+                resolved_by,
+                response_body,
+            } => {
+                assert_eq!(final_layer, FinalLayer::Slm);
+                assert_eq!(resolved_by, "slm");
+                assert!(response_body.contains("local answer"));
+            }
+            _ => panic!("expected l2 local resolution"),
+        }
+    }
+
+    #[tokio::test]
+    async fn proxy_resolution_falls_back_to_copilot_upstream_without_llm_key() {
+        let state = test_state("http://127.0.0.1:1", false, false);
+        let result = resolve_intercepted_request(
+            br#"{"prompt":"cache miss"}"#,
+            "/v1/chat/completions",
+            Some(ProxyClient::Copilot),
+            &state,
+        )
+        .await;
+
+        match result {
+            ProxyInterceptResolution::ForwardToUpstream {
+                final_layer,
+                resolved_by,
+            } => {
+                assert_eq!(final_layer, FinalLayer::Cloud);
+                assert_eq!(resolved_by, "copilot_upstream");
+            }
+            _ => panic!("expected copilot upstream passthrough"),
+        }
+    }
+
+    #[tokio::test]
+    async fn proxy_resolution_returns_anthropic_l2_shape_for_claude() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_string_contains("Reply with EXACTLY one word: SIMPLE or COMPLEX."))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"SIMPLE"},"index":0,"finish_reason":"stop"}]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_string_contains("explain the patch"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"anthropic local answer"},"index":0,"finish_reason":"stop"}], "model":"phi-3-mini"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let state = test_state(&server.uri(), true, false);
+        let result = resolve_intercepted_request(
+            br#"{"messages":[{"role":"user","content":[{"type":"text","text":"explain the patch"}]}]}"#,
+            "/v1/messages",
+            Some(ProxyClient::Claude),
+            &state,
+        )
+        .await;
+
+        match result {
+            ProxyInterceptResolution::Local {
+                final_layer,
+                resolved_by,
+                response_body,
+            } => {
+                assert_eq!(final_layer, FinalLayer::Slm);
+                assert_eq!(resolved_by, "slm");
+                assert!(response_body.contains(r#""type":"message""#));
+                assert!(response_body.contains("anthropic local answer"));
+            }
+            _ => panic!("expected anthropic l2 local resolution"),
+        }
+    }
+
+    #[tokio::test]
+    async fn proxy_resolution_falls_back_to_claude_upstream_without_llm_key() {
+        let state = test_state("http://127.0.0.1:1", false, false);
+        let result = resolve_intercepted_request(
+            br#"{"messages":[{"role":"user","content":[{"type":"text","text":"cache miss"}]}]}"#,
+            "/v1/messages",
+            Some(ProxyClient::Claude),
+            &state,
+        )
+        .await;
+
+        match result {
+            ProxyInterceptResolution::ForwardToUpstream {
+                final_layer,
+                resolved_by,
+            } => {
+                assert_eq!(final_layer, FinalLayer::Cloud);
+                assert_eq!(resolved_by, "claude_upstream");
+            }
+            _ => panic!("expected claude upstream passthrough"),
+        }
+    }
+
+    #[tokio::test]
+    async fn proxy_resolution_falls_back_to_antigravity_upstream_without_llm_key() {
+        let state = test_state("http://127.0.0.1:1", false, false);
+        let result = resolve_intercepted_request(
+            br#"{"messages":[{"role":"user","content":"cache miss"}]}"#,
+            "/v1/chat/completions",
+            Some(ProxyClient::Antigravity),
+            &state,
+        )
+        .await;
+
+        match result {
+            ProxyInterceptResolution::ForwardToUpstream {
+                final_layer,
+                resolved_by,
+            } => {
+                assert_eq!(final_layer, FinalLayer::Cloud);
+                assert_eq!(resolved_by, "antigravity_upstream");
+            }
+            _ => panic!("expected antigravity upstream passthrough"),
+        }
+    }
+
+    #[test]
+    fn recent_proxy_decisions_are_recorded() {
+        clear_recent_proxy_decisions();
+        emit_proxy_decision(
+            Some(ProxyClient::Copilot),
+            "copilot-proxy.githubusercontent.com",
+            "/v1/chat/completions",
+            Some("abc123".into()),
+            FinalLayer::SemanticCache,
+            "semantic_cache",
+            12,
+        );
+
+        let entries = recent_proxy_decisions(1);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].client, "copilot");
+        assert_eq!(entries[0].final_layer, "l1b");
+        assert_eq!(entries[0].resolved_by, "semantic_cache");
+        assert!(entries[0].deflected);
     }
 }

@@ -119,15 +119,8 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
     // X-Isartor-Layer: which layer resolved the request (l0/l1a/l1b/l2/l3)
     // X-Isartor-Deflected: true when the request was resolved without
     //                      reaching the cloud LLM
-    let layer_header_value = match final_layer {
-        FinalLayer::ExactCache => "l1a",
-        FinalLayer::SemanticCache => "l1b",
-        FinalLayer::Slm => "l2",
-        FinalLayer::Cloud => "l3",
-        FinalLayer::AuthBlocked => "l0",
-    };
-    let deflected_header_value = if resolved_early || matches!(final_layer, FinalLayer::AuthBlocked)
-    {
+    let layer_header_value = final_layer.as_header_value();
+    let deflected_header_value = if final_layer.is_deflected() {
         "true"
     } else {
         "false"

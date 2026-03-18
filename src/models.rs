@@ -32,6 +32,24 @@ impl FinalLayer {
             Self::Cloud => "L3_Cloud",
         }
     }
+
+    /// Stable short label used in response headers and operator views.
+    pub fn as_header_value(&self) -> &'static str {
+        match self {
+            Self::AuthBlocked => "l0",
+            Self::ExactCache => "l1a",
+            Self::SemanticCache => "l1b",
+            Self::Slm => "l2",
+            Self::Cloud => "l3",
+        }
+    }
+
+    pub fn is_deflected(&self) -> bool {
+        matches!(
+            self,
+            Self::AuthBlocked | Self::ExactCache | Self::SemanticCache | Self::Slm
+        )
+    }
 }
 
 // ── Client ↔ Firewall ─────────────────────────────────────────────────
@@ -50,6 +68,27 @@ pub struct ChatResponse {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+}
+
+/// A recent routing decision for intercepted proxy traffic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyRouteDecision {
+    pub request_id: String,
+    pub timestamp: String,
+    pub client: String,
+    pub hostname: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_hash: Option<String>,
+    pub final_layer: String,
+    pub resolved_by: String,
+    pub deflected: bool,
+    pub latency_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyRecentResponse {
+    pub entries: Vec<ProxyRouteDecision>,
 }
 
 // ── Legacy Ollama — Generation (v1 middleware compat) ─────────────────

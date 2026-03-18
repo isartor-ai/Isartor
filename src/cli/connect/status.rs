@@ -1,6 +1,8 @@
 use clap::Parser;
 
 use super::{DEFAULT_GATEWAY_URL, state::ConnectionState, test_isartor_connection};
+use crate::config::AppConfig;
+use crate::models::ProxyRouteDecision;
 
 #[derive(Parser, Debug, Clone)]
 pub struct StatusArgs {
@@ -11,6 +13,10 @@ pub struct StatusArgs {
     /// Gateway API key (optional). If omitted, status will still check /health.
     #[arg(long, env = "ISARTOR__GATEWAY_API_KEY")]
     pub gateway_api_key: Option<String>,
+
+    /// Number of recent proxied client requests to show.
+    #[arg(long, default_value_t = 5)]
+    pub proxy_recent_limit: usize,
 }
 
 pub async fn handle_status(args: StatusArgs) {
@@ -32,6 +38,10 @@ pub async fn handle_status(args: StatusArgs) {
                 layer_icon(h.layers.l1b == "active"),
                 layer_icon(h.layers.l2 == "active"),
                 layer_icon(h.layers.l3 == "active"),
+            );
+            println!(
+                "  Proxy:   {} (L3 via {}, recent {})",
+                h.proxy, h.proxy_layer3, h.proxy_recent_requests
             );
         }
         None => {
@@ -77,6 +87,40 @@ pub async fn handle_status(args: StatusArgs) {
         }
     }
 
+    let proxy_clients = ["copilot", "claude", "antigravity"];
+    if proxy_clients
+        .iter()
+        .any(|client| state.connections.contains_key(*client))
+    {
+        println!("\nRecent Proxied Client Requests");
+        match check_proxy_recent(
+            &gateway,
+            effective_gateway_api_key(args.gateway_api_key.as_deref()),
+            args.proxy_recent_limit,
+        )
+        .await
+        {
+            Some(entries) if !entries.is_empty() => {
+                for entry in entries {
+                    println!(
+                        "  {} {} {} {} via {} ({} ms{})",
+                        entry.client,
+                        entry.final_layer.to_uppercase(),
+                        entry.hostname,
+                        entry.path,
+                        entry.resolved_by,
+                        entry.latency_ms,
+                        if entry.deflected { ", deflected" } else { "" }
+                    );
+                }
+            }
+            Some(_) => println!("  No proxied client requests recorded yet."),
+            None => {
+                println!("  Unable to read proxy history. Provide --gateway-api-key if needed.")
+            }
+        }
+    }
+
     println!();
 }
 
@@ -85,6 +129,9 @@ struct Health {
     version: String,
     uptime_seconds: u64,
     layers: Layers,
+    proxy: String,
+    proxy_layer3: String,
+    proxy_recent_requests: usize,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -93,6 +140,11 @@ struct Layers {
     l1b: String,
     l2: String,
     l3: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ProxyRecent {
+    entries: Vec<ProxyRouteDecision>,
 }
 
 async fn check_isartor_health(gateway: &str) -> Option<Health> {
@@ -112,6 +164,35 @@ async fn check_isartor_health(gateway: &str) -> Option<Health> {
 
 fn layer_icon(active: bool) -> &'static str {
     if active { "✓" } else { "○" }
+}
+
+fn effective_gateway_api_key(cli_value: Option<&str>) -> Option<String> {
+    if let Some(value) = cli_value {
+        return Some(value.to_string());
+    }
+    AppConfig::load().ok().map(|cfg| cfg.gateway_api_key)
+}
+
+async fn check_proxy_recent(
+    gateway: &str,
+    gateway_api_key: Option<String>,
+    limit: usize,
+) -> Option<Vec<ProxyRouteDecision>> {
+    let url = format!(
+        "{}/debug/proxy/recent?limit={}",
+        gateway.trim_end_matches('/'),
+        limit
+    );
+    let client = reqwest::Client::new();
+    let mut req = client.get(url).timeout(std::time::Duration::from_secs(2));
+    if let Some(key) = gateway_api_key {
+        req = req.header("X-API-Key", key);
+    }
+    let resp = req.send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    Some(resp.json::<ProxyRecent>().await.ok()?.entries)
 }
 
 fn client_display_name(client: &str) -> String {
