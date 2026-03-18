@@ -22,7 +22,10 @@ pub async fn handle_status(args: StatusArgs) {
     match check_isartor_health(&gateway).await {
         Some(h) => {
             println!("  URL:     {}", gateway);
-            println!("  Status:  ✓ running (v{}, uptime {}s)", h.version, h.uptime_seconds);
+            println!(
+                "  Status:  ✓ running (v{}, uptime {}s)",
+                h.version, h.uptime_seconds
+            );
             println!(
                 "  Layers:  L1a {}  L1b {}  L2 {}  L3 {}",
                 layer_icon(h.layers.l1a == "active"),
@@ -95,7 +98,12 @@ struct Layers {
 async fn check_isartor_health(gateway: &str) -> Option<Health> {
     let url = format!("{}/health", gateway.trim_end_matches('/'));
     let client = reqwest::Client::new();
-    let resp = client.get(url).timeout(std::time::Duration::from_secs(2)).send().await.ok()?;
+    let resp = client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+        .ok()?;
     if !resp.status().is_success() {
         return None;
     }
@@ -103,7 +111,11 @@ async fn check_isartor_health(gateway: &str) -> Option<Health> {
 }
 
 fn layer_icon(active: bool) -> &'static str {
-    if active { "✓" } else { "○" }
+    if active {
+        "✓"
+    } else {
+        "○"
+    }
 }
 
 fn client_display_name(client: &str) -> String {

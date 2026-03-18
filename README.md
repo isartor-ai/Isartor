@@ -83,7 +83,15 @@ export ISARTOR__VLLM_MODEL=meta-llama/Llama-3-8B-Instruct
 
 ## Quick Start
 
-### Docker (Recommended — minimal configuration)
+### macOS / Linux — single command (Recommended — minimal configuration)
+
+**Public installer (works even if the source repo is private):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/isartor-ai/isartor-dist/main/install.sh | sh
+```
+
+### Docker (Straight forward — minimal configuration)
 
 The image ships a statically linked `isartor` binary and downloads the embedding model on first start (then reuses the on-disk hf-hub cache). No API key is needed for the cache layers.
 
@@ -126,26 +134,7 @@ curl http://localhost:8080/health
 
 > **Image size:** ~120 MB compressed / ~260 MB on disk (includes `all-MiniLM-L6-v2` embedding model, statically linked Rust binary).
 
-### macOS / Linux — single command
 
-**Public installer (works even if the source repo is private):**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/isartor-ai/isartor-dist/main/install.sh | sh
-```
-
-**Install directly from the private source repo (requires GitHub auth):**
-
-```bash
-gh auth login
-
-tmp="$(mktemp)" && \
-  GH_PAGER=cat gh api graphql \
-    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Blob{text}}}}' \
-    -f owner='isartor-ai' -f name='Isartor' -f expr='main:install.sh' \
-    --jq .data.repository.object.text > "$tmp" && \
-  sh "$tmp" && rm "$tmp"
-```
 
 After installation:
 

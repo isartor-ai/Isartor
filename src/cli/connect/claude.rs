@@ -67,7 +67,9 @@ pub async fn handle_claude_connect(args: ClaudeArgs) -> ConnectResult {
     );
 
     // The token used by Claude Code becomes the gateway auth token.
-    let token = gateway_key.clone().unwrap_or_else(|| "isartor-local".to_string());
+    let token = gateway_key
+        .clone()
+        .unwrap_or_else(|| "isartor-local".to_string());
     env.insert(
         "ANTHROPIC_AUTH_TOKEN".to_string(),
         serde_json::Value::String(token),
@@ -115,7 +117,10 @@ pub async fn handle_claude_connect(args: ClaudeArgs) -> ConnectResult {
                 let _ = std::fs::create_dir_all(parent);
             }
             let cfg = serde_json::json!({"provider":"anthropic","api_key":key});
-            let _ = std::fs::write(&key_path, serde_json::to_string_pretty(&cfg).unwrap_or_default());
+            let _ = std::fs::write(
+                &key_path,
+                serde_json::to_string_pretty(&cfg).unwrap_or_default(),
+            );
             changes.push(ConfigChange {
                 change_type: ConfigChangeType::FileCreated,
                 target: key_path.to_string_lossy().to_string(),
@@ -129,7 +134,8 @@ pub async fn handle_claude_connect(args: ClaudeArgs) -> ConnectResult {
     ConnectResult {
         client_name: "Claude Code".to_string(),
         success: test.response_received || args.base.dry_run,
-        message: "Claude Code now routes through Isartor. Start a new claude session to apply.".to_string(),
+        message: "Claude Code now routes through Isartor. Start a new claude session to apply."
+            .to_string(),
         changes_made: changes,
         test_result: Some(test),
     }
@@ -154,7 +160,8 @@ fn disconnect_claude(args: &ClaudeArgs, changes: &mut Vec<ConfigChange>) -> Conn
     ConnectResult {
         client_name: "Claude Code".to_string(),
         success: true,
-        message: "Claude Code disconnected from Isartor. Start a new claude session to apply.".to_string(),
+        message: "Claude Code disconnected from Isartor. Start a new claude session to apply."
+            .to_string(),
         changes_made: changes.clone(),
         test_result: None,
     }

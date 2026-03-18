@@ -135,7 +135,11 @@ pub fn print_connect_result(result: &ConnectResult) {
         "\n{} Isartor ↔ {} connection {}",
         icon,
         result.client_name,
-        if result.success { "configured" } else { "failed" }
+        if result.success {
+            "configured"
+        } else {
+            "failed"
+        }
     );
     println!("{}", result.message);
 
@@ -191,11 +195,7 @@ pub async fn test_isartor_connection(
         req = req.header("X-API-Key", key);
     }
 
-    match req
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    {
+    match req.timeout(std::time::Duration::from_secs(5)).send().await {
         Ok(resp) => {
             let layer = resp
                 .headers()

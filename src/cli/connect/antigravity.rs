@@ -30,7 +30,9 @@ pub async fn handle_antigravity_connect(args: AntigravityArgs) -> ConnectResult 
          export ANTIGRAVITY_BASE_URL=\"{}/v1\"\n\
          export ANTIGRAVITY_API_KEY=\"{}\"\n",
         gateway.trim_end_matches('/'),
-        gateway_key.clone().unwrap_or_else(|| "isartor-local".to_string())
+        gateway_key
+            .clone()
+            .unwrap_or_else(|| "isartor-local".to_string())
     );
 
     if args.base.show_config || args.base.dry_run {
@@ -45,19 +47,29 @@ pub async fn handle_antigravity_connect(args: AntigravityArgs) -> ConnectResult 
         });
     }
 
-    let test = test_isartor_connection(&gateway, gateway_key.as_deref(), "Hello from Antigravity test")
-        .await;
+    let test = test_isartor_connection(
+        &gateway,
+        gateway_key.as_deref(),
+        "Hello from Antigravity test",
+    )
+    .await;
 
     ConnectResult {
         client_name: "Antigravity".to_string(),
         success: test.response_received || args.base.dry_run,
-        message: format!("Run: source {}\nThen restart Antigravity.", env_path.display()),
+        message: format!(
+            "Run: source {}\nThen restart Antigravity.",
+            env_path.display()
+        ),
         changes_made: changes,
         test_result: Some(test),
     }
 }
 
-fn disconnect_antigravity(args: &AntigravityArgs, changes: &mut Vec<ConfigChange>) -> ConnectResult {
+fn disconnect_antigravity(
+    args: &AntigravityArgs,
+    changes: &mut Vec<ConfigChange>,
+) -> ConnectResult {
     let env_path = home_path(".isartor/env/antigravity.sh")
         .unwrap_or_else(|_| std::path::PathBuf::from(".isartor/env/antigravity.sh"));
     if env_path.exists() {

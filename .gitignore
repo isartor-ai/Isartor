@@ -10,3 +10,6 @@
 .fastembed_cache/
 __pycache__/
 *.pyc
+.isartor_init
+isartor_demo_result.txt
+EXPLORATION_SUMMARY.md

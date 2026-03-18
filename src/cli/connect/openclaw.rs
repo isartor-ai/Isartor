@@ -42,12 +42,18 @@ pub async fn handle_openclaw_connect(args: OpenclawArgs) -> ConnectResult {
         .or_else(|| {
             let cwd = std::env::current_dir().ok()?;
             let path = cwd.join("openclaw.json");
-            if path.exists() { Some(path) } else { None }
+            if path.exists() {
+                Some(path)
+            } else {
+                None
+            }
         });
 
     // Build provider block (JSON5-ish).
     let base_url = format!("{}/v1", gateway.trim_end_matches('/'));
-    let api_key = gateway_key.clone().unwrap_or_else(|| "isartor-local".to_string());
+    let api_key = gateway_key
+        .clone()
+        .unwrap_or_else(|| "isartor-local".to_string());
 
     let isartor_provider_block = format!(
         r#"// Added by: isartor connect openclaw
@@ -65,7 +71,10 @@ pub async fn handle_openclaw_connect(args: OpenclawArgs) -> ConnectResult {
         .map(|s| format!("\"isartor/{}\"", s.trim()))
         .collect();
 
-    println!("\nAdd this to models.providers in your openclaw.json:\n\n{}", isartor_provider_block);
+    println!(
+        "\nAdd this to models.providers in your openclaw.json:\n\n{}",
+        isartor_provider_block
+    );
     println!(
         "\nThen set your agent model to:\n  agent: {{ model: {{ primary: \"isartor/{}\", fallbacks: [{}] }} }}",
         args.model,
@@ -105,14 +114,17 @@ pub async fn handle_openclaw_connect(args: OpenclawArgs) -> ConnectResult {
         });
     }
 
-    let test = test_isartor_connection(&gateway, gateway_key.as_deref(), "Hello from OpenClaw test")
-        .await;
+    let test =
+        test_isartor_connection(&gateway, gateway_key.as_deref(), "Hello from OpenClaw test").await;
 
     ConnectResult {
         client_name: "OpenClaw".to_string(),
         success: test.response_received || args.base.dry_run,
         message: if let Some(p) = config_path {
-            format!("Patch file written. Apply it to {} then restart OpenClaw.", p.display())
+            format!(
+                "Patch file written. Apply it to {} then restart OpenClaw.",
+                p.display()
+            )
         } else {
             "Patch file written. Apply it to your openclaw.json then restart OpenClaw.".to_string()
         },
