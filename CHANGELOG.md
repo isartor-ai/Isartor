@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.33] - 2026-03-19
+
+### Fixed
+- **CONNECT proxy HTTP/2 connection reset**: ALPN now only advertises `http/1.1` since the proxy's request parser is text-based. Clients previously negotiated HTTP/2, sent binary frames, and the proxy dropped the connection.
+- **Copilot shell env missing `SSL_CERT_FILE`**: `copilot.sh` now exports `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` pointing to a combined CA bundle (system CAs + Isartor CA). This fixes TLS failures for non-Node.js clients like `gh` (Go binary) and `curl` that ignore `NODE_EXTRA_CA_CERTS`.
+
 ## [0.1.32] - 2026-03-19
 
 ### Fixed

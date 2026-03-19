@@ -126,6 +126,29 @@ impl IsartorCa {
         &self.ca_cert_path
     }
 
+    /// Return the path to a combined PEM bundle (system CAs + Isartor CA).
+    ///
+    /// Required so that non-Node.js clients (Go, Python, curl) trust both
+    /// the Isartor MITM certificates **and** real upstream certificates for
+    /// tunnelled connections.  The bundle is written once to
+    /// `~/.isartor/ca/combined-ca.pem` and refreshed on every call.
+    pub fn combined_ca_bundle_path(&self) -> Result<PathBuf> {
+        let bundle_path = self
+            .ca_cert_path
+            .parent()
+            .context("CA cert has no parent directory")?
+            .join("combined-ca.pem");
+
+        let system_pem = read_system_ca_bundle()?;
+
+        let combined = format!("{}\n{}", system_pem.trim_end(), self.ca_cert_pem.trim_end());
+        std::fs::write(&bundle_path, &combined)
+            .with_context(|| format!("Failed to write {}", bundle_path.display()))?;
+
+        tracing::debug!(path = %bundle_path.display(), "Combined CA bundle written");
+        Ok(bundle_path)
+    }
+
     /// Generate a `rustls::ServerConfig` with a leaf certificate for the given hostname,
     /// signed by this CA.
     pub fn server_config_for_host(&self, hostname: &str) -> Result<Arc<ServerConfig>> {
@@ -160,10 +183,45 @@ impl IsartorCa {
             .with_single_cert(vec![leaf_cert_der, ca_cert_der], leaf_key_der)
             .context("Failed to build rustls ServerConfig")?;
 
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        // Only offer HTTP/1.1 — the proxy's request parser is text-based
+        // and cannot handle HTTP/2 binary frames.
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
         Ok(Arc::new(config))
     }
+}
+
+/// Read the platform's default CA bundle as a PEM string.
+fn read_system_ca_bundle() -> Result<String> {
+    // Prefer an explicit override first (rarely set, but useful in containers).
+    if let Ok(path) = std::env::var("SSL_CERT_FILE") {
+        let p = std::path::Path::new(&path);
+        if p.exists() {
+            return std::fs::read_to_string(p)
+                .with_context(|| format!("Failed to read SSL_CERT_FILE={path}"));
+        }
+    }
+
+    // Well-known system paths (macOS, Debian/Ubuntu, RHEL/Fedora, Alpine).
+    let candidates = [
+        "/etc/ssl/cert.pem",
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/ssl/ca-bundle.pem",
+    ];
+
+    for path in candidates {
+        let p = std::path::Path::new(path);
+        if p.exists() {
+            return std::fs::read_to_string(p)
+                .with_context(|| format!("Failed to read system CA bundle at {path}"));
+        }
+    }
+
+    anyhow::bail!(
+        "Could not locate the system CA bundle. \
+         Set SSL_CERT_FILE to the path of your CA bundle."
+    )
 }
 
 #[cfg(test)]

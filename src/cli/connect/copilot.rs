@@ -62,6 +62,24 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
         description: "Isartor CA certificate (for TLS MITM)".to_string(),
     });
 
+    // Generate a combined CA bundle (system CAs + Isartor CA) so that
+    // non-Node.js clients (Go-based `gh`, curl, Python) trust both the
+    // Isartor MITM certs and real upstream certs for tunnelled traffic.
+    let combined_ca = match ca.combined_ca_bundle_path() {
+        Ok(p) => {
+            changes.push(ConfigChange {
+                change_type: ConfigChangeType::FileCreated,
+                target: p.to_string_lossy().to_string(),
+                description: "Combined CA bundle (system CAs + Isartor CA)".to_string(),
+            });
+            p.to_string_lossy().to_string()
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Could not generate combined CA bundle; falling back to Isartor CA only");
+            ca_cert_path.to_string_lossy().to_string()
+        }
+    };
+
     // Step 2: Derive the CONNECT proxy URL.
     // If the user explicitly set --proxy-port, respect it.  Otherwise read
     // the running AppConfig (honours ISARTOR__PROXY_PORT / isartor.toml)
@@ -78,6 +96,8 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
              # Source this file: source ~/.isartor/env/copilot.fish\n\
              set -x HTTPS_PROXY \"{proxy_url}\"\n\
              set -x NODE_EXTRA_CA_CERTS \"{node_ca}\"\n\
+             set -x SSL_CERT_FILE \"{combined_ca}\"\n\
+             set -x REQUESTS_CA_BUNDLE \"{combined_ca}\"\n\
              set -x ISARTOR_COPILOT_ENABLED true\n"
         ),
         "powershell" => format!(
@@ -85,6 +105,8 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
              # Dot-source: . ~/.isartor/env/copilot.ps1\n\
              $env:HTTPS_PROXY = \"{proxy_url}\"\n\
              $env:NODE_EXTRA_CA_CERTS = \"{node_ca}\"\n\
+             $env:SSL_CERT_FILE = \"{combined_ca}\"\n\
+             $env:REQUESTS_CA_BUNDLE = \"{combined_ca}\"\n\
              $env:ISARTOR_COPILOT_ENABLED = \"true\"\n"
         ),
         _ => format!(
@@ -92,6 +114,8 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
              # Source this file: source ~/.isartor/env/copilot.sh\n\
              export HTTPS_PROXY=\"{proxy_url}\"\n\
              export NODE_EXTRA_CA_CERTS=\"{node_ca}\"\n\
+             export SSL_CERT_FILE=\"{combined_ca}\"\n\
+             export REQUESTS_CA_BUNDLE=\"{combined_ca}\"\n\
              export ISARTOR_COPILOT_ENABLED=true\n"
         ),
     };
