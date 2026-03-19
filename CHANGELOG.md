@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.31] - 2026-03-19
+
+### Fixed
+- Restored the `schannel` lockfile entry to `0.1.29` after the `v0.1.30` release metadata bump accidentally rewrote a third-party `Cargo.lock` dependency version and broke CI dependency resolution.
+
 ## [0.1.30] - 2026-03-19
 
 ### Added
@@ -132,7 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.30...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.31...HEAD
+[0.1.31]: https://github.com/isartor-ai/Isartor/compare/v0.1.30...v0.1.31
 [0.1.30]: https://github.com/isartor-ai/Isartor/compare/v0.1.29...v0.1.30
 [0.1.29]: https://github.com/isartor-ai/Isartor/compare/v0.1.28...v0.1.29
 [0.1.28]: https://github.com/isartor-ai/Isartor/compare/v0.1.27...v0.1.28
