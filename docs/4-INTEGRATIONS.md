@@ -25,7 +25,7 @@ Supported headers:
 - `X-API-Key: <gateway_api_key>`
 - `Authorization: Bearer <gateway_api_key>` (useful for OpenAI/Anthropic-compatible clients)
 
-The default key is `changeme`. You should override it via config/env in production.
+By default, `gateway_api_key` is empty and **auth is disabled** (local-first). To enable gateway authentication, set `ISARTOR__GATEWAY_API_KEY` to a secret value. In production, **always** set a strong key.
 
 ## Observability headers
 

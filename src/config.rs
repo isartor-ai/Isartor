@@ -204,7 +204,8 @@ pub struct AppConfig {
     /// Inference engine mode (`sidecar` or `embedded`). Default is `sidecar`.
     pub inference_engine: InferenceEngineMode,
 
-    /// API key that clients must present in the `X-API-Key` header (Layer 0).
+    /// Optional API key that clients must present in the `X-API-Key` header (Layer 0).
+    /// When empty, authentication is disabled (local-first default).
     pub gateway_api_key: String,
 
     // ── Layer 1 — Cache ─────────────────────────────────────────────
@@ -350,7 +351,7 @@ impl AppConfig {
             // Defaults -------------------------------------------------
             .set_default("host_port", "0.0.0.0:8080")?
             .set_default("inference_engine", "sidecar")?
-            .set_default("gateway_api_key", "changeme")?
+            .set_default("gateway_api_key", "")?
             // Layer 1
             .set_default("cache_mode", "both")?
             .set_default("cache_backend", "memory")?
@@ -591,7 +592,7 @@ mod tests {
 
                 assert_eq!(config.host_port, "0.0.0.0:8080");
                 assert_eq!(config.inference_engine, InferenceEngineMode::Sidecar);
-                assert_eq!(config.gateway_api_key, "changeme");
+                assert_eq!(config.gateway_api_key, "");
                 assert_eq!(config.cache_mode, CacheMode::Both);
                 assert_eq!(config.cache_backend, CacheBackend::Memory);
                 assert_eq!(config.redis_url, "redis://127.0.0.1:6379");
@@ -626,7 +627,7 @@ mod tests {
         let cfg = config::Config::builder()
             .set_default("host_port", "0.0.0.0:8080")
             .unwrap()
-            .set_default("gateway_api_key", "changeme")
+            .set_default("gateway_api_key", "")
             .unwrap()
             .set_default("cache_mode", "both")
             .unwrap()
@@ -722,7 +723,7 @@ mod tests {
         let cfg = config::Config::builder()
             .set_default("host_port", "0.0.0.0:8080")
             .unwrap()
-            .set_default("gateway_api_key", "changeme")
+            .set_default("gateway_api_key", "")
             .unwrap()
             .set_default("cache_mode", "both")
             .unwrap()
@@ -823,7 +824,7 @@ mod tests {
         let cfg = config::Config::builder()
             .set_default("host_port", "0.0.0.0:8080")
             .unwrap()
-            .set_default("gateway_api_key", "changeme")
+            .set_default("gateway_api_key", "")
             .unwrap()
             .set_default("cache_mode", "both")
             .unwrap()

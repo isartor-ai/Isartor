@@ -31,7 +31,7 @@ export ISARTOR__LAYER2__SIDECAR_URL="http://127.0.0.1:8081"
 | Variable | Type | Default | Description |
 | --- | --- | --- | --- |
 | `ISARTOR__HOST_PORT` | `String` | `0.0.0.0:8080` | Socket address the server binds to |
-| `ISARTOR__GATEWAY_API_KEY` | `String` | `changeme` | API key required in `X-API-Key` header (Layer 0) |
+| `ISARTOR__GATEWAY_API_KEY` | `String` | `""` | API key for `X-API-Key` header (Layer 0). Empty = auth disabled (local-first). Set a value to enable gateway auth |
 | `ISARTOR__INFERENCE_ENGINE` | `String` | `sidecar` | `sidecar` — uses external sidecar for Layer 2; `embedded` — uses in-process Candle engine (requires `embedded-inference` feature) |
 
 ### Layer 1 — Cache

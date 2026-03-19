@@ -75,17 +75,21 @@ export ISARTOR_LAYER2_SIDECAR_URL=http://127.0.0.1:8081
 See the [Configuration Reference](5-CONFIGURATION-REF.md) for the full
 list of variables.
 
-### 1.4 `ISARTOR__GATEWAY_API_KEY` not set
+### 1.4 Gateway auth / `401 Unauthorized`
 
 **Symptom:** All requests return `401 Unauthorized`.
 
-**Fix:**
+By default, `gateway_api_key` is empty and auth is disabled — you should **not** see 401 errors unless you (or your deployment) explicitly set `ISARTOR__GATEWAY_API_KEY`.
+
+**If you enabled auth by setting a key**, every request must include it:
 
 ```bash
 export ISARTOR__GATEWAY_API_KEY=your-secret-key
 ```
 
-The default is `changeme` — override it for any non-local deployment.
+Common causes of unexpected 401s:
+- The key in your request header doesn't match `ISARTOR__GATEWAY_API_KEY`.
+- You forgot to include `X-API-Key` or `Authorization: Bearer` in the request.
 
 ---
 

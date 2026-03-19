@@ -36,6 +36,8 @@ Run the entire test suite in one command:
 
 ## Manual Step-by-Step
 
+> **Note:** Isartor runs without gateway auth by default (local-first). The test commands below explicitly set `ISARTOR__GATEWAY_API_KEY` to exercise authenticated request handling.
+
 ### 1  Start the Server
 
 ```bash

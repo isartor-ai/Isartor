@@ -277,7 +277,7 @@ These are the most relevant `ISARTOR__*` variables for Level 1 deployments. For 
 | Variable | Default | Level 1 Notes |
 | --- | --- | --- |
 | `ISARTOR__HOST_PORT` | `0.0.0.0:8080` | Bind address |
-| `ISARTOR__GATEWAY_API_KEY` | `changeme` | **Change in production** |
+| `ISARTOR__GATEWAY_API_KEY` | `""` | Set to enable gateway auth |
 | `ISARTOR__CACHE_MODE` | `both` | `both` recommended — candle BertModel provides in-process semantic embeddings |
 | `ISARTOR__CACHE_BACKEND` | `memory` | In-process LRU — ideal for single-process Level 1 |
 | `ISARTOR__ROUTER_BACKEND` | `embedded` | In-process Candle GGUF SLM — zero external dependencies |

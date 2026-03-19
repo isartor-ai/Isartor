@@ -212,6 +212,10 @@ test_health() {
 
 test_auth() {
   section "Authentication"
+  if [[ -z "$API_KEY" ]]; then
+    skip "Auth disabled (no API key configured)"
+    return
+  fi
   # Request without API key should be rejected
   local code
   code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \

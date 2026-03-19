@@ -15,8 +15,10 @@ use crate::state::AppState;
 /// Layer 0 — Authentication middleware.
 ///
 /// Validates the `X-API-Key` request header against the configured
-/// `gateway_api_key`. If the key is missing or does not match, the
-/// Deflection Stack is short-circuited with a `401 Unauthorized` response.
+/// `gateway_api_key`. If the key is empty (default), authentication is
+/// disabled and all requests pass through (local-first mode).
+/// If a key is configured but missing or wrong, the Deflection Stack is
+/// short-circuited with a `401 Unauthorized` response.
 pub async fn auth_middleware(request: Request, next: Next) -> Response {
     let state = match request.extensions().get::<Arc<AppState>>() {
         Some(s) => s.clone(),
@@ -32,6 +34,12 @@ pub async fn auth_middleware(request: Request, next: Next) -> Response {
                 .into_response();
         }
     };
+
+    // When no gateway API key is configured, auth is disabled (local-first).
+    if state.config.gateway_api_key.is_empty() {
+        tracing::debug!("Layer 0: Auth disabled (no gateway_api_key configured)");
+        return next.run(request).await;
+    }
 
     let api_key = request
         .headers()
@@ -241,19 +249,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_api_key_matches_empty_config() {
-        // Both configured key and provided key are empty strings — should pass.
+    async fn empty_config_key_disables_auth() {
+        // When gateway_api_key is empty, auth is disabled — any request passes through.
         let state = test_state("");
         let app = test_app(state);
 
         let req = Request::builder()
             .method("POST")
             .uri("/test")
-            .header("X-API-Key", "")
             .body(Body::empty())
             .unwrap();
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"ok");
     }
 }
