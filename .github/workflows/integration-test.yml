@@ -36,6 +36,7 @@ jobs:
 
       - name: Start Isartor in background
         run: |
+          ISARTOR__HOST_PORT="0.0.0.0:8080" \
           ./target/release/isartor > /tmp/isartor.log 2>&1 &
           echo "ISARTOR_PID=$!" >> "$GITHUB_ENV"
 
