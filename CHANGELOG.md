@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-03-19
+
+### Fixed
+- `isartor update` now bypasses stale local Isartor proxy environment when checking GitHub for releases, so updates still work after the local CONNECT proxy on `localhost:8081` has been stopped
+
 ## [0.1.23] - 2026-03-18
 
 ### Added
@@ -70,7 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.23...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.24...HEAD
+[0.1.24]: https://github.com/isartor-ai/Isartor/compare/v0.1.23...v0.1.24
 [0.1.23]: https://github.com/isartor-ai/Isartor/compare/v0.1.22...v0.1.23
 [0.1.22]: https://github.com/isartor-ai/Isartor/compare/v0.1.19...v0.1.22
 [0.1.19]: https://github.com/isartor-ai/Isartor/compare/v0.1.18...v0.1.19

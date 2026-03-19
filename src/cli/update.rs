@@ -7,9 +7,23 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use reqwest::Url;
 
 const REPO: &str = "isartor-ai/Isartor";
 const GITHUB_API: &str = "https://api.github.com";
+const PROXY_ENV_KEYS: &[&str] = &[
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+];
+const ISARTOR_PROXY_MARKER_ENV_KEYS: &[&str] =
+    &["ISARTOR_COPILOT_ENABLED", "ISARTOR_ANTIGRAVITY_ENABLED"];
+const ISARTOR_CA_ENV_KEYS: &[&str] =
+    &["NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"];
+const ISARTOR_CA_PATH_FRAGMENT: &str = "/.isartor/ca/isartor-ca.pem";
 
 #[derive(Parser, Debug, Clone)]
 pub struct UpdateArgs {
@@ -65,9 +79,7 @@ pub async fn handle_update(args: UpdateArgs) -> Result<()> {
 
     // 3. Download the archive.
     eprintln!("  ⏳ Downloading...");
-    let client = reqwest::Client::builder()
-        .user_agent(format!("isartor/{current_version}"))
-        .build()?;
+    let client = build_github_client(current_version)?;
 
     let response = client
         .get(&download_url)
@@ -114,9 +126,7 @@ pub async fn handle_update(args: UpdateArgs) -> Result<()> {
 /// Fetch the latest release tag from the GitHub API.
 async fn fetch_latest_tag() -> Result<String> {
     let url = format!("{GITHUB_API}/repos/{REPO}/releases/latest");
-    let client = reqwest::Client::builder()
-        .user_agent(format!("isartor/{}", env!("CARGO_PKG_VERSION")))
-        .build()?;
+    let client = build_github_client(env!("CARGO_PKG_VERSION"))?;
 
     let resp = client.get(&url).send().await?;
     if !resp.status().is_success() {
@@ -128,6 +138,67 @@ async fn fetch_latest_tag() -> Result<String> {
         .as_str()
         .context("no tag_name in release response")?;
     Ok(tag.to_string())
+}
+
+fn build_github_client(current_version: &str) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder().user_agent(format!("isartor/{current_version}"));
+    if should_bypass_isartor_proxy_env() {
+        eprintln!("  ↺ Bypassing local Isartor proxy environment for GitHub update checks.");
+        builder = builder.no_proxy();
+    }
+    Ok(builder.build()?)
+}
+
+fn should_bypass_isartor_proxy_env() -> bool {
+    let proxy_values = PROXY_ENV_KEYS
+        .iter()
+        .map(|key| std::env::var(key).ok())
+        .collect::<Vec<_>>();
+    let marker_values = ISARTOR_PROXY_MARKER_ENV_KEYS
+        .iter()
+        .map(|key| std::env::var(key).ok())
+        .collect::<Vec<_>>();
+    let ca_values = ISARTOR_CA_ENV_KEYS
+        .iter()
+        .map(|key| std::env::var(key).ok())
+        .collect::<Vec<_>>();
+
+    should_bypass_isartor_proxy_env_from_values(&proxy_values, &marker_values, &ca_values)
+}
+
+fn should_bypass_isartor_proxy_env_from_values(
+    proxy_values: &[Option<String>],
+    marker_values: &[Option<String>],
+    ca_values: &[Option<String>],
+) -> bool {
+    uses_loopback_proxy(proxy_values)
+        && (marker_values
+            .iter()
+            .flatten()
+            .any(|value| value.eq_ignore_ascii_case("true"))
+            || ca_values
+                .iter()
+                .flatten()
+                .any(|value| is_isartor_ca_path(value)))
+}
+
+fn uses_loopback_proxy(proxy_values: &[Option<String>]) -> bool {
+    proxy_values
+        .iter()
+        .flatten()
+        .filter_map(|value| parse_proxy_url(value))
+        .filter_map(|url| url.host_str().map(|host| host.to_string()))
+        .any(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1"))
+}
+
+fn parse_proxy_url(value: &str) -> Option<Url> {
+    Url::parse(value)
+        .ok()
+        .or_else(|| Url::parse(&format!("http://{value}")).ok())
+}
+
+fn is_isartor_ca_path(value: &str) -> bool {
+    value.replace('\\', "/").contains(ISARTOR_CA_PATH_FRAGMENT)
 }
 
 /// Detect the Rust target triple for the current platform.
@@ -239,5 +310,46 @@ mod tests {
         // We can't easily test the full flow without network,
         // but we verify the struct is constructable.
         assert!(args.dry_run);
+    }
+
+    #[test]
+    fn bypasses_loopback_proxy_when_isartor_marker_present() {
+        assert!(should_bypass_isartor_proxy_env_from_values(
+            &[Some("http://localhost:8081".into())],
+            &[Some("true".into())],
+            &[None]
+        ));
+    }
+
+    #[test]
+    fn bypasses_loopback_proxy_when_isartor_ca_bundle_present() {
+        assert!(should_bypass_isartor_proxy_env_from_values(
+            &[Some("127.0.0.1:8081".into())],
+            &[None],
+            &[Some("/Users/test/.isartor/ca/isartor-ca.pem".into())]
+        ));
+    }
+
+    #[test]
+    fn keeps_non_isartor_proxy_configuration() {
+        assert!(!should_bypass_isartor_proxy_env_from_values(
+            &[Some("http://localhost:8888".into())],
+            &[None],
+            &[Some("/Users/test/corp-ca.pem".into())]
+        ));
+    }
+
+    #[test]
+    fn env_helper_bypasses_stale_isartor_proxy() {
+        temp_env::with_vars(
+            [
+                ("HTTPS_PROXY", Some("http://localhost:8081")),
+                ("ISARTOR_COPILOT_ENABLED", Some("true")),
+                ("NODE_EXTRA_CA_CERTS", None),
+            ],
+            || {
+                assert!(should_bypass_isartor_proxy_env());
+            },
+        );
     }
 }
