@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-03-19
+
+### Added
+- `isartor --detach` and `isartor up --detach` to start the gateway in the background, return control to the shell immediately, and log startup output to `~/.isartor/isartor.log`.
+
+### Changed
+- First-run and startup messaging now points users to detached startup when they want to keep using the current terminal session.
+
 ## [0.1.29] - 2026-03-19
 
 ### Fixed
@@ -124,7 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.29...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v0.1.30...HEAD
+[0.1.30]: https://github.com/isartor-ai/Isartor/compare/v0.1.29...v0.1.30
 [0.1.29]: https://github.com/isartor-ai/Isartor/compare/v0.1.28...v0.1.29
 [0.1.28]: https://github.com/isartor-ai/Isartor/compare/v0.1.27...v0.1.28
 [0.1.27]: https://github.com/isartor-ai/Isartor/compare/v0.1.26...v0.1.27

@@ -139,7 +139,9 @@ After installation:
 
 ```bash
 isartor up           # start the API gateway only
+isartor up --detach  # start in background and return to the shell
 isartor up copilot   # start gateway + CONNECT proxy for Copilot CLI
+isartor --detach     # same as startup, but free the current shell on first run
 isartor demo         # run the deflection demo (no API key needed)
 isartor init         # generate a commented config scaffold
 isartor set-key -p openai  # configure your LLM provider API key

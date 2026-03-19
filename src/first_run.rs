@@ -65,6 +65,7 @@ pub fn print_welcome_banner() {
     {g}║{r}   {w}L3 {r}  Cloud LLM fallback (OpenAI / Azure / …)         {g}║{r}
     {g}║{r}                                                          {g}║{r}
     {g}║{r}   Starting first-run demo in 3 seconds…                  {g}║{r}
+    {g}║{r}   Tip: use `isartor --detach` to free this shell.        {g}║{r}
     {g}║{r}                                                          {g}║{r}
     {g}╚══════════════════════════════════════════════════════════╝{r}
 "#,

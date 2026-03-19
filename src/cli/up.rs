@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use crate::config::AppConfig;
@@ -48,6 +51,11 @@ impl UpArgs {
     }
 }
 
+pub fn startup_log_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("cannot determine home directory")?;
+    Ok(home.join(".isartor").join("isartor.log"))
+}
+
 impl StartupMode {
     pub fn starts_proxy(self) -> bool {
         matches!(self, Self::Proxy { .. })
@@ -94,6 +102,10 @@ pub fn print_startup_card(config: &AppConfig, mode: StartupMode) {
     eprintln!("  ├──────────────────────────────────────────────────────────────┤");
     eprintln!("  │  Gateway: {:<50}│", gateway_url);
     eprintln!("  │  Auth:    {:<50}│", auth);
+    eprintln!(
+        "  │  Shell:   {:<50}│",
+        "use --detach to return immediately"
+    );
 
     match mode {
         StartupMode::GatewayOnly => {

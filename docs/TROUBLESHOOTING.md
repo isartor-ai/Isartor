@@ -696,6 +696,26 @@ If you intentionally manage `isartor` as a system-wide binary in
 `/usr/local/bin`, using `sudo isartor update` is still valid, but it should be a
 conscious admin choice rather than the default workflow.
 
+### Q: Why does `isartor` keep my terminal busy during first-run demo or normal startup?
+
+**A:** `isartor` runs the API gateway in the foreground by default, so that
+terminal session stays attached to the server process until you stop it.
+
+If you want your shell back immediately, start it in detached mode:
+
+```bash
+isartor --detach
+# or
+isartor up --detach
+```
+
+Isartor will keep running in the background, write logs to
+`~/.isartor/isartor.log`, and you can stop it later with:
+
+```bash
+isartor stop
+```
+
 ### Q: How do I monitor deflection rate in real-time?
 
 **A:** Use the Grafana dashboard included in `dashboards/prometheus-grafana.json`

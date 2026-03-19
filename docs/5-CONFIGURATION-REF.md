@@ -53,7 +53,7 @@
 
 | Command | Description |
 |---|---|
-| `isartor up` | Start the API gateway only (recommended default) |
+| `isartor up` | Start the API gateway only (recommended default). Flag: `--detach` to run in background and return to the shell |
 | `isartor up <copilot|claude|antigravity>` | Start the gateway plus the CONNECT proxy for that client |
 | `isartor init` | Generate a commented `isartor.toml` config scaffold |
 | `isartor demo` | Run the deflection demo (no API key needed) |

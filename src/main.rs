@@ -1,6 +1,11 @@
-use std::sync::Arc;
+use std::{
+    ffi::OsString,
+    fs::OpenOptions,
+    process::{Command, Stdio},
+    sync::Arc,
+};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use axum::{
     Json, Router, middleware as axum_mw,
     response::IntoResponse,
@@ -25,6 +30,10 @@ struct Cli {
     /// Equivalent to setting ISARTOR__OFFLINE_MODE=true.
     #[arg(long, env = "ISARTOR__OFFLINE_MODE")]
     offline: bool,
+
+    /// Start Isartor in the background and return to the shell immediately.
+    #[arg(long, global = true)]
+    detach: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -52,9 +61,15 @@ enum Commands {
     Stats(isartor::cli::stats::StatsArgs),
 }
 
+const DETACH_ENV: &str = "ISARTOR_INTERNAL_DETACHED_CHILD";
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    if cli.detach && is_startup_command(&cli.command) && std::env::var_os(DETACH_ENV).is_none() {
+        return spawn_detached_startup();
+    }
+
     let mut startup_mode = isartor::cli::up::StartupMode::GatewayOnly;
 
     // ── Handle `isartor init` / `isartor demo` / `isartor connectivity-check` ─
@@ -380,6 +395,64 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn is_startup_command(command: &Option<Commands>) -> bool {
+    matches!(command, None | Some(Commands::Up(_)))
+}
+
+fn spawn_detached_startup() -> anyhow::Result<()> {
+    let exe = std::env::current_exe().context("cannot determine current executable path")?;
+    let args = detached_child_args();
+    let log_path = isartor::cli::up::startup_log_path()?;
+
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let stdout_log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("failed to open {}", log_path.display()))?;
+    let stderr_log = stdout_log
+        .try_clone()
+        .with_context(|| format!("failed to clone {}", log_path.display()))?;
+
+    let mut command = Command::new(exe);
+    command
+        .args(args)
+        .env(DETACH_ENV, "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(stdout_log))
+        .stderr(Stdio::from(stderr_log));
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+
+    let child = command
+        .spawn()
+        .context("failed to start detached Isartor")?;
+
+    eprintln!("  ✓ Isartor starting in background (PID {}).", child.id());
+    eprintln!("    Logs: {}", log_path.display());
+    eprintln!("    Stop: isartor stop");
+    eprintln!("    Tip: tail -f {}", log_path.display());
+
+    Ok(())
+}
+
+fn detached_child_args() -> Vec<OsString> {
+    std::env::args_os()
+        .skip(1)
+        .filter(|arg| arg != "--detach")
+        .collect()
+}
+
 /// Simple liveness probe — returns 200 OK.
 async fn healthz() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
@@ -541,4 +614,18 @@ async fn run_connectivity_check() -> anyhow::Result<()> {
     println!();
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_commands_are_detachable() {
+        assert!(is_startup_command(&None));
+        assert!(is_startup_command(&Some(Commands::Up(
+            isartor::cli::up::UpArgs { mode: None },
+        ))));
+        assert!(!is_startup_command(&Some(Commands::Demo)));
+    }
 }
