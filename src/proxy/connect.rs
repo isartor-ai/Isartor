@@ -308,17 +308,17 @@ async fn handle_mitm(
                 let resp = format_http_response(200, &response_body);
                 tls_stream.write_all(resp.as_bytes()).await?;
                 tls_stream.flush().await?;
-                emit_proxy_decision(
+                emit_proxy_decision(ProxyDecisionContext {
                     proxy_client,
                     hostname,
-                    &path,
+                    path: &path,
                     prompt_hash,
                     final_layer,
                     resolved_by,
-                    200,
+                    status_code: 200,
                     estimated_tokens,
-                    start.elapsed().as_millis() as u64,
-                );
+                    latency_ms: start.elapsed().as_millis() as u64,
+                });
                 return Ok(());
             }
             ProxyInterceptResolution::Blocked {
@@ -330,17 +330,17 @@ async fn handle_mitm(
                 let resp = format_http_response(status_code, &response_body);
                 tls_stream.write_all(resp.as_bytes()).await?;
                 tls_stream.flush().await?;
-                emit_proxy_decision(
+                emit_proxy_decision(ProxyDecisionContext {
                     proxy_client,
                     hostname,
-                    &path,
+                    path: &path,
                     prompt_hash,
                     final_layer,
                     resolved_by,
                     status_code,
                     estimated_tokens,
-                    start.elapsed().as_millis() as u64,
-                );
+                    latency_ms: start.elapsed().as_millis() as u64,
+                });
                 return Ok(());
             }
             ProxyInterceptResolution::ForwardToUpstream {
@@ -350,17 +350,17 @@ async fn handle_mitm(
                 let upstream_response =
                     forward_to_upstream(hostname, port, &method, &path, &headers, &body).await?;
                 cache_response(&body, &path, &upstream_response, &state).await;
-                emit_proxy_decision(
+                emit_proxy_decision(ProxyDecisionContext {
                     proxy_client,
                     hostname,
-                    &path,
+                    path: &path,
                     prompt_hash,
                     final_layer,
                     resolved_by,
-                    parse_status_code(&upstream_response),
+                    status_code: parse_status_code(&upstream_response),
                     estimated_tokens,
-                    start.elapsed().as_millis() as u64,
-                );
+                    latency_ms: start.elapsed().as_millis() as u64,
+                });
                 tls_stream.write_all(&upstream_response).await?;
                 tls_stream.flush().await?;
                 return Ok(());
@@ -602,17 +602,30 @@ async fn try_proxy_slm_resolution(
     }
 }
 
-fn emit_proxy_decision(
+struct ProxyDecisionContext<'a> {
     proxy_client: Option<ProxyClient>,
-    hostname: &str,
-    path: &str,
+    hostname: &'a str,
+    path: &'a str,
     prompt_hash: Option<String>,
     final_layer: FinalLayer,
-    resolved_by: &str,
+    resolved_by: &'a str,
     status_code: u16,
     estimated_tokens: Option<u64>,
     latency_ms: u64,
-) {
+}
+
+fn emit_proxy_decision(context: ProxyDecisionContext<'_>) {
+    let ProxyDecisionContext {
+        proxy_client,
+        hostname,
+        path,
+        prompt_hash,
+        final_layer,
+        resolved_by,
+        status_code,
+        estimated_tokens,
+        latency_ms,
+    } = context;
     let client = proxy_client
         .map(ProxyClient::id)
         .unwrap_or("unknown")
@@ -1207,17 +1220,17 @@ mod tests {
     #[test]
     fn recent_proxy_decisions_are_recorded() {
         clear_recent_proxy_decisions();
-        emit_proxy_decision(
-            Some(ProxyClient::Copilot),
-            "copilot-proxy.githubusercontent.com",
-            "/v1/chat/completions",
-            Some("abc123".into()),
-            FinalLayer::SemanticCache,
-            "semantic_cache",
-            200,
-            Some(256),
-            12,
-        );
+        emit_proxy_decision(ProxyDecisionContext {
+            proxy_client: Some(ProxyClient::Copilot),
+            hostname: "copilot-proxy.githubusercontent.com",
+            path: "/v1/chat/completions",
+            prompt_hash: Some("abc123".into()),
+            final_layer: FinalLayer::SemanticCache,
+            resolved_by: "semantic_cache",
+            status_code: 200,
+            estimated_tokens: Some(256),
+            latency_ms: 12,
+        });
 
         let entries = recent_proxy_decisions(1);
         assert_eq!(entries.len(), 1);
