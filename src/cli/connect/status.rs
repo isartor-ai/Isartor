@@ -77,6 +77,8 @@ pub async fn handle_status(args: StatusArgs) {
                         test.latency_ms,
                         if test.deflected { ", deflected" } else { "" }
                     );
+                } else if test.layer_resolved == "timeout" {
+                    println!("      Test:   ~ gateway up, /api/chat timed out (no L3 key?)");
                 } else {
                     println!("      Test:   ✗ (no response)");
                 }

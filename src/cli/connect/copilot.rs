@@ -25,6 +25,21 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
         return disconnect(&args, &mut changes);
     }
 
+    // Clean up legacy proxy-era env files (from v0.1.33 and earlier).
+    if !args.base.dry_run {
+        for ext in ["sh", "fish", "ps1"] {
+            let legacy = home_path(&format!(".isartor/env/copilot.{ext}")).unwrap_or_default();
+            if legacy.exists() {
+                remove_file(&legacy, false);
+                changes.push(ConfigChange {
+                    change_type: ConfigChangeType::FileModified,
+                    target: legacy.to_string_lossy().to_string(),
+                    description: "Removed legacy proxy env file".to_string(),
+                });
+            }
+        }
+    }
+
     // Step 1: Write the preToolUse hook script.
     let hook_script = generate_hook_script(&gateway);
     let hook_path = home_path(".isartor/hooks/copilot_pretooluse.sh")

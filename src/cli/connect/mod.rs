@@ -170,6 +170,12 @@ pub fn print_connect_result(result: &ConnectResult) {
                     "(forwarded to cloud)"
                 }
             );
+        } else if test.layer_resolved == "timeout" {
+            println!(
+                "  ~ Gateway reachable, but /api/chat timed out ({} ms)",
+                test.latency_ms
+            );
+            println!("    This is normal when L3 has no API key configured.");
         } else {
             println!("  ✗ No response — is Isartor running?");
         }
@@ -183,8 +189,31 @@ pub async fn test_isartor_connection(
     gateway_api_key: Option<&str>,
     test_prompt: &str,
 ) -> TestResult {
-    let url = format!("{}/api/chat", gateway_url.trim_end_matches('/'));
+    let base = gateway_url.trim_end_matches('/');
     let client = reqwest::Client::new();
+
+    // First, verify the gateway is reachable via /health (fast, no L3 dependency).
+    let health_ok = client
+        .get(format!("{base}/health"))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+
+    if !health_ok {
+        return TestResult {
+            request_sent: test_prompt.to_string(),
+            response_received: false,
+            layer_resolved: "none".to_string(),
+            latency_ms: 0,
+            deflected: false,
+        };
+    }
+
+    // Then test the deflection stack. Use a short timeout because L3 may be
+    // unconfigured (no API key) and the upstream call can block for 30s+.
+    let url = format!("{base}/api/chat");
     let start = Instant::now();
 
     let mut req = client
@@ -195,7 +224,7 @@ pub async fn test_isartor_connection(
         req = req.header("X-API-Key", key);
     }
 
-    match req.timeout(std::time::Duration::from_secs(5)).send().await {
+    match req.timeout(std::time::Duration::from_secs(3)).send().await {
         Ok(resp) => {
             let layer = resp
                 .headers()
@@ -218,13 +247,22 @@ pub async fn test_isartor_connection(
                 deflected,
             }
         }
-        Err(_) => TestResult {
-            request_sent: test_prompt.to_string(),
-            response_received: false,
-            layer_resolved: "none".to_string(),
-            latency_ms: start.elapsed().as_millis() as u64,
-            deflected: false,
-        },
+        Err(e) => {
+            // Distinguish timeout (gateway running but L3 slow) from connection
+            // refused (gateway not running). Health passed so we know it's up.
+            let timed_out = e.is_timeout();
+            TestResult {
+                request_sent: test_prompt.to_string(),
+                response_received: false,
+                layer_resolved: if timed_out {
+                    "timeout".to_string()
+                } else {
+                    "none".to_string()
+                },
+                latency_ms: start.elapsed().as_millis() as u64,
+                deflected: false,
+            }
+        }
     }
 }
 
