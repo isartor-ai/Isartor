@@ -107,7 +107,7 @@ fn handle_tools_list(id: Option<Value>) -> Option<Value> {
             "tools": [
                 {
                     "name": "isartor_chat",
-                    "description": "Send a prompt through Isartor's deflection stack (L1a exact cache → L1b semantic cache → L2 SLM triage → L3 cloud). Returns the LLM response with cache/deflection metadata. Use this for any question or task that could benefit from cached responses.",
+                    "description": "Cache-first lookup for the user's prompt. Call this before answering plain conversational questions. On a hit it returns a cached response from Isartor L1a/L1b. On a miss it returns empty so Copilot can answer with its own model.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -125,7 +125,7 @@ fn handle_tools_list(id: Option<Value>) -> Option<Value> {
                 },
                 {
                     "name": "isartor_cache_store",
-                    "description": "Store a prompt/response pair in Isartor's cache so future identical or similar prompts get deflected locally. Call this after you get an answer from your own LLM to populate the cache.",
+                    "description": "Store the final prompt/response pair in Isartor after Copilot answers a cache miss. Call this immediately after using your own model so repeated or similar prompts hit Isartor next time.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {

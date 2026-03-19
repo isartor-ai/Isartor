@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.36] - 2026-03-19
+
+### Changed
+- **Copilot CLI: plain prompts now use Isartor cache first**: `isartor connect copilot` now installs a managed Isartor block in `~/.copilot/copilot-instructions.md` so normal conversational prompts call `isartor_chat` before answering directly.
+- On cache misses, Copilot now follows the full cache-only workflow automatically: `isartor_chat` miss → Copilot answer → `isartor_cache_store`.
+- Improved MCP tool descriptions to reinforce cache-first usage for plain chat prompts.
+- Updated `docs/4-INTEGRATIONS.md` with the managed instruction-file behavior and troubleshooting guidance.
+
 ## [0.1.35] - 2026-03-19
 
 ### Changed
 - **Copilot CLI: cache-only MCP approach**: `isartor_chat` now performs cache lookup only (L1a exact + L1b semantic). On a miss it returns empty so Copilot uses its own LLM — Isartor never routes Copilot traffic through its configured L3 provider.
 - `isartor connect copilot` automatically cleans up legacy proxy env files and hook scripts from earlier versions.
 - `isartor connect copilot` adds the gateway URL to Copilot's `allowed_urls` in `~/.copilot/config.json`.
+- `isartor connect copilot` now installs a managed Isartor instruction block in `~/.copilot/copilot-instructions.md` so plain conversational prompts prefer `isartor_chat` first and call `isartor_cache_store` after misses.
 - `isartor connect status` now shows "MCP server (isartor_chat tool)" for Copilot.
 - Improved connection test: checks `/health` first, distinguishes timeout (L3 unconfigured) from gateway unreachable.
 - Updated `docs/4-INTEGRATIONS.md` for the cache-only MCP approach.

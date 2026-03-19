@@ -139,19 +139,24 @@ isartor up --detach
 # 2. Register the MCP server with Copilot CLI
 isartor connect copilot
 
-# 3. Start Copilot normally — isartor_chat and isartor_cache_store tools are now available
+# 3. Start Copilot normally — plain chat prompts will use Isartor cache first
 copilot
 ```
 
 #### How it works
 
 1. `isartor connect copilot` adds an `isartor` entry to `~/.copilot/mcp-config.json`
-2. When Copilot CLI starts, it launches `isartor mcp` as a stdio subprocess
-3. The MCP server exposes `isartor_chat` (cache lookup) and `isartor_cache_store` (cache write)
-4. When Copilot calls `isartor_chat`:
+2. `isartor connect copilot` also installs a managed instruction block in `~/.copilot/copilot-instructions.md`
+3. When Copilot CLI starts, it launches `isartor mcp` as a stdio subprocess and loads the Isartor instruction block
+4. The MCP server exposes `isartor_chat` (cache lookup) and `isartor_cache_store` (cache write)
+5. For plain conversational prompts, Copilot now prefers this flow:
+   - Call `isartor_chat` with the user's prompt
+   - **Cache hit**: return the cached answer immediately
+   - **Cache miss**: answer with Copilot's own model, then call `isartor_cache_store`
+6. When Copilot calls `isartor_chat`:
    - **Cache hit** (L1a exact or L1b semantic): returns the cached answer instantly
    - **Cache miss**: returns empty → Copilot uses its own LLM
-5. After Copilot gets an answer from its LLM, it can call `isartor_cache_store` to
+7. After Copilot gets an answer from its LLM, it can call `isartor_cache_store` to
    populate the cache for future requests
 
 #### Cache endpoints (used by MCP internally)
@@ -184,6 +189,7 @@ isartor connect copilot --disconnect
 ```
 
 This removes the `isartor` entry from `~/.copilot/mcp-config.json`.
+It also removes the managed Isartor block from `~/.copilot/copilot-instructions.md`.
 
 ### Claude Code (base URL override)
 
@@ -282,7 +288,7 @@ isartor connect status
 |---------|-------|-----|
 | "connection refused" | Isartor not running | Run `isartor up` first |
 | Copilot has no `isartor_chat` tool | MCP server not registered | Run `isartor connect copilot` |
-| Copilot works but bypasses cache | Using native Copilot tools instead of `isartor_chat` | Ask Copilot to use the `isartor_chat` tool |
+| Copilot works but bypasses cache | Isartor instructions not installed or custom instructions disabled | Run `isartor connect copilot` again and do not launch Copilot with `--no-custom-instructions` |
 | Cache never hits for Copilot | Responses not stored after LLM answers | Ask Copilot to call `isartor_cache_store` after answering |
 | Claude not routing through Isartor | `settings.json` not updated | Run `isartor connect claude` |
 | Gateway returns 401 | Auth enabled but key not configured | Add `--gateway-api-key` to connect command |
