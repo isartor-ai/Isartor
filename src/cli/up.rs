@@ -13,11 +13,11 @@ pub struct UpArgs {
 
 #[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpMode {
-    /// Start the CONNECT proxy for GitHub Copilot CLI.
+    /// Start with GitHub Copilot CLI integration hints.
     Copilot,
-    /// Start the CONNECT proxy for Claude Code.
+    /// Start with Claude Code integration hints.
     Claude,
-    /// Start the CONNECT proxy for Antigravity.
+    /// Start with Antigravity integration hints.
     Antigravity,
 }
 
@@ -37,16 +37,22 @@ pub enum ProxyClient {
 impl UpArgs {
     pub fn startup_mode(&self) -> StartupMode {
         match self.mode {
-            Some(UpMode::Copilot) => StartupMode::Proxy {
-                client: ProxyClient::Copilot,
-            },
-            Some(UpMode::Claude) => StartupMode::Proxy {
-                client: ProxyClient::Claude,
-            },
-            Some(UpMode::Antigravity) => StartupMode::Proxy {
-                client: ProxyClient::Antigravity,
-            },
+            // Client subcommands now start gateway-only; the CONNECT proxy
+            // is no longer required for client integrations (they use base
+            // URL override or hooks instead).
+            Some(UpMode::Copilot) => StartupMode::GatewayOnly,
+            Some(UpMode::Claude) => StartupMode::GatewayOnly,
+            Some(UpMode::Antigravity) => StartupMode::GatewayOnly,
             None => StartupMode::GatewayOnly,
+        }
+    }
+
+    pub fn client_hint(&self) -> Option<&'static str> {
+        match self.mode {
+            Some(UpMode::Copilot) => Some("isartor connect copilot"),
+            Some(UpMode::Claude) => Some("isartor connect claude"),
+            Some(UpMode::Antigravity) => Some("isartor connect antigravity"),
+            None => None,
         }
     }
 }
@@ -109,8 +115,11 @@ pub fn print_startup_card(config: &AppConfig, mode: StartupMode) {
 
     match mode {
         StartupMode::GatewayOnly => {
-            eprintln!("  │  Proxy:   off (start only when a client needs it)           │");
-            eprintln!("  │  Next:    isartor up copilot|claude|antigravity            │");
+            eprintln!("  │  Next:    isartor connect copilot|claude|antigravity       │");
+            eprintln!("  │                                                              │");
+            eprintln!("  │  Endpoints:                                                  │");
+            eprintln!("  │    POST /v1/chat/completions  (OpenAI format)                │");
+            eprintln!("  │    POST /v1/messages          (Anthropic format)             │");
         }
         StartupMode::Proxy { client } => {
             let proxy_url = localhost_url(&config.proxy_port);
@@ -130,7 +139,7 @@ pub fn print_startup_card(config: &AppConfig, mode: StartupMode) {
 pub fn startup_log_line(mode: StartupMode) -> &'static str {
     match mode {
         StartupMode::GatewayOnly => {
-            "Gateway-only startup. Use `isartor up copilot|claude|antigravity` to enable the CONNECT proxy."
+            "Gateway started. Use `isartor connect copilot|claude|antigravity` to configure clients."
         }
         StartupMode::Proxy {
             client: ProxyClient::Copilot,
@@ -164,16 +173,12 @@ mod tests {
     }
 
     #[test]
-    fn up_with_client_starts_proxy() {
+    fn up_with_client_starts_gateway() {
         let args = UpArgs {
             mode: Some(UpMode::Copilot),
         };
-        assert_eq!(
-            args.startup_mode(),
-            StartupMode::Proxy {
-                client: ProxyClient::Copilot
-            }
-        );
+        // Client subcommands now start gateway-only (no proxy needed).
+        assert_eq!(args.startup_mode(), StartupMode::GatewayOnly);
     }
 
     #[test]

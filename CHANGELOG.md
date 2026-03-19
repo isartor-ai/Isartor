@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.34] - 2026-03-19
+
+### Changed
+- **Drop MITM CONNECT proxy for client integrations** (issue #41): All `isartor connect` flows now use native client mechanisms instead of HTTPS_PROXY + TLS MITM:
+  - **Copilot CLI**: preToolUse hooks via new `POST /api/v1/hook/pretooluse` endpoint — no proxy, no CA certificates
+  - **Claude Code**: `ANTHROPIC_BASE_URL` override in `~/.claude/settings.json`
+  - **Antigravity**: `OPENAI_BASE_URL` + `OPENAI_API_KEY` env file
+  - **OpenClaw**: Already used base URL approach (verified clean)
+- `isartor up copilot|claude|antigravity` now starts gateway-only (no CONNECT proxy needed)
+- `isartor connect status` shows integration method per client (hooks / base URL / provider base URL)
+- Rewrote `docs/4-INTEGRATIONS.md` for the new proxy-free architecture
+
+### Added
+- `POST /api/v1/hook/pretooluse` public endpoint for Copilot CLI preToolUse hooks
+- Integration tests for the hook endpoint (valid, empty, malformed payloads)
+
 ## [0.1.33] - 2026-03-19
 
 ### Fixed

@@ -300,6 +300,10 @@ async fn main() -> anyhow::Result<()> {
     let public = Router::new()
         .route("/healthz", axum::routing::get(healthz))
         .route("/health", axum::routing::get(health::health_handler))
+        .route(
+            "/api/v1/hook/pretooluse",
+            axum::routing::post(handler::pretooluse_hook_handler),
+        )
         .layer(axum::Extension(app_state.clone()))
         .layer(axum::Extension(health_config))
         .layer(axum::Extension(health::ProxyStatusFlag(

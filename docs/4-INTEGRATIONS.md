@@ -1,10 +1,13 @@
 # Isartor Integration Guide
 
-Isartor is a prompt firewall that can act as a **drop-in OpenAI-compatible gateway** (and a minimal Anthropic-compatible gateway) for common SDKs and agent frameworks.
+Isartor is an **OpenAI-compatible and Anthropic-compatible gateway** that deflects
+repeated or simple prompts at Layer 1 (cache) and Layer 2 (local SLM) before they
+reach the cloud. Clients integrate by **overriding their base URL** to point at
+Isartor or by using **preToolUse hooks** — no proxy, no MITM, no CA certificates.
 
 ## Endpoints
 
-Isartor’s server defaults to: `http://localhost:8080`.
+Isartor's server defaults to: `http://localhost:8080`.
 
 Authenticated chat endpoints:
 
@@ -15,6 +18,8 @@ Authenticated chat endpoints:
   - `POST /v1/chat/completions`
 - **Anthropic Messages compatible**
   - `POST /v1/messages`
+- **Copilot preToolUse hook**
+  - `POST /api/v1/hook/pretooluse`
 
 ## Authentication
 
@@ -79,29 +84,34 @@ If gateway auth is enabled, also add:
 
 ## Client integrations: `isartor connect …`
 
-Isartor ships a helper CLI to configure popular clients to route through the gateway.
+Isartor ships a helper CLI to configure popular clients to route through the
+gateway. Each integration uses the lightest-weight mechanism available for that
+client — either a **base URL override** or a **preToolUse hook**.
 
 ```bash
-# Show what’s connected and test the gateway
-isartor connect status --gateway-url http://localhost:8080
+# Show what's connected and test the gateway
+isartor connect status
 
-# Claude Code (CONNECT proxy + TLS MITM)
-isartor connect claude --gateway-url http://localhost:8080
+# GitHub Copilot CLI (preToolUse hook)
+isartor connect copilot
 
-# GitHub Copilot CLI (CONNECT proxy + TLS MITM — see below)
-isartor connect copilot --gateway-url http://localhost:8080
+# Claude Code (base URL override)
+isartor connect claude
 
-# Antigravity (CONNECT proxy + TLS MITM)
-isartor connect antigravity --gateway-url http://localhost:8080
+# Antigravity (base URL override)
+isartor connect antigravity
+
+# OpenClaw (provider base URL)
+isartor connect openclaw
 ```
 
 Add `--gateway-api-key <key>` to these commands only if you have explicitly enabled gateway auth.
 
-### GitHub Copilot CLI (CONNECT Proxy)
+### GitHub Copilot CLI (preToolUse hook)
 
-Copilot CLI, Claude Code, and Antigravity can be routed through Isartor's HTTP CONNECT
-proxy so Isartor can preserve each client's native upstream as Layer 3 while still
-deflecting requests locally at L1/L2 when possible.
+Copilot CLI integrates via a **preToolUse hook** that sends tool-call metadata to
+Isartor before execution. Isartor can deflect the call at L1/L2 or let it pass
+through to the Copilot upstream as Layer 3.
 
 #### Prerequisites
 
@@ -111,113 +121,131 @@ deflecting requests locally at L1/L2 when possible.
 #### Step-by-step setup
 
 ```bash
-# 1. Start Isartor with the Copilot CONNECT proxy
-#    This starts both the API gateway (:8080) and the CONNECT proxy (:8081).
-#    Ports are configurable — see "Custom ports" below.
-isartor up copilot
+# 1. Start Isartor
+isartor up
 
-# 2. Generate the shell environment file for Copilot
-#    Writes ~/.isartor/env/copilot.sh with HTTPS_PROXY and NODE_EXTRA_CA_CERTS.
-#    The command auto-detects the running proxy port from your config, so
-#    it matches even if you changed ISARTOR__PROXY_PORT.
+# 2. Configure Copilot hooks
 isartor connect copilot
 
-# 3. Activate the proxy environment in your current shell
-#    IMPORTANT: run this in every new shell where you want Copilot to
-#    route through Isartor.
-source ~/.isartor/env/copilot.sh
+# 3. Register the hook with Copilot CLI (shown in output)
+# Follow instructions printed by the connect command
 
-# 4. Use Copilot normally — traffic now routes through Isartor
+# 4. Use Copilot normally
 gh copilot suggest "explain this function"
 ```
 
-> **Order matters.** Always run `isartor up copilot` *before* `isartor connect copilot`.
-> The `connect` command tests the gateway to confirm it is reachable.
+#### How it works
 
-#### Custom ports
+1. `isartor connect copilot` generates a hook script at `~/.isartor/hooks/copilot_pretooluse.sh`
+2. The hook script POSTs tool-call metadata to Isartor's `/api/v1/hook/pretooluse` endpoint
+3. Isartor evaluates the request through the Deflection Stack (L1 → L2 → L3)
+4. If deflected at L1 or L2, the cached/local response is returned without a cloud call
 
-Override the default ports with environment variables:
-
-```bash
-export ISARTOR__HOST_PORT=127.0.0.1:18080    # gateway
-export ISARTOR__PROXY_PORT=127.0.0.1:18081   # CONNECT proxy
-isartor up copilot
-
-# connect auto-detects the port from config — no extra flags needed
-isartor connect copilot
-source ~/.isartor/env/copilot.sh
-```
-
-You can also pass `--proxy-port` explicitly to override:
+#### Disconnecting
 
 ```bash
-isartor connect copilot --proxy-port 127.0.0.1:18081
-```
-
-#### Verifying the connection
-
-```bash
-# Check connection status
-isartor connect status
-
-# View recent proxy decisions
-curl -s http://localhost:8080/debug/proxy/recent | jq .
-```
-
-#### Stopping and disconnecting
-
-```bash
-# Stop the Isartor server
-isartor stop
-
-# Remove the Copilot proxy configuration
 isartor connect copilot --disconnect
-
-# Unset env vars in the current shell (or just open a new shell)
-unset HTTPS_PROXY NODE_EXTRA_CA_CERTS ISARTOR_COPILOT_ENABLED
 ```
 
-#### Troubleshooting
+### Claude Code (base URL override)
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| Copilot hangs or "connection refused" | `HTTPS_PROXY` points to wrong port | Re-run `isartor connect copilot` and `source ~/.isartor/env/copilot.sh` |
-| Copilot works but bypasses Isartor | Env vars not loaded in the shell | Run `source ~/.isartor/env/copilot.sh` in the same shell that launches Copilot |
-| TLS / certificate errors | CA not trusted by Node.js | Verify `NODE_EXTRA_CA_CERTS` points to `~/.isartor/ca/isartor-ca.pem` |
-| "address already in use" on startup | Previous Isartor still running | Run `isartor stop` first, or check `lsof -i :8081` |
+Claude Code integrates via `ANTHROPIC_BASE_URL`, pointing all API traffic at
+Isartor's `/v1/messages` endpoint.
 
-If you start Copilot from a different shell or from an already-running process
-that did not inherit the generated env vars, traffic will bypass Isartor and
-you will not see proxy entries in `isartor connect status` or
-`/debug/proxy/recent`.
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure Claude Code
+isartor connect claude
+
+# 3. Claude Code now routes through Isartor automatically
+```
 
 #### How it works
 
-1. A local CA certificate is generated at `~/.isartor/ca/isartor-ca.pem`
-2. The CONNECT proxy runs on `:8081` only when you start `isartor up <client>` (configurable via `ISARTOR__PROXY_PORT`)
-3. `NODE_EXTRA_CA_CERTS` tells Copilot's Node.js runtime to trust the local CA
-4. The proxy intercepts CONNECT requests to known Copilot, Anthropic, and Antigravity domains
-5. TLS is terminated with a leaf certificate signed by the local CA
-6. POST requests to `/v1/chat/completions` and `/v1/messages` are routed through the Deflection Stack (L1a → L1b → L2 → client upstream L3)
-7. All other traffic is tunnelled transparently
+1. `isartor connect claude` sets `ANTHROPIC_BASE_URL` in `~/.claude/settings.json`
+2. Claude Code sends requests to Isartor's `/v1/messages` endpoint
+3. Isartor forwards to the Anthropic API as Layer 3 when the request is not deflected
 
-**Intercepted domains:**
-- `copilot-proxy.githubusercontent.com`
-- `api.github.com`
-- `api.individual.githubcopilot.com`
-- `api.business.githubcopilot.com`
-- `api.enterprise.githubcopilot.com`
-- `api.anthropic.com`
-- `cloudcode-pa.googleapis.com`
-- `daily-cloudcode-pa.googleapis.com`
-- `daily-cloudcode-pa.sandbox.googleapis.com`
+#### Disconnecting
 
-#### Notes
+```bash
+isartor connect claude --disconnect
+```
 
-- The CA is only trusted by Node.js (via `NODE_EXTRA_CA_CERTS`). No system-level trust changes are made.
-- Claude Code and Antigravity integrations also export `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` for non-Node HTTPS stacks.
-- Some tools support overriding the OpenAI base URL directly (preferred). Point them at `http://localhost:8080/v1`.
+### Antigravity (base URL override)
 
+Antigravity integrates via an environment file that sets the OpenAI base URL.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure Antigravity
+isartor connect antigravity
+
+# 3. Source the env file
+source ~/.isartor/env/antigravity.sh
+```
+
+#### How it works
+
+1. `isartor connect antigravity` writes `OPENAI_BASE_URL` and `OPENAI_API_KEY` to `~/.isartor/env/antigravity.sh`
+2. Antigravity sends requests to Isartor's `/v1/chat/completions` endpoint
+3. Isartor forwards to the OpenAI-compatible upstream as Layer 3 when the request is not deflected
+
+#### Disconnecting
+
+```bash
+isartor connect antigravity --disconnect
+```
+
+### OpenClaw (provider base URL)
+
+OpenClaw integrates via a JSON patch to its provider configuration.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure OpenClaw
+isartor connect openclaw
+```
+
+#### How it works
+
+1. `isartor connect openclaw` patches OpenClaw's provider config to set the base URL to Isartor
+2. OpenClaw sends requests to Isartor's gateway
+3. Isartor forwards to the configured upstream as Layer 3 when the request is not deflected
+
+#### Disconnecting
+
+```bash
+isartor connect openclaw --disconnect
+```
+
+## Connection status
+
+```bash
+# Check all connected clients
+isartor connect status
+```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| "connection refused" | Isartor not running | Run `isartor up` first |
+| Copilot works but bypasses Isartor | Hook not registered | Run `isartor connect copilot` and follow registration instructions |
+| Claude not routing through Isartor | `settings.json` not updated | Run `isartor connect claude` |
+| Gateway returns 401 | Auth enabled but key not configured | Add `--gateway-api-key` to connect command |
 
 ---
 

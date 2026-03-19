@@ -398,6 +398,44 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
     .await
 }
 
+/// Copilot CLI preToolUse hook endpoint.
+///
+/// Called by the Copilot CLI hook script before each tool use.
+/// For v0.1: logs the tool call and returns `action: "allow"`.
+/// Future versions will add tool-call caching and policy enforcement.
+pub async fn pretooluse_hook_handler(body: axum::body::Bytes) -> impl IntoResponse {
+    #[derive(serde::Deserialize)]
+    struct PreToolUseRequest {
+        #[serde(default)]
+        tool: String,
+        #[serde(default)]
+        args: String,
+        #[serde(default)]
+        #[allow(dead_code)]
+        timestamp: String,
+    }
+
+    let parsed: PreToolUseRequest = serde_json::from_slice(&body).unwrap_or(PreToolUseRequest {
+        tool: "unknown".into(),
+        args: String::new(),
+        timestamp: String::new(),
+    });
+
+    tracing::info!(
+        tool = %parsed.tool,
+        args_len = parsed.args.len(),
+        "Copilot CLI tool call intercepted"
+    );
+
+    Json(serde_json::json!({
+        "action": "allow",
+        "reason": null,
+        "result": null,
+        "cached": false,
+        "logged": true,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

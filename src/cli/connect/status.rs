@@ -58,6 +58,7 @@ pub async fn handle_status(args: StatusArgs) {
         match state.connections.get(client) {
             Some(conn) => {
                 println!("  ✓ {}", client_display_name(client));
+                println!("      Method: {}", integration_method(client));
                 for file in &conn.config_files_modified {
                     println!("      Config: {}", file);
                 }
@@ -202,5 +203,15 @@ fn client_display_name(client: &str) -> String {
         "openclaw" => "OpenClaw".to_string(),
         "antigravity" => "Antigravity".to_string(),
         _ => client.to_string(),
+    }
+}
+
+fn integration_method(client: &str) -> &'static str {
+    match client {
+        "copilot" => "preToolUse hooks",
+        "claude" => "base URL override (ANTHROPIC_BASE_URL)",
+        "openclaw" => "provider base URL (OpenAI-compatible)",
+        "antigravity" => "base URL override (OpenAI-compatible)",
+        _ => "unknown",
     }
 }

@@ -4,10 +4,6 @@ use super::{
     BaseClientArgs, ConfigChange, ConfigChangeType, ConnectResult, home_path, remove_file,
     test_isartor_connection, write_file,
 };
-use crate::config::AppConfig;
-use crate::proxy::tls::IsartorCa;
-
-const DEFAULT_PROXY_PORT: &str = "0.0.0.0:8081";
 
 #[derive(Parser, Debug, Clone)]
 pub struct CopilotArgs {
@@ -17,15 +13,6 @@ pub struct CopilotArgs {
     /// GitHub personal access token (ghp_... or gho_...)
     #[arg(long, env = "GITHUB_TOKEN")]
     pub github_token: Option<String>,
-
-    /// Shell to write exports to: bash | zsh | fish | powershell
-    #[arg(long, default_value = "bash")]
-    pub shell: String,
-
-    /// CONNECT proxy listen address (default: 0.0.0.0:8081).
-    /// This is the proxy that intercepts Copilot CLI HTTPS traffic.
-    #[arg(long, default_value = DEFAULT_PROXY_PORT)]
-    pub proxy_port: String,
 }
 
 pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
@@ -38,110 +25,61 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
         return disconnect(&args, &mut changes);
     }
 
-    // Step 1: Ensure the Isartor CA exists (generates if first time).
-    let ca = match IsartorCa::load_or_generate() {
-        Ok(ca) => ca,
-        Err(e) => {
-            return ConnectResult {
-                client_name: "GitHub Copilot CLI".to_string(),
-                success: false,
-                message: format!(
-                    "Failed to generate Isartor CA certificate: {e}\n\
-                     The CONNECT proxy requires a local CA for TLS interception."
-                ),
-                changes_made: changes,
-                test_result: None,
-            };
-        }
-    };
-
-    let ca_cert_path = ca.ca_cert_path().to_path_buf();
-    changes.push(ConfigChange {
-        change_type: ConfigChangeType::FileCreated,
-        target: ca_cert_path.to_string_lossy().to_string(),
-        description: "Isartor CA certificate (for TLS MITM)".to_string(),
-    });
-
-    // Generate a combined CA bundle (system CAs + Isartor CA) so that
-    // non-Node.js clients (Go-based `gh`, curl, Python) trust both the
-    // Isartor MITM certs and real upstream certs for tunnelled traffic.
-    let combined_ca = match ca.combined_ca_bundle_path() {
-        Ok(p) => {
-            changes.push(ConfigChange {
-                change_type: ConfigChangeType::FileCreated,
-                target: p.to_string_lossy().to_string(),
-                description: "Combined CA bundle (system CAs + Isartor CA)".to_string(),
-            });
-            p.to_string_lossy().to_string()
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Could not generate combined CA bundle; falling back to Isartor CA only");
-            ca_cert_path.to_string_lossy().to_string()
-        }
-    };
-
-    // Step 2: Derive the CONNECT proxy URL.
-    // If the user explicitly set --proxy-port, respect it.  Otherwise read
-    // the running AppConfig (honours ISARTOR__PROXY_PORT / isartor.toml)
-    // so the generated shell file matches the actual server.
-    let proxy_port_num = effective_proxy_port(&args.proxy_port);
-    let proxy_url = format!("http://localhost:{proxy_port_num}");
-
-    // Step 3: Write the shell env file.
-    let node_ca = ca_cert_path.to_string_lossy();
-
-    let env_content = match args.shell.as_str() {
-        "fish" => format!(
-            "# Isartor — GitHub Copilot CLI integration (CONNECT proxy)\n\
-             # Source this file: source ~/.isartor/env/copilot.fish\n\
-             set -x HTTPS_PROXY \"{proxy_url}\"\n\
-             set -x NODE_EXTRA_CA_CERTS \"{node_ca}\"\n\
-             set -x SSL_CERT_FILE \"{combined_ca}\"\n\
-             set -x REQUESTS_CA_BUNDLE \"{combined_ca}\"\n\
-             set -x ISARTOR_COPILOT_ENABLED true\n"
-        ),
-        "powershell" => format!(
-            "# Isartor — GitHub Copilot CLI integration (CONNECT proxy)\n\
-             # Dot-source: . ~/.isartor/env/copilot.ps1\n\
-             $env:HTTPS_PROXY = \"{proxy_url}\"\n\
-             $env:NODE_EXTRA_CA_CERTS = \"{node_ca}\"\n\
-             $env:SSL_CERT_FILE = \"{combined_ca}\"\n\
-             $env:REQUESTS_CA_BUNDLE = \"{combined_ca}\"\n\
-             $env:ISARTOR_COPILOT_ENABLED = \"true\"\n"
-        ),
-        _ => format!(
-            "# Isartor — GitHub Copilot CLI integration (CONNECT proxy)\n\
-             # Source this file: source ~/.isartor/env/copilot.sh\n\
-             export HTTPS_PROXY=\"{proxy_url}\"\n\
-             export NODE_EXTRA_CA_CERTS=\"{node_ca}\"\n\
-             export SSL_CERT_FILE=\"{combined_ca}\"\n\
-             export REQUESTS_CA_BUNDLE=\"{combined_ca}\"\n\
-             export ISARTOR_COPILOT_ENABLED=true\n"
-        ),
-    };
-
-    let ext = match args.shell.as_str() {
-        "fish" => "fish",
-        "powershell" => "ps1",
-        _ => "sh",
-    };
-
-    let env_path = home_path(&format!(".isartor/env/copilot.{ext}"))
-        .unwrap_or_else(|_| std::path::PathBuf::from(format!(".isartor/env/copilot.{ext}")));
+    // Step 1: Write the preToolUse hook script.
+    let hook_script = generate_hook_script(&gateway);
+    let hook_path = home_path(".isartor/hooks/copilot_pretooluse.sh")
+        .unwrap_or_else(|_| std::path::PathBuf::from(".isartor/hooks/copilot_pretooluse.sh"));
 
     if args.base.show_config || args.base.dry_run {
-        println!("{}", env_content);
+        println!("{}", hook_script);
     }
 
-    if write_file(&env_path, &env_content, args.base.dry_run).is_ok() {
+    if !args.base.dry_run {
+        if let Some(parent) = hook_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(&hook_path, &hook_script).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ =
+                    std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755));
+            }
+            changes.push(ConfigChange {
+                change_type: ConfigChangeType::FileCreated,
+                target: hook_path.to_string_lossy().to_string(),
+                description: "preToolUse hook script".to_string(),
+            });
+        }
+    }
+
+    // Step 2: Write hook registration instructions.
+    let instructions = format!(
+        "# Isartor preToolUse hook for GitHub Copilot CLI\n\
+         #\n\
+         # Register this hook in your Copilot CLI config:\n\
+         #   gh copilot config set preToolUse \"{}\"\n\
+         #\n\
+         # Or add to your Copilot CLI hooks config:\n\
+         # {{\n\
+         #   \"preToolUse\": \"{}\"\n\
+         # }}\n",
+        hook_path.display(),
+        hook_path.display()
+    );
+
+    let instructions_path = home_path(".isartor/copilot-hook-setup.txt")
+        .unwrap_or_else(|_| std::path::PathBuf::from(".isartor/copilot-hook-setup.txt"));
+
+    if !args.base.dry_run && write_file(&instructions_path, &instructions, false).is_ok() {
         changes.push(ConfigChange {
             change_type: ConfigChangeType::FileCreated,
-            target: env_path.to_string_lossy().to_string(),
-            description: "Shell env file with HTTPS_PROXY + NODE_EXTRA_CA_CERTS".to_string(),
+            target: instructions_path.to_string_lossy().to_string(),
+            description: "Hook registration instructions".to_string(),
         });
     }
 
-    // Step 4: Store GitHub token if provided.
+    // Step 3: Store GitHub token if provided.
     if let Some(token) = &args.github_token {
         let token_path = home_path(".isartor/providers/copilot.json")
             .unwrap_or_else(|_| std::path::PathBuf::from(".isartor/providers/copilot.json"));
@@ -164,8 +102,7 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
         }
     }
 
-    // Step 5: Test the gateway API connection (not the proxy — the proxy requires
-    // the server to be running, which is a separate step).
+    // Step 4: Test the gateway API connection.
     let test = test_isartor_connection(
         &gateway,
         gateway_key.as_deref(),
@@ -173,36 +110,83 @@ pub async fn handle_copilot_connect(args: CopilotArgs) -> ConnectResult {
     )
     .await;
 
-    let source_cmd = match args.shell.as_str() {
-        "fish" => format!("source {}", env_path.display()),
-        "powershell" => format!(". {}", env_path.display()),
-        _ => format!("source {}", env_path.display()),
-    };
-
     ConnectResult {
         client_name: "GitHub Copilot CLI".to_string(),
         success: test.response_received || args.base.dry_run,
         message: format!(
-            "1. Start Isartor:  isartor up copilot\n\
-             2. Activate proxy: {source_cmd}\n\
-             3. Use Copilot CLI normally — traffic routes through Isartor\n\
-              \n\
-              CONNECT proxy: {proxy_url}  (intercepting Copilot HTTPS traffic)\n\
-              NODE_EXTRA_CA_CERTS: {node_ca}\n\
-              Layer 3 for proxied Copilot traffic: Copilot upstream passthrough (no extra Layer 3 API key required)\n\
-              \n\
-              Note: The CA at {node_ca} is trusted by Node.js only (via NODE_EXTRA_CA_CERTS).\n\
-              No system-level trust changes are made."
+            "Hook script written to:\n  {}\n\n\
+             IMPORTANT: Register the hook in your Copilot CLI config.\n\
+             See instructions at:\n  {}\n\n\
+             Copilot CLI integration uses preToolUse hooks (not HTTPS proxy).\n\
+             This provides tool-call caching and audit logging.",
+            hook_path.display(),
+            instructions_path.display(),
         ),
         changes_made: changes,
         test_result: Some(test),
     }
 }
 
+fn generate_hook_script(gateway_url: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+# Isartor preToolUse hook for GitHub Copilot CLI
+# Generated by: isartor connect copilot
+# Do not edit manually.
+#
+# This hook is called by Copilot CLI before each tool use.
+# It sends tool call metadata to Isartor for:
+#   - Tool call result caching
+#   - Audit logging
+#   - Budget enforcement
+#   - Policy enforcement
+
+ISARTOR_URL="{}"
+TOOL_NAME="${{1:-unknown}}"
+TOOL_ARGS="${{2:-}}"
+
+# POST tool call info to Isartor hook endpoint
+RESPONSE=$(curl -s -X POST \
+  "${{ISARTOR_URL}}/api/v1/hook/pretooluse" \
+  -H "Content-Type: application/json" \
+  -d "{{
+    \"tool\": \"${{TOOL_NAME}}\",
+    \"args\": \"${{TOOL_ARGS}}\",
+    \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+  }}" \
+  --connect-timeout 1 \
+  --max-time 2 \
+  2>/dev/null)
+
+# If Isartor says to block (policy violation):
+if echo "${{RESPONSE}}" | grep -q '"action":"block"'; then
+  REASON=$(echo "${{RESPONSE}}" | grep -o '"reason":"[^"]*"' \
+    | sed 's/"reason":"//;s/"//')
+  echo "Isartor policy: ${{REASON}}" >&2
+  exit 1
+fi
+
+# If Isartor has a cached result, print it
+if echo "${{RESPONSE}}" | grep -q '"cached":true'; then
+  echo "${{RESPONSE}}" | grep -o '"result":"[^"]*"' \
+    | sed 's/"result":"//;s/"$//'
+  exit 0
+fi
+
+# Otherwise: allow the tool call to proceed normally
+exit 0
+"#,
+        gateway_url
+    )
+}
+
 fn disconnect(args: &CopilotArgs, changes: &mut Vec<ConfigChange>) -> ConnectResult {
-    for ext in ["sh", "fish", "ps1"] {
-        let path = home_path(&format!(".isartor/env/copilot.{ext}"))
-            .unwrap_or_else(|_| std::path::PathBuf::from(format!(".isartor/env/copilot.{ext}")));
+    // Remove hook script and instructions.
+    for filename in [
+        ".isartor/hooks/copilot_pretooluse.sh",
+        ".isartor/copilot-hook-setup.txt",
+    ] {
+        let path = home_path(filename).unwrap_or_else(|_| std::path::PathBuf::from(filename));
         if path.exists() {
             remove_file(&path, args.base.dry_run);
             changes.push(ConfigChange {
@@ -213,36 +197,27 @@ fn disconnect(args: &CopilotArgs, changes: &mut Vec<ConfigChange>) -> ConnectRes
         }
     }
 
+    // Also remove legacy shell env files from the proxy era.
+    for ext in ["sh", "fish", "ps1"] {
+        let path = home_path(&format!(".isartor/env/copilot.{ext}"))
+            .unwrap_or_else(|_| std::path::PathBuf::from(format!(".isartor/env/copilot.{ext}")));
+        if path.exists() {
+            remove_file(&path, args.base.dry_run);
+            changes.push(ConfigChange {
+                change_type: ConfigChangeType::FileModified,
+                target: path.to_string_lossy().to_string(),
+                description: "Removed (legacy proxy env)".to_string(),
+            });
+        }
+    }
+
     ConnectResult {
         client_name: "GitHub Copilot CLI".to_string(),
         success: true,
-        message:
-            "Copilot disconnected. Restart your shell to unset HTTPS_PROXY and NODE_EXTRA_CA_CERTS."
-                .to_string(),
+        message: "Copilot CLI hooks disconnected.\n\
+                  Remember to remove the hook registration from your Copilot CLI config."
+            .to_string(),
         changes_made: changes.clone(),
         test_result: None,
     }
-}
-
-/// Resolve the proxy port number.  If the user explicitly passed a
-/// non-default `--proxy-port`, use that.  Otherwise try to read the
-/// running `AppConfig` (which honours `ISARTOR__PROXY_PORT` / toml)
-/// so the generated env file always matches the actual server.
-fn effective_proxy_port(cli_value: &str) -> u16 {
-    if cli_value != DEFAULT_PROXY_PORT {
-        return parse_port(cli_value, 8081);
-    }
-
-    if let Ok(cfg) = AppConfig::load() {
-        return parse_port(&cfg.proxy_port, 8081);
-    }
-
-    parse_port(cli_value, 8081)
-}
-
-fn parse_port(addr: &str, fallback: u16) -> u16 {
-    addr.rsplit(':')
-        .next()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(fallback)
 }
