@@ -78,11 +78,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let mut startup_mode = isartor::cli::up::StartupMode::GatewayOnly;
+    let mut relaxed_provider_validation = false;
 
     // ── Handle `isartor init` / `isartor demo` / `isartor connectivity-check` ─
     match cli.command {
         Some(Commands::Up(args)) => {
             startup_mode = args.startup_mode();
+            relaxed_provider_validation =
+                matches!(args.mode, Some(isartor::cli::up::UpMode::Copilot));
         }
         Some(Commands::Init) => {
             isartor::first_run::write_config_scaffold()?;
@@ -124,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
     // ------------------------------------------------------------------
     // 1. Initialise structured logging & OTel telemetry
     // ------------------------------------------------------------------
-    let mut config = AppConfig::load()?;
+    let mut config = AppConfig::load_with_validation(!relaxed_provider_validation)?;
 
     // CLI --offline flag takes precedence over env / config file.
     if cli.offline {

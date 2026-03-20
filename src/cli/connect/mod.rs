@@ -71,7 +71,7 @@ impl BaseClientArgs {
         }
 
         // Otherwise, try to align with local AppConfig host_port.
-        let Ok(cfg) = AppConfig::load() else {
+        let Ok(cfg) = AppConfig::load_with_validation(false) else {
             return self.gateway_url.clone();
         };
 
@@ -90,7 +90,9 @@ impl BaseClientArgs {
         if self.gateway_api_key.is_some() {
             return self.gateway_api_key.clone();
         }
-        AppConfig::load().ok().map(|c| c.gateway_api_key)
+        AppConfig::load_with_validation(false)
+            .ok()
+            .map(|c| c.gateway_api_key)
     }
 }
 

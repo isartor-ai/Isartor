@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.37] - 2026-03-20
+
+### Fixed
+- **`isartor up copilot` no longer fails on stale Azure L3 config**: client-hint startup now uses a relaxed config load, so Copilot cache-first mode can start even if `ISARTOR__LLM_PROVIDER=azure` is still set alongside an invalid or stale `ISARTOR__EXTERNAL_LLM_URL`.
+- Strict provider validation is still preserved for normal gateway startup paths, so `isartor up` continues to catch real Azure misconfiguration.
+- `isartor connect` helper defaults now also use the relaxed load path when only local gateway bind/auth settings are needed.
+
 ## [0.1.36] - 2026-03-19
 
 ### Changed

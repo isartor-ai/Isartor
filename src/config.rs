@@ -347,6 +347,15 @@ impl AppConfig {
     /// Sensible defaults are provided so the binary can start without a config
     /// file during local development.
     pub fn load() -> anyhow::Result<Self> {
+        Self::load_with_validation(true)
+    }
+
+    /// Load configuration but optionally skip strict provider validation.
+    ///
+    /// This is useful for startup/help flows that only need gateway-local
+    /// settings (such as bind address or auth key) and should not fail just
+    /// because an unused Layer 3 provider configuration is stale.
+    pub fn load_with_validation(validate_provider: bool) -> anyhow::Result<Self> {
         let cfg = config::Config::builder()
             // Defaults -------------------------------------------------
             .set_default("host_port", "0.0.0.0:8080")?
@@ -411,7 +420,9 @@ impl AppConfig {
         // Docker-friendly secret support: allow reading sensitive values from files
         // (e.g. Docker / Compose secrets mounted under /run/secrets/*).
         apply_secret_file_overrides(&mut app)?;
-        validate_provider_config(&app)?;
+        if validate_provider {
+            validate_provider_config(&app)?;
+        }
 
         Ok(app)
     }
@@ -997,5 +1008,32 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn relaxed_load_allows_stale_azure_provider_settings() {
+        temp_env::with_vars(
+            vec![
+                ("ISARTOR__LLM_PROVIDER", Some("azure")),
+                (
+                    "ISARTOR__EXTERNAL_LLM_URL",
+                    Some("https://api.openai.com/v1/chat/completions"),
+                ),
+                ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("")),
+                ("ISARTOR__AZURE_DEPLOYMENT_ID", Some("")),
+            ],
+            || {
+                let strict = AppConfig::load();
+                assert!(strict.is_err());
+
+                let relaxed =
+                    AppConfig::load_with_validation(false).expect("relaxed load must succeed");
+                assert_eq!(relaxed.llm_provider, "azure".into());
+                assert_eq!(
+                    relaxed.external_llm_url,
+                    "https://api.openai.com/v1/chat/completions"
+                );
+            },
+        );
     }
 }
