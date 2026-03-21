@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.40] - 2026-03-21
+
+### Added
+- **Cursor IDE integration** (`isartor connect cursor`): base URL override + MCP server registration in `~/.cursor/mcp.json`.
+- **OpenAI Codex CLI integration** (`isartor connect codex`): `OPENAI_BASE_URL` env script for routing Codex through Isartor.
+- **Gemini CLI integration** (`isartor connect gemini`): `GEMINI_API_BASE_URL` env script for routing Gemini CLI through Isartor.
+- **Generic connector** (`isartor connect generic`): connect any OpenAI-compatible tool (Windsurf, Zed, Cline, Roo Code, etc.) by specifying the tool's base URL env var.
+- Updated integration documentation with step-by-step guides for all new tools.
+
 ## [0.1.39] - 2026-03-21
 
 ### Fixed

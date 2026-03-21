@@ -1,6 +1,10 @@
 pub mod antigravity;
 pub mod claude;
+pub mod codex;
 pub mod copilot;
+pub mod cursor;
+pub mod gemini;
+pub mod generic;
 pub mod openclaw;
 pub mod state;
 pub mod status;
@@ -33,6 +37,18 @@ pub enum ConnectClient {
 
     /// Connect Antigravity to Isartor
     Antigravity(antigravity::AntigravityArgs),
+
+    /// Connect Cursor IDE to Isartor
+    Cursor(cursor::CursorArgs),
+
+    /// Connect OpenAI Codex CLI to Isartor
+    Codex(codex::CodexArgs),
+
+    /// Connect Gemini CLI to Isartor
+    Gemini(gemini::GeminiArgs),
+
+    /// Connect any OpenAI-compatible tool to Isartor
+    Generic(generic::GenericArgs),
 
     /// Show connection status of all clients
     Status(status::StatusArgs),
@@ -303,6 +319,35 @@ pub async fn handle_connect(args: ConnectArgs) -> anyhow::Result<()> {
                 base.dry_run,
                 &result,
             );
+        }
+        ConnectClient::Cursor(a) => {
+            let base = a.base.clone();
+            let gateway = base.effective_gateway_url();
+            let result = cursor::handle_cursor_connect(a).await;
+            print_connect_result(&result);
+            update_state("cursor", &gateway, base.disconnect, base.dry_run, &result);
+        }
+        ConnectClient::Codex(a) => {
+            let base = a.base.clone();
+            let gateway = base.effective_gateway_url();
+            let result = codex::handle_codex_connect(a).await;
+            print_connect_result(&result);
+            update_state("codex", &gateway, base.disconnect, base.dry_run, &result);
+        }
+        ConnectClient::Gemini(a) => {
+            let base = a.base.clone();
+            let gateway = base.effective_gateway_url();
+            let result = gemini::handle_gemini_connect(a).await;
+            print_connect_result(&result);
+            update_state("gemini", &gateway, base.disconnect, base.dry_run, &result);
+        }
+        ConnectClient::Generic(a) => {
+            let base = a.base.clone();
+            let gateway = base.effective_gateway_url();
+            let tool = a.tool_name.clone();
+            let result = generic::handle_generic_connect(a).await;
+            print_connect_result(&result);
+            update_state(&tool, &gateway, base.disconnect, base.dry_run, &result);
         }
         ConnectClient::Status(a) => {
             status::handle_status(a).await;

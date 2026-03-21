@@ -101,11 +101,23 @@ isartor connect copilot
 # Claude Code (base URL override)
 isartor connect claude
 
+# Cursor IDE (base URL override + MCP)
+isartor connect cursor
+
+# OpenAI Codex CLI (base URL override)
+isartor connect codex
+
+# Gemini CLI (base URL override)
+isartor connect gemini
+
 # Antigravity (base URL override)
 isartor connect antigravity
 
 # OpenClaw (provider base URL)
 isartor connect openclaw
+
+# Any OpenAI-compatible tool (generic connector)
+isartor connect generic --tool-name Windsurf --base-url-var OPENAI_BASE_URL --api-key-var OPENAI_API_KEY
 ```
 
 Add `--gateway-api-key <key>` to these commands only if you have explicitly enabled gateway auth.
@@ -296,6 +308,151 @@ isartor connect openclaw
 isartor connect openclaw --disconnect
 ```
 
+### Cursor IDE (base URL override + MCP)
+
+Cursor IDE integrates via the **OpenAI Base URL override** in Cursor's model
+settings, and optionally via **MCP server registration** for tool-based
+integration.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure Cursor
+isartor connect cursor
+
+# 3. Open Cursor → Settings → Cursor Settings → Models
+# 4. Enable "Override OpenAI Base URL" and enter: http://localhost:8080/v1
+# 5. Paste the API key shown in the connect output
+# 6. Add a custom model name (e.g. gpt-4o) and enable it
+# 7. Use Ask or Plan mode (Agent mode doesn't support custom keys yet)
+```
+
+#### How it works
+
+1. `isartor connect cursor` writes a reference env file to `~/.isartor/env/cursor.sh`
+2. It also registers Isartor as an MCP server in `~/.cursor/mcp.json`
+3. In Cursor, override the OpenAI Base URL to point at Isartor's `/v1` endpoint
+4. All chat completions requests route through Isartor's L1/L2/L3 deflection stack
+5. Cursor's Ask and Plan modes are supported; Agent mode requires native keys
+
+#### Disconnecting
+
+```bash
+isartor connect cursor --disconnect
+```
+
+### OpenAI Codex CLI (base URL override)
+
+OpenAI Codex CLI integrates via `OPENAI_BASE_URL`, routing all requests through
+Isartor's OpenAI-compatible `/v1/chat/completions` endpoint.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure Codex
+isartor connect codex
+
+# 3. Source the env file
+source ~/.isartor/env/codex.sh
+
+# 4. Run Codex
+codex --model o3-mini
+```
+
+#### How it works
+
+1. `isartor connect codex` writes `OPENAI_BASE_URL` and `OPENAI_API_KEY` to `~/.isartor/env/codex.sh`
+2. Codex sends requests to Isartor's `/v1/chat/completions` endpoint
+3. Isartor forwards to the configured upstream as Layer 3 when not deflected
+4. Use `--model` to select any model name configured in your L3 provider
+
+#### Disconnecting
+
+```bash
+isartor connect codex --disconnect
+```
+
+### Gemini CLI (base URL override)
+
+Gemini CLI integrates via `GEMINI_API_BASE_URL`, routing requests through
+Isartor's gateway.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure Gemini CLI
+isartor connect gemini
+
+# 3. Source the env file
+source ~/.isartor/env/gemini.sh
+
+# 4. Run Gemini CLI
+gemini
+```
+
+#### How it works
+
+1. `isartor connect gemini` writes `GEMINI_API_BASE_URL` and `GEMINI_API_KEY` to `~/.isartor/env/gemini.sh`
+2. Gemini CLI sends requests to Isartor's gateway
+3. Isartor forwards to the configured upstream as Layer 3 when not deflected
+
+#### Disconnecting
+
+```bash
+isartor connect gemini --disconnect
+```
+
+### Generic (any OpenAI-compatible tool)
+
+For tools not explicitly supported (Windsurf, Zed, Cline, Roo Code, etc.),
+use the generic connector to generate an env script that sets the tool's
+base URL environment variable to point at Isartor.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure the tool (example: Windsurf)
+isartor connect generic \
+  --tool-name Windsurf \
+  --base-url-var OPENAI_BASE_URL \
+  --api-key-var OPENAI_API_KEY
+
+# 3. Source the env file
+source ~/.isartor/env/windsurf.sh
+
+# 4. Start the tool
+```
+
+#### Arguments
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--tool-name` | yes | Display name (also used for env script filename) |
+| `--base-url-var` | yes | Env var the tool reads for its API base URL |
+| `--api-key-var` | no | Env var the tool reads for its API key |
+| `--no-append-v1` | no | Don't append `/v1` to the gateway URL |
+
+#### Disconnecting
+
+```bash
+isartor connect generic \
+  --tool-name Windsurf \
+  --base-url-var OPENAI_BASE_URL \
+  --disconnect
+```
+
 ## Connection status
 
 ```bash
@@ -312,6 +469,8 @@ isartor connect status
 | Copilot works but bypasses cache | Isartor instructions not installed or custom instructions disabled | Run `isartor connect copilot` again and do not launch Copilot with `--no-custom-instructions` |
 | Cache never hits for Copilot | Responses not stored after LLM answers | Ask Copilot to call `isartor_cache_store` after answering |
 | Claude not routing through Isartor | `settings.json` not updated | Run `isartor connect claude` |
+| Cursor not routing through Isartor | Base URL override not set | Open Cursor Settings → Models → enable Override OpenAI Base URL |
+| Codex/Gemini not routing | Env vars not loaded | Run `source ~/.isartor/env/<tool>.sh` in your shell |
 | Gateway returns 401 | Auth enabled but key not configured | Add `--gateway-api-key` to connect command |
 
 ---
