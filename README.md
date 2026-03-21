@@ -10,7 +10,8 @@
 [![codecov](https://codecov.io/gh/isartor-ai/Isartor/branch/main/graph/badge.svg)](https://codecov.io/gh/isartor-ai/Isartor)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/isartor-ai/Isartor?display_name=tag&sort=semver)](https://github.com/isartor-ai/Isartor/releases/latest)
-[![Air-Gappable](https://img.shields.io/badge/%E2%9C%93%20Air--Gappable-FedRAMP%20Ready-blue)](docs/AIR-GAPPED.md)
+[![Docs](https://img.shields.io/badge/docs-isartor--ai.github.io-blue)](https://isartor-ai.github.io/Isartor/)
+[![Air-Gappable](https://img.shields.io/badge/%E2%9C%93%20Air--Gappable-FedRAMP%20Ready-blue)](https://isartor-ai.github.io/Isartor/deployment/air-gapped.html)
 [![Zero Telemetry](https://img.shields.io/badge/%E2%9C%93%20Zero%20hidden%20telemetry-verified%20by%20CI-brightgreen)](tests/phone_home_audit.rs)
 
 ---
@@ -30,6 +31,7 @@ By computing intent *before* routing, Isartor acts as an impenetrable Prompt Fir
 - **100% Pure-Rust Edge AI:** Statically compiled, no dependency hell. Native tensor execution via Hugging Face `candle`.
 - **Algorithmic Deflection:** In our benchmark suite, L1a and L1b deflect **71% of repetitive agentic traffic** (FAQ/agent loop patterns) and **38% of diverse task traffic**. [Full benchmark →](benchmarks/README.md)
 - **Frictionless:** One `cargo build` or `docker run` and you're live.
+- **AI Tool Ready:** Works out of the box with GitHub Copilot, Cursor, Claude Code, OpenAI Codex CLI, Gemini CLI, and any OpenAI-compatible tool.
 
 ---
 
@@ -128,7 +130,7 @@ Verify with:
 
 ```bash
 curl http://localhost:8080/health
-# {"status":"ok","version":"0.1.0","layers":{...},"uptime_seconds":5,"demo_mode":true}
+# {"status":"ok","version":"0.1.42","layers":{...},"uptime_seconds":5,"demo_mode":true}
 ```
 
 > **Image size:** ~120 MB compressed / ~260 MB on disk (includes `all-MiniLM-L6-v2` embedding model, statically linked Rust binary).
@@ -138,16 +140,21 @@ curl http://localhost:8080/health
 After installation:
 
 ```bash
-isartor up           # start the API gateway only
-isartor up --detach  # start in background and return to the shell
-isartor up copilot   # start gateway + CONNECT proxy for Copilot CLI
-isartor --detach     # same as startup, but free the current shell on first run
-isartor demo         # run the deflection demo (no API key needed)
-isartor init         # generate a commented config scaffold
-isartor set-key -p openai  # configure your LLM provider API key
-isartor stop         # stop a running Isartor instance (uses PID file)
-isartor update       # self-update to the latest version from GitHub releases
-isartor stats        # show prompt totals, layer hits, and recent routing history
+isartor up                    # start the API gateway
+isartor up --detach           # start in background
+isartor up copilot            # start gateway + Copilot CONNECT proxy
+isartor demo                  # run the deflection demo (no API key needed)
+isartor init                  # generate a commented config scaffold
+isartor set-key -p openai     # configure your LLM provider API key
+isartor connect copilot       # connect GitHub Copilot CLI via MCP
+isartor connect cursor        # connect Cursor IDE
+isartor connect claude-code   # connect Claude Code
+isartor connect codex         # connect OpenAI Codex CLI
+isartor connect gemini        # connect Gemini CLI
+isartor stats                 # prompt totals, layer hits, routing history
+isartor stats --by-tool       # per-tool breakdown (Copilot, Cursor, etc.)
+isartor stop                  # stop a running Isartor instance
+isartor update                # self-update to the latest release
 ```
 
 ### Windows (PowerShell) — single command
@@ -172,6 +179,23 @@ curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Calculate 2+2"}'
 ```
+
+---
+
+## AI Tool Integrations
+
+Connect your favourite AI coding tools to Isartor with a single command. Isartor caches repetitive prompts so your tools respond faster and cost less.
+
+| Tool | Connect Command | How It Works |
+|:-----|:----------------|:-------------|
+| **GitHub Copilot CLI** | `isartor connect copilot` | MCP server (`isartor_chat` / `isartor_cache_store` tools) |
+| **Cursor IDE** | `isartor connect cursor` | Base URL override + MCP registration |
+| **Claude Code** | `isartor connect claude-code` | `ANTHROPIC_BASE_URL` env override |
+| **OpenAI Codex CLI** | `isartor connect codex` | `OPENAI_BASE_URL` env script |
+| **Gemini CLI** | `isartor connect gemini` | `GEMINI_API_BASE_URL` env script |
+| **Any OpenAI-compatible tool** | `isartor connect generic` | Configurable env var override |
+
+See the [full integration guides →](https://isartor-ai.github.io/Isartor/integrations/overview.html)
 
 ---
 
@@ -208,22 +232,25 @@ export ISARTOR__ENABLE_MONITORING=true
 export ISARTOR__OTEL_EXPORTER_ENDPOINT=http://otel-collector:4317
 ```
 
-See [docs/6-OBSERVABILITY.md](docs/6-OBSERVABILITY.md) for the full span and metric reference.
+See the [Observability guide →](https://isartor-ai.github.io/Isartor/observability/metrics-tracing.html) for the full span and metric reference.
 
 ---
 
 ## Documentation
 
+📚 **Full docs site: [isartor-ai.github.io/Isartor](https://isartor-ai.github.io/Isartor/)**
+
 | Guide | Description |
 |:------|:------------|
-| [Quick Start](docs/1-QUICKSTART.md) | Installation, first request, configuration basics |
-| [Architecture](docs/2-ARCHITECTURE.md) | Deep dive into the Deflection Stack and trait provider pattern |
-| [Enterprise Guide](docs/3-ENTERPRISE-GUIDE.md) | Redis, vLLM, Kubernetes, Helm, horizontal scaling |
-| [Integrations](docs/4-INTEGRATIONS.md) | OpenAI SDK, LangChain, autonomous agents |
-| [Configuration Reference](docs/5-CONFIGURATION-REF.md) | Every environment variable and config key |
-| [Observability](docs/6-OBSERVABILITY.md) | OpenTelemetry spans, metrics, Grafana dashboards |
-| [Performance Tuning](docs/PERFORMANCE-TUNING.md) | Deflection measurement, config tuning, SLO/SLA templates |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues, diagnostic steps, FAQ |
+| [Getting Started](https://isartor-ai.github.io/Isartor/getting-started/installation.html) | Installation, first request, configuration basics |
+| [Architecture](https://isartor-ai.github.io/Isartor/concepts/architecture.html) | Deep dive into the Deflection Stack and trait provider pattern |
+| [AI Tool Integrations](https://isartor-ai.github.io/Isartor/integrations/overview.html) | Copilot, Cursor, Claude Code, Codex, Gemini CLI, generic |
+| [Deployment](https://isartor-ai.github.io/Isartor/deployment/level1-minimal.html) | Minimal, Sidecar (Docker Compose), Enterprise (K8s), Air-Gapped |
+| [Configuration Reference](https://isartor-ai.github.io/Isartor/configuration/reference.html) | Every environment variable and config key |
+| [Observability](https://isartor-ai.github.io/Isartor/observability/metrics-tracing.html) | OpenTelemetry spans, metrics, Grafana dashboards |
+| [Performance Tuning](https://isartor-ai.github.io/Isartor/observability/performance-tuning.html) | Deflection measurement, config tuning, SLO/SLA templates |
+| [Troubleshooting](https://isartor-ai.github.io/Isartor/development/troubleshooting.html) | Common issues, diagnostic steps, FAQ |
+| [Contributing](https://isartor-ai.github.io/Isartor/development/contributing.html) | How to contribute, development setup, PR guidelines |
 | [Governance](GOVERNANCE.md) | Project independence, license stability, decision making |
 
 ---
