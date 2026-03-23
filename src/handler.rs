@@ -8,6 +8,7 @@ use axum::response::IntoResponse;
 use sha2::{Digest, Sha256};
 use tracing::{Instrument, info_span};
 
+use crate::anthropic_sse;
 use crate::core::prompt::extract_prompt;
 use crate::core::retry::{RetryConfig, execute_with_retry};
 use crate::errors::GatewayError;
@@ -364,18 +365,14 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
         })
         .await;
 
+        let model = &state.config.external_llm_model;
+
         match result {
             Ok(text) => {
                 crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
                 let mut resp = (
                     StatusCode::OK,
-                    Json(serde_json::json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "model": state.config.external_llm_model,
-                        "content": [{"type": "text", "text": text}],
-                        "stop_reason": "end_turn"
-                    })),
+                    Json(anthropic_sse::build_json_response(&text, model)),
                 )
                     .into_response();
                 resp.extensions_mut().insert(FinalLayer::Cloud);
@@ -386,7 +383,11 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
                 let mut resp = (
                     StatusCode::BAD_GATEWAY,
                     Json(serde_json::json!({
-                        "error": {"message": format!("[{provider_name}] {gw_err}")}
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": format!("[{provider_name}] {gw_err}")
+                        }
                     })),
                 )
                     .into_response();

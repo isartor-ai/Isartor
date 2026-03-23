@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.46] - 2026-03-23
+
+### Fixed
+- **Anthropic SSE streaming for Claude Code**: Claude Code sends `stream: true` in `/v1/messages` requests. Isartor now returns proper `text/event-stream` SSE events (`message_start`, `content_block_delta`, `message_stop`, etc.) instead of plain JSON. This fixes the "Interrupted" errors when using Claude Code through Isartor + GitHub Copilot.
+- **L1a cache hits also return SSE when streaming**: Cached Anthropic responses are converted to SSE format when the client requests streaming, preventing format mismatch errors on cache hits.
+- **Complete Anthropic Messages API response fields**: Responses now include `id`, `usage`, `stop_sequence`, and all required fields that Claude Code expects.
+
+### Changed
+- **Integration test workflow disabled by default**: Removed push/PR triggers from `integration-test.yml`, kept `workflow_dispatch` only.
+
 ## [0.1.45] - 2026-03-23
 
 ### Fixed

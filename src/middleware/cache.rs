@@ -12,6 +12,7 @@ use axum::{
 use http_body_util::BodyExt;
 use sha2::{Digest, Sha256};
 
+use crate::anthropic_sse;
 use crate::config::CacheMode;
 use crate::core::prompt::{extract_prompt, extract_semantic_key};
 use crate::middleware::body_buffer::BufferedBody;
@@ -86,6 +87,10 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     let semantic_cache_prompt = format!("{cache_ns}|{semantic_prompt}");
     let semantic_cache_enabled = request.uri().path() != "/v1/messages";
 
+    // Detect if the client expects an SSE stream (Claude Code sends stream: true).
+    let is_anthropic = cache_ns == "anthropic";
+    let is_streaming = is_anthropic && anthropic_sse::is_streaming_request(body_bytes.as_ref());
+
     let mode = &state.config.cache_mode;
     let layer_start = Instant::now();
 
@@ -105,12 +110,19 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             tracing::info!(cache.key = %key, "L1a: exact cache HIT");
             tracing::Span::current().record("gateway.cache.hit", true);
             crate::metrics::record_layer_duration("L1a_ExactCache", layer_start.elapsed());
-            let mut response = (
-                StatusCode::OK,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                cached,
-            )
-                .into_response();
+            let mut response = if is_streaming {
+                anthropic_sse::cached_to_sse_response(
+                    &cached,
+                    &state.config.external_llm_model,
+                )
+            } else {
+                (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    cached,
+                )
+                    .into_response()
+            };
             response.extensions_mut().insert(FinalLayer::ExactCache);
             return response;
         }
@@ -166,12 +178,19 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             tracing::info!("L1b: semantic cache HIT");
             tracing::Span::current().record("gateway.cache.hit", true);
             crate::metrics::record_layer_duration("L1b_SemanticCache", layer_start.elapsed());
-            let mut response = (
-                StatusCode::OK,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                cached,
-            )
-                .into_response();
+            let mut response = if is_streaming {
+                anthropic_sse::cached_to_sse_response(
+                    &cached,
+                    &state.config.external_llm_model,
+                )
+            } else {
+                (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    cached,
+                )
+                    .into_response()
+            };
             response.extensions_mut().insert(FinalLayer::SemanticCache);
             return response;
         }
@@ -216,6 +235,20 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
                 tracing::debug!("L1b: storing in vector cache");
                 state.vector_cache.insert(emb, cache_value.clone()).await;
             }
+        }
+
+        // Convert JSON → SSE for streaming Anthropic clients (e.g. Claude Code).
+        // The handler always returns JSON; we convert at this boundary so the
+        // cache always stores canonical JSON regardless of the client's
+        // streaming preference.
+        if is_streaming && resp_parts.status.is_success() {
+            let mut sse_resp = anthropic_sse::cached_to_sse_response(
+                &resp_string,
+                &state.config.external_llm_model,
+            );
+            // Preserve extensions (FinalLayer, etc.) from the downstream response.
+            *sse_resp.extensions_mut() = resp_parts.extensions;
+            return sse_resp;
         }
 
         return Response::from_parts(resp_parts, Body::from(resp_bytes));
