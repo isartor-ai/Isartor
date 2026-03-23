@@ -13,7 +13,7 @@ use http_body_util::BodyExt;
 use sha2::{Digest, Sha256};
 
 use crate::config::CacheMode;
-use crate::core::prompt::extract_prompt;
+use crate::core::prompt::{extract_prompt, extract_semantic_key};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::state::AppState;
@@ -70,6 +70,11 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
 
     let prompt = extract_prompt(body_bytes.as_ref());
 
+    // For semantic matching, use only the last user message so the embedding
+    // captures the actual question rather than a large system prompt that
+    // dominates the vector and causes unrelated questions to match.
+    let semantic_prompt = extract_semantic_key(body_bytes.as_ref());
+
     // Keep cache entries separate per response format to avoid cross-format cache hits.
     // (e.g., OpenAI-compatible endpoints should not return native ChatResponse bodies.)
     let cache_ns = match request.uri().path() {
@@ -78,6 +83,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         _ => "native",
     };
     let cache_prompt = format!("{cache_ns}|{prompt}");
+    let semantic_cache_prompt = format!("{cache_ns}|{semantic_prompt}");
 
     let mode = &state.config.cache_mode;
     let layer_start = Instant::now();
@@ -118,7 +124,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     // ------------------------------------------------------------------
     let embedding: Option<Vec<f32>> = if *mode == CacheMode::Semantic || *mode == CacheMode::Both {
         let embedder = state.text_embedder.clone();
-        let prompt_clone = cache_prompt.clone();
+        let prompt_clone = semantic_cache_prompt.clone();
 
         // candle BertModel inference is CPU-bound; run on the blocking pool
         // so we don't starve the Tokio async workers.

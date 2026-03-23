@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.44] - 2026-03-23
+
+### Fixed
+- **False L1b semantic cache hits with Claude Code**: The semantic embedding was computed from the entire conversation (system prompt + history + question). Since Claude Code sends a large, identical system prompt with every request, unrelated questions appeared semantically identical (cosine >0.85). The L1b embedding now uses only the last user message, so different questions produce distinct vectors. L1a exact matching is unaffected and still keys on the full conversation.
+- **401 "empty API key" error after `isartor connect claude-copilot`**: The connect command wrote the new Copilot config but tested against the still-running (stale) Isartor instance that had the old provider. Now auto-restarts Isartor (`stop` → `up --detach`) after writing config so the test hits the fresh instance.
+- **Empty Copilot session token guard**: `exchange_copilot_session_token` now rejects empty `"token": ""` responses instead of sending `Bearer ` and getting a confusing 401 from the upstream API.
+
 ## [0.1.43] - 2026-03-23
 
 ### Added

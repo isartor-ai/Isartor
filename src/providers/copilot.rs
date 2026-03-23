@@ -238,10 +238,11 @@ pub async fn exchange_copilot_session_token(
     payload
         .get("token")
         .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
         .map(ToOwned::to_owned)
         .ok_or_else(|| {
             anyhow!(
-                "Copilot session token response missing `token`: {}",
+                "Copilot session token response missing or empty `token`: {}",
                 payload
             )
         })

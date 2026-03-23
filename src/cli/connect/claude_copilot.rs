@@ -149,6 +149,11 @@ pub async fn handle_claude_copilot_connect(args: ClaudeCopilotArgs) -> ConnectRe
         };
     }
 
+    // Auto-restart Isartor so it picks up the new Copilot provider config.
+    // Without this, the running instance still has the old provider and the
+    // test request would hit the stale agent (often OpenAI with empty key → 401).
+    let restarted = restart_isartor_if_running();
+
     let gateway_test = test_isartor_connection(
         &gateway,
         gateway_key.as_deref(),
@@ -156,39 +161,61 @@ pub async fn handle_claude_copilot_connect(args: ClaudeCopilotArgs) -> ConnectRe
     )
     .await;
 
-    let test_result = if gateway_test.response_received || gateway_test.layer_resolved == "timeout"
+    let got_response = gateway_test.response_received;
+
+    let test_result = if got_response || gateway_test.layer_resolved == "timeout"
     {
         Some(gateway_test)
     } else {
         Some(TestResult {
             request_sent: "Claude Code → /v1/messages".to_string(),
             response_received: false,
-            layer_resolved: "restart-required".to_string(),
+            layer_resolved: if restarted {
+                "restart-failed".to_string()
+            } else {
+                "not-running".to_string()
+            },
             latency_ms: 0,
             deflected: false,
         })
     };
 
-    ConnectResult {
-        client_name: "Claude Code + GitHub Copilot".to_string(),
-        success: true,
-        message: format!(
+    let next_steps = if got_response {
+        format!(
+            "Claude Code is configured to route through Isartor, and Isartor is configured to use GitHub Copilot for Layer 3.\n\n\
+             Start a fresh Claude Code session:\n\
+               claude\n\n\
+             Runtime routing:\n\
+               • Claude Code → {gateway}/v1/messages\n\
+               • Cache hits (L1a/L1b) stop locally and consume 0 Copilot quota\n\
+               • Cache misses route to api.githubcopilot.com using model {}",
+            args.model
+        )
+    } else {
+        format!(
             "Claude Code is configured to route through Isartor, and Isartor is configured to use GitHub Copilot for Layer 3.\n\n\
              Next steps:\n\
-               1. Restart Isartor so the new Copilot provider config is loaded\n\
-                  isartor stop\n\
+               1. Start Isartor\n\
                   isartor up --detach\n\
                2. Start a fresh Claude Code session\n\
                   claude\n\n\
              Runtime routing:\n\
                • Claude Code → {gateway}/v1/messages\n\
                • Cache hits (L1a/L1b) stop locally and consume 0 Copilot quota\n\
-               • Cache misses route to api.githubcopilot.com using model {}\n\n\
+               • Cache misses route to api.githubcopilot.com using model {}",
+            args.model
+        )
+    };
+
+    ConnectResult {
+        client_name: "Claude Code + GitHub Copilot".to_string(),
+        success: true,
+        message: format!(
+            "{next_steps}\n\n\
              Files updated:\n\
                • ~/.claude/settings.json\n\
                • ./isartor.toml\n\
-               • ~/.isartor/providers/copilot.json",
-            args.model
+               • ~/.isartor/providers/copilot.json"
         ),
         changes_made: changes,
         test_result,
@@ -259,6 +286,60 @@ fn read_saved_github_credential() -> anyhow::Result<Option<SavedGithubCredential
 
 fn should_reuse_saved_credential(saved: &SavedGithubCredential) -> bool {
     matches!(saved.auth_type.as_deref(), Some("oauth")) && !saved.github_token.is_empty()
+}
+
+/// Restart a running Isartor so it picks up the new config.
+///
+/// Returns `true` if an instance was found and restart was attempted.
+fn restart_isartor_if_running() -> bool {
+    use crate::cli::stop::pid_file_path;
+
+    let pid_path = match pid_file_path() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    if !pid_path.exists() {
+        return false;
+    }
+
+    eprintln!("  ↻ Restarting Isartor to load new Copilot provider config...");
+
+    // Stop the old instance.
+    let stop_result = std::process::Command::new(std::env::current_exe().unwrap_or("isartor".into()))
+        .args(["stop"])
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+
+    if let Ok(status) = stop_result
+        && !status.success()
+    {
+        eprintln!("  ⚠ Failed to stop Isartor (exit {}). You may need to restart manually.", status);
+        return true;
+    }
+
+    // Brief pause for port release.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Start fresh with --detach.
+    let up_result = std::process::Command::new(std::env::current_exe().unwrap_or("isartor".into()))
+        .args(["up", "--detach"])
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status();
+
+    match up_result {
+        Ok(status) if status.success() => {
+            // Wait for the gateway to become ready.
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            eprintln!("  ✓ Isartor restarted with Copilot provider.");
+        }
+        _ => {
+            eprintln!("  ⚠ Failed to restart Isartor. Start it manually: isartor up --detach");
+        }
+    }
+
+    true
 }
 
 fn write_copilot_token_file(
