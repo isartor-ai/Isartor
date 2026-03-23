@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.47] - 2026-03-23
+
+### Fixed
+- **GitHub Copilot completion timeout increased for Anthropic-compatible traffic**: Copilot-backed `/v1/messages` requests no longer fail after the shared 30-second HTTP client timeout. Isartor now gives Copilot completion calls a 120-second per-request timeout, which avoids false retry storms and 502s on slower responses.
+- **Timeout errors now report the configured limit clearly**: when a Copilot completion does exceed the deadline, the error message now states the timeout window directly to make diagnosis easier.
+
 ## [0.1.46] - 2026-03-23
 
 ### Fixed
