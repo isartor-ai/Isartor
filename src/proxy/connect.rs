@@ -436,29 +436,28 @@ async fn resolve_intercepted_request(
         None
     };
 
-    let embedding: Option<Vec<f32>> = if semantic_cache_enabled
-        && (*mode == CacheMode::Semantic || *mode == CacheMode::Both)
-    {
-        match state.text_embedder.generate_embedding(&prompt) {
-            Ok(emb) => {
-                if let Some(cached) = state.vector_cache.search(&emb).await {
-                    tracing::info!("Proxy L1b: semantic cache HIT");
-                    return ProxyInterceptResolution::Local {
-                        final_layer: FinalLayer::SemanticCache,
-                        resolved_by: "semantic_cache",
-                        response_body: cached,
-                    };
+    let embedding: Option<Vec<f32>> =
+        if semantic_cache_enabled && (*mode == CacheMode::Semantic || *mode == CacheMode::Both) {
+            match state.text_embedder.generate_embedding(&prompt) {
+                Ok(emb) => {
+                    if let Some(cached) = state.vector_cache.search(&emb).await {
+                        tracing::info!("Proxy L1b: semantic cache HIT");
+                        return ProxyInterceptResolution::Local {
+                            final_layer: FinalLayer::SemanticCache,
+                            resolved_by: "semantic_cache",
+                            response_body: cached,
+                        };
+                    }
+                    Some(emb)
                 }
-                Some(emb)
+                Err(e) => {
+                    tracing::warn!(error = %e, "Proxy L1b: embedding generation failed, skipping");
+                    None
+                }
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "Proxy L1b: embedding generation failed, skipping");
-                None
-            }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     if let Some(response_body) = try_proxy_slm_resolution(&prompt, path, state).await {
         if let Some(key) = exact_key {

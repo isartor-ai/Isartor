@@ -111,10 +111,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             tracing::Span::current().record("gateway.cache.hit", true);
             crate::metrics::record_layer_duration("L1a_ExactCache", layer_start.elapsed());
             let mut response = if is_streaming {
-                anthropic_sse::cached_to_sse_response(
-                    &cached,
-                    &state.config.external_llm_model,
-                )
+                anthropic_sse::cached_to_sse_response(&cached, &state.config.external_llm_model)
             } else {
                 (
                     StatusCode::OK,
@@ -179,10 +176,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             tracing::Span::current().record("gateway.cache.hit", true);
             crate::metrics::record_layer_duration("L1b_SemanticCache", layer_start.elapsed());
             let mut response = if is_streaming {
-                anthropic_sse::cached_to_sse_response(
-                    &cached,
-                    &state.config.external_llm_model,
-                )
+                anthropic_sse::cached_to_sse_response(&cached, &state.config.external_llm_model)
             } else {
                 (
                     StatusCode::OK,

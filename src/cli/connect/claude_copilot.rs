@@ -163,8 +163,7 @@ pub async fn handle_claude_copilot_connect(args: ClaudeCopilotArgs) -> ConnectRe
 
     let got_response = gateway_test.response_received;
 
-    let test_result = if got_response || gateway_test.layer_resolved == "timeout"
-    {
+    let test_result = if got_response || gateway_test.layer_resolved == "timeout" {
         Some(gateway_test)
     } else {
         Some(TestResult {
@@ -305,16 +304,20 @@ fn restart_isartor_if_running() -> bool {
     eprintln!("  ↻ Restarting Isartor to load new Copilot provider config...");
 
     // Stop the old instance.
-    let stop_result = std::process::Command::new(std::env::current_exe().unwrap_or("isartor".into()))
-        .args(["stop"])
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status();
+    let stop_result =
+        std::process::Command::new(std::env::current_exe().unwrap_or("isartor".into()))
+            .args(["stop"])
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
 
     if let Ok(status) = stop_result
         && !status.success()
     {
-        eprintln!("  ⚠ Failed to stop Isartor (exit {}). You may need to restart manually.", status);
+        eprintln!(
+            "  ⚠ Failed to stop Isartor (exit {}). You may need to restart manually.",
+            status
+        );
         return true;
     }
 

@@ -5,8 +5,8 @@
 // The binary entry-point remains in main.rs.
 // =============================================================================
 
-pub mod anthropic_sse;
 pub mod adapters;
+pub mod anthropic_sse;
 pub mod cli;
 pub mod clients;
 pub mod config;
