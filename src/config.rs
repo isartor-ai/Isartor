@@ -267,7 +267,7 @@ pub struct AppConfig {
 
     // ── Layer 3 — External LLM ──────────────────────────────────────
     /// LLM provider. Supported values (all via rig-core):
-    /// "openai", "azure", "anthropic", "xai", "gemini", "mistral",
+    /// "openai", "azure", "anthropic", "copilot", "xai", "gemini", "mistral",
     /// "groq", "deepseek", "cohere", "galadriel", "hyperbolic",
     /// "huggingface", "mira", "moonshot", "ollama", "openrouter",
     /// "perplexity", "together".
@@ -309,6 +309,9 @@ pub struct AppConfig {
 
     /// API key for the external heavy LLM (Layer 3).
     pub external_llm_api_key: String,
+
+    /// HTTP request timeout for Layer 3 provider calls, in seconds.
+    pub l3_timeout_secs: u64,
 
     // ── Azure-specific ──────────────────────────────────────────────
     /// Azure OpenAI deployment ID (only used when `llm_provider` = "azure").
@@ -394,6 +397,7 @@ impl AppConfig {
             )?
             .set_default("external_llm_model", "gpt-4o-mini")?
             .set_default("external_llm_api_key", "")?
+            .set_default("l3_timeout_secs", 120_i64)?
             // Azure
             .set_default("azure_deployment_id", "")?
             .set_default("azure_api_version", "2024-08-01-preview")?
@@ -591,53 +595,108 @@ mod tests {
 
     #[test]
     fn app_config_loads_with_defaults() {
-        // Use temp-env to ensure no stale env vars leak in.
-        temp_env::with_vars_unset(
-            vec![
-                "ISARTOR_HOST_PORT",
-                "ISARTOR_GATEWAY_API_KEY",
-                "ISARTOR_CACHE_MODE",
-                "ISARTOR_CACHE_TTL_SECS",
-                "ISARTOR_ENABLE_MONITORING",
-                "ISARTOR_ENABLE_SLM_ROUTER",
-                "ISARTOR_LAYER2__SIDECAR_URL",
-                "ISARTOR_LAYER2__MODEL_NAME",
-                "ISARTOR_LAYER2__TIMEOUT_SECONDS",
-                "ISARTOR_EMBEDDING_SIDECAR__SIDECAR_URL",
-                "ISARTOR_EMBEDDING_SIDECAR__MODEL_NAME",
-                "ISARTOR_EMBEDDING_SIDECAR__TIMEOUT_SECONDS",
-            ],
-            || {
-                let config = AppConfig::load().expect("default load must succeed");
+        let cfg = config::Config::builder()
+            .set_default("host_port", "0.0.0.0:8080")
+            .unwrap()
+            .set_default("inference_engine", "sidecar")
+            .unwrap()
+            .set_default("gateway_api_key", "")
+            .unwrap()
+            .set_default("cache_mode", "both")
+            .unwrap()
+            .set_default("cache_backend", "memory")
+            .unwrap()
+            .set_default("redis_url", "redis://127.0.0.1:6379")
+            .unwrap()
+            .set_default("router_backend", "embedded")
+            .unwrap()
+            .set_default("vllm_url", "http://127.0.0.1:8000")
+            .unwrap()
+            .set_default("vllm_model", "gemma-2-2b-it")
+            .unwrap()
+            .set_default("embedding_model", "all-minilm")
+            .unwrap()
+            .set_default("similarity_threshold", 0.85)
+            .unwrap()
+            .set_default("cache_ttl_secs", 300_i64)
+            .unwrap()
+            .set_default("cache_max_capacity", 10_000_i64)
+            .unwrap()
+            .set_default("layer2.sidecar_url", "http://127.0.0.1:8081")
+            .unwrap()
+            .set_default("layer2.model_name", "phi-3-mini")
+            .unwrap()
+            .set_default("layer2.timeout_seconds", 30_i64)
+            .unwrap()
+            .set_default("local_slm_url", "http://localhost:11434/api/generate")
+            .unwrap()
+            .set_default("local_slm_model", "llama3")
+            .unwrap()
+            .set_default("embedding_sidecar.sidecar_url", "http://127.0.0.1:8082")
+            .unwrap()
+            .set_default("embedding_sidecar.model_name", "all-minilm")
+            .unwrap()
+            .set_default("embedding_sidecar.timeout_seconds", 10_i64)
+            .unwrap()
+            .set_default("llm_provider", "openai")
+            .unwrap()
+            .set_default(
+                "external_llm_url",
+                "https://api.openai.com/v1/chat/completions",
+            )
+            .unwrap()
+            .set_default("external_llm_model", "gpt-4o-mini")
+            .unwrap()
+            .set_default("external_llm_api_key", "")
+            .unwrap()
+            .set_default("l3_timeout_secs", 120_i64)
+            .unwrap()
+            .set_default("azure_deployment_id", "")
+            .unwrap()
+            .set_default("azure_api_version", "2024-08-01-preview")
+            .unwrap()
+            .set_default("enable_monitoring", false)
+            .unwrap()
+            .set_default("enable_slm_router", false)
+            .unwrap()
+            .set_default("otel_exporter_endpoint", "http://localhost:4317")
+            .unwrap()
+            .set_default("offline_mode", false)
+            .unwrap()
+            .set_default("proxy_port", "0.0.0.0:8081")
+            .unwrap()
+            .build()
+            .unwrap();
 
-                assert_eq!(config.host_port, "0.0.0.0:8080");
-                assert_eq!(config.inference_engine, InferenceEngineMode::Sidecar);
-                assert_eq!(config.gateway_api_key, "");
-                assert_eq!(config.cache_mode, CacheMode::Both);
-                assert_eq!(config.cache_backend, CacheBackend::Memory);
-                assert_eq!(config.redis_url, "redis://127.0.0.1:6379");
-                assert_eq!(config.router_backend, RouterBackend::Embedded);
-                assert_eq!(config.vllm_url, "http://127.0.0.1:8000");
-                assert_eq!(config.vllm_model, "gemma-2-2b-it");
-                assert_eq!(config.embedding_model, "all-minilm");
-                assert!((config.similarity_threshold - 0.85).abs() < 1e-9);
-                assert_eq!(config.cache_ttl_secs, 300);
-                assert_eq!(config.cache_max_capacity, 10_000);
-                assert_eq!(config.layer2.sidecar_url, "http://127.0.0.1:8081");
-                assert_eq!(config.layer2.model_name, "phi-3-mini");
-                assert_eq!(config.layer2.timeout_seconds, 30);
-                assert_eq!(
-                    config.embedding_sidecar.sidecar_url,
-                    "http://127.0.0.1:8082"
-                );
-                assert_eq!(config.embedding_sidecar.model_name, "all-minilm");
-                assert_eq!(config.embedding_sidecar.timeout_seconds, 10);
-                assert_eq!(config.llm_provider, "openai".into());
-                assert_eq!(config.external_llm_model, "gpt-4o-mini");
-                assert!(!config.enable_monitoring);
-                assert!(!config.enable_slm_router);
-            },
+        let config: AppConfig = cfg.try_deserialize().unwrap();
+
+        assert_eq!(config.host_port, "0.0.0.0:8080");
+        assert_eq!(config.inference_engine, InferenceEngineMode::Sidecar);
+        assert_eq!(config.gateway_api_key, "");
+        assert_eq!(config.cache_mode, CacheMode::Both);
+        assert_eq!(config.cache_backend, CacheBackend::Memory);
+        assert_eq!(config.redis_url, "redis://127.0.0.1:6379");
+        assert_eq!(config.router_backend, RouterBackend::Embedded);
+        assert_eq!(config.vllm_url, "http://127.0.0.1:8000");
+        assert_eq!(config.vllm_model, "gemma-2-2b-it");
+        assert_eq!(config.embedding_model, "all-minilm");
+        assert!((config.similarity_threshold - 0.85).abs() < 1e-9);
+        assert_eq!(config.cache_ttl_secs, 300);
+        assert_eq!(config.cache_max_capacity, 10_000);
+        assert_eq!(config.layer2.sidecar_url, "http://127.0.0.1:8081");
+        assert_eq!(config.layer2.model_name, "phi-3-mini");
+        assert_eq!(config.layer2.timeout_seconds, 30);
+        assert_eq!(
+            config.embedding_sidecar.sidecar_url,
+            "http://127.0.0.1:8082"
         );
+        assert_eq!(config.embedding_sidecar.model_name, "all-minilm");
+        assert_eq!(config.embedding_sidecar.timeout_seconds, 10);
+        assert_eq!(config.llm_provider, "openai".into());
+        assert_eq!(config.external_llm_model, "gpt-4o-mini");
+        assert_eq!(config.l3_timeout_secs, 120);
+        assert!(!config.enable_monitoring);
+        assert!(!config.enable_slm_router);
     }
 
     #[test]
@@ -695,6 +754,8 @@ mod tests {
             .set_default("external_llm_model", "gpt-4o-mini")
             .unwrap()
             .set_default("external_llm_api_key", "")
+            .unwrap()
+            .set_default("l3_timeout_secs", 120_i64)
             .unwrap()
             .set_default("azure_deployment_id", "")
             .unwrap()
@@ -791,6 +852,8 @@ mod tests {
             .set_default("external_llm_model", "gpt-4o-mini")
             .unwrap()
             .set_default("external_llm_api_key", "")
+            .unwrap()
+            .set_default("l3_timeout_secs", 120_i64)
             .unwrap()
             .set_default("azure_deployment_id", "")
             .unwrap()
@@ -893,6 +956,8 @@ mod tests {
             .unwrap()
             .set_default("external_llm_api_key", "")
             .unwrap()
+            .set_default("l3_timeout_secs", 120_i64)
+            .unwrap()
             .set_default("azure_deployment_id", "")
             .unwrap()
             .set_default("azure_api_version", "2024-08-01-preview")
@@ -927,6 +992,7 @@ mod tests {
                 ("ISARTOR__INFERENCE_ENGINE", Some("embedded")),
                 ("ISARTOR__LLM_PROVIDER", Some("azure")),
                 ("ISARTOR__EXTERNAL_LLM_API_KEY", Some("test-key-123")),
+                ("ISARTOR__L3_TIMEOUT_SECS", Some("45")),
                 (
                     "ISARTOR__EXTERNAL_LLM_URL",
                     Some("https://example.openai.azure.com"),
@@ -940,6 +1006,7 @@ mod tests {
                 assert_eq!(config.inference_engine, InferenceEngineMode::Embedded);
                 assert_eq!(config.llm_provider, "azure".into());
                 assert_eq!(config.external_llm_api_key, "test-key-123");
+                assert_eq!(config.l3_timeout_secs, 45);
                 assert_eq!(config.layer2.sidecar_url, "http://custom:9999");
             },
         );

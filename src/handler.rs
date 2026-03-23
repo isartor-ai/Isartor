@@ -4,20 +4,147 @@ use std::time::Instant;
 use axum::Json;
 use axum::extract::Request;
 use axum::http::StatusCode;
+use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use axum::response::IntoResponse;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::{Instrument, info_span};
 
 use crate::anthropic_sse;
-use crate::core::prompt::extract_prompt;
+use crate::config::LlmProvider;
+use crate::core::prompt::{extract_prompt, has_tooling};
 use crate::core::retry::{RetryConfig, execute_with_retry};
 use crate::errors::GatewayError;
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{
-    ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage,
+    ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatRequest, OpenAiChatResponse,
+    OpenAiMessage, OpenAiModel, OpenAiModelList,
 };
+use crate::providers::copilot::exchange_copilot_session_token;
 use crate::state::AppState;
 use crate::visibility;
+
+fn configured_openai_models(state: &AppState) -> OpenAiModelList {
+    let provider = state.config.llm_provider.as_str();
+    let model_id = match state.config.llm_provider {
+        crate::config::LlmProvider::Azure if !state.config.azure_deployment_id.is_empty() => {
+            state.config.azure_deployment_id.clone()
+        }
+        _ => state.config.external_llm_model.clone(),
+    };
+
+    OpenAiModelList::new(vec![OpenAiModel::new(model_id, provider)])
+}
+
+fn configured_openai_model_id(state: &AppState) -> String {
+    configured_openai_models(state)
+        .data
+        .into_iter()
+        .next()
+        .map(|model| model.id)
+        .unwrap_or_else(|| state.config.external_llm_model.clone())
+}
+
+fn supports_openai_passthrough(provider: &LlmProvider) -> bool {
+    matches!(
+        provider,
+        LlmProvider::Openai
+            | LlmProvider::Azure
+            | LlmProvider::Copilot
+            | LlmProvider::Xai
+            | LlmProvider::Mistral
+            | LlmProvider::Groq
+            | LlmProvider::Deepseek
+            | LlmProvider::Galadriel
+            | LlmProvider::Hyperbolic
+            | LlmProvider::Moonshot
+            | LlmProvider::Openrouter
+            | LlmProvider::Perplexity
+            | LlmProvider::Together
+    )
+}
+
+fn provider_chat_completions_url(state: &AppState) -> Option<String> {
+    match &state.config.llm_provider {
+        LlmProvider::Azure => Some(format!(
+            "{}/openai/deployments/{}/chat/completions?api-version={}",
+            state.config.external_llm_url.trim_end_matches('/'),
+            state.config.azure_deployment_id,
+            state.config.azure_api_version
+        )),
+        LlmProvider::Copilot => Some(if state.config.external_llm_url.trim().is_empty() {
+            "https://api.githubcopilot.com/chat/completions".to_string()
+        } else {
+            state.config.external_llm_url.clone()
+        }),
+        provider if supports_openai_passthrough(provider) => {
+            Some(state.config.external_llm_url.clone())
+        }
+        _ => None,
+    }
+}
+
+async fn send_openai_passthrough_request(
+    state: &AppState,
+    request: &OpenAiChatRequest,
+) -> anyhow::Result<String> {
+    let Some(url) = provider_chat_completions_url(state) else {
+        anyhow::bail!(
+            "provider {} does not support OpenAI tool passthrough",
+            state.config.llm_provider
+        );
+    };
+
+    let mut payload = serde_json::to_value(request)?;
+    if let Value::Object(ref mut map) = payload {
+        map.insert(
+            "model".to_string(),
+            Value::String(configured_openai_model_id(state)),
+        );
+    }
+
+    let mut request_builder = state
+        .http_client
+        .post(url)
+        .header(ACCEPT, "application/json")
+        .header(CONTENT_TYPE, "application/json");
+
+    match state.config.llm_provider {
+        LlmProvider::Azure => {
+            request_builder = request_builder.header("api-key", &state.config.external_llm_api_key);
+        }
+        LlmProvider::Copilot => {
+            let copilot_token = exchange_copilot_session_token(
+                &state.http_client,
+                &state.config.external_llm_api_key,
+            )
+            .await?;
+            request_builder = request_builder
+                .header(AUTHORIZATION, format!("Bearer {copilot_token}"))
+                .header("User-Agent", "GitHubCopilotChat/0.29.1")
+                .header("Editor-Version", "vscode/1.99.0")
+                .header("Editor-Plugin-Version", "copilot-chat/0.29.1")
+                .header("Copilot-Integration-Id", "vscode-chat")
+                .header("X-GitHub-Api-Version", "2025-04-01");
+        }
+        _ => {
+            request_builder = request_builder.header(
+                AUTHORIZATION,
+                format!("Bearer {}", state.config.external_llm_api_key),
+            );
+        }
+    }
+
+    let response = request_builder.json(&payload).send().await?;
+    let status = response.status();
+    let body = response.text().await?;
+
+    if !status.is_success() {
+        anyhow::bail!("HTTP {status}: {body}");
+    }
+
+    Ok(body)
+}
 
 /// Layer 3 — Fallback handler.
 ///
@@ -235,10 +362,65 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             }
         };
 
-        let prompt = extract_prompt(&body_bytes);
-
         let provider_name = state.llm_agent.provider_name();
         tracing::info!(provider = provider_name, "OpenAI compat: forwarding to LLM");
+
+        if has_tooling(&body_bytes) {
+            let request = match serde_json::from_slice::<OpenAiChatRequest>(&body_bytes) {
+                Ok(request) => request,
+                Err(err) => {
+                    let mut resp = (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({
+                            "error": {"message": format!("invalid OpenAI request body: {err}")}
+                        })),
+                    )
+                        .into_response();
+                    resp.extensions_mut().insert(FinalLayer::Cloud);
+                    return resp;
+                }
+            };
+
+            let retry_cfg = RetryConfig::default();
+            let provider_for_err = provider_name.to_string();
+            let state_for_retry = state.clone();
+            let request_for_retry = request.clone();
+            let result = execute_with_retry(&retry_cfg, "L3_OpenAIToolPassthrough", || {
+                let state = state_for_retry.clone();
+                let request = request_for_retry.clone();
+                let provider = provider_for_err.clone();
+                async move {
+                    send_openai_passthrough_request(&state, &request)
+                        .await
+                        .map_err(|e| GatewayError::from_llm_error(&provider, &e))
+                }
+            })
+            .await;
+
+            match result {
+                Ok(body) => {
+                    crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                    let mut resp = (StatusCode::OK, [(CONTENT_TYPE, "application/json")], body)
+                        .into_response();
+                    resp.extensions_mut().insert(FinalLayer::Cloud);
+                    return resp;
+                }
+                Err(gw_err) => {
+                    crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                    let mut resp = (
+                        StatusCode::BAD_GATEWAY,
+                        Json(serde_json::json!({
+                            "error": {"message": format!("[{provider_name}] {gw_err}")}
+                        })),
+                    )
+                        .into_response();
+                    resp.extensions_mut().insert(FinalLayer::Cloud);
+                    return resp;
+                }
+            }
+        }
+
+        let prompt = extract_prompt(&body_bytes);
 
         let retry_cfg = RetryConfig::default();
         let agent = state.llm_agent.clone();
@@ -266,7 +448,11 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                     choices: vec![OpenAiChatChoice {
                         message: OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: text,
+                            content: Some(text),
+                            name: None,
+                            tool_call_id: None,
+                            tool_calls: None,
+                            function_call: None,
                         },
                         index: 0,
                         finish_reason: Some("stop".to_string()),
@@ -294,6 +480,24 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
     }
     .instrument(span)
     .await
+}
+
+/// OpenAI-compatible models endpoint — `GET /v1/models`.
+pub async fn openai_models_handler(request: Request) -> impl IntoResponse {
+    let state = match request.extensions().get::<Arc<AppState>>() {
+        Some(s) => s.clone(),
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": {"message": "missing application state"}
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    (StatusCode::OK, Json(configured_openai_models(&state))).into_response()
 }
 
 /// Anthropic Messages endpoint — `POST /v1/messages`.
@@ -682,7 +886,12 @@ fn record_cache_lookup_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{Router, body::Body, middleware as axum_mw, routing::post};
+    use axum::{
+        Router,
+        body::Body,
+        middleware as axum_mw,
+        routing::{get, post},
+    };
     use http_body_util::BodyExt;
     use sha2::{Digest, Sha256};
     use tower::ServiceExt;
@@ -752,6 +961,7 @@ mod tests {
             external_llm_url: "http://localhost".into(),
             external_llm_model: "gpt-4o-mini".into(),
             external_llm_api_key: "".into(),
+            l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,
@@ -777,6 +987,11 @@ mod tests {
     fn handler_app(state: Arc<AppState>) -> Router {
         Router::new()
             .route("/api/chat", post(chat_handler))
+            .route(
+                "/v1/chat/completions",
+                post(openai_chat_completions_handler),
+            )
+            .route("/v1/models", get(openai_models_handler))
             .layer(axum_mw::from_fn(buffer_body_middleware))
             .layer(axum_mw::from_fn(
                 move |mut req: Request, next: axum_mw::Next| {
@@ -871,6 +1086,214 @@ mod tests {
         let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(json["message"], "Reply to: raw text prompt");
+    }
+
+    #[tokio::test]
+    async fn openai_non_tool_request_preserves_text_only_behavior() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let app = handler_app(state);
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "model": "ignored-by-isartor",
+            "messages": [{"role": "user", "content": "hello openai"}]
+        }))
+        .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(
+            json["choices"][0]["message"]["content"],
+            "Reply to: user: hello openai"
+        );
+        assert_eq!(json["choices"][0]["finish_reason"], "stop");
+        assert_eq!(json["model"], "gpt-4o-mini");
+    }
+
+    #[tokio::test]
+    async fn openai_tool_request_passthrough_preserves_tool_calls() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_partial_json, method, path},
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_partial_json(serde_json::json!({
+                "model": "gpt-4o-mini",
+                "tools": [{
+                    "type": "function",
+                    "function": {
+                        "name": "lookup_weather"
+                    }
+                }],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": "lookup_weather"}
+                },
+                "functions": [{
+                    "name": "legacy_lookup"
+                }]
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-tool",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "lookup_weather",
+                                "arguments": "{\"city\":\"Berlin\"}"
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "model": "gpt-4o-mini"
+            })))
+            .mount(&server)
+            .await;
+
+        let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config.external_llm_url = format!("{}/v1/chat/completions", server.uri());
+
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+        let app = handler_app(state);
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "model": "client-specified-model",
+            "messages": [
+                {"role": "assistant", "content": null, "tool_calls": [{
+                    "id": "call_prev",
+                    "type": "function",
+                    "function": {"name": "lookup_weather", "arguments": "{\"city\":\"Paris\"}"}
+                }]},
+                {"role": "tool", "tool_call_id": "call_prev", "content": "{\"temp_c\":21}"},
+                {"role": "user", "content": "What next?"}
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "lookup_weather",
+                    "parameters": {"type": "object"}
+                }
+            }],
+            "tool_choice": {
+                "type": "function",
+                "function": {"name": "lookup_weather"}
+            },
+            "functions": [{
+                "name": "legacy_lookup",
+                "parameters": {"type": "object"}
+            }]
+        }))
+        .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(
+            json["choices"][0]["message"]["tool_calls"][0]["id"],
+            "call_1"
+        );
+        assert_eq!(
+            json["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
+            "{\"city\":\"Berlin\"}"
+        );
+        assert_eq!(json["choices"][0]["finish_reason"], "tool_calls");
+    }
+
+    #[tokio::test]
+    async fn openai_models_returns_configured_l3_model_list() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let app = handler_app(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/models")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["object"], "list");
+        assert_eq!(json["data"][0]["id"], "gpt-4o-mini");
+        assert_eq!(json["data"][0]["object"], "model");
+        assert_eq!(json["data"][0]["owned_by"], "openai");
+    }
+
+    #[tokio::test]
+    async fn openai_models_prefers_azure_deployment_id_when_configured() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config.llm_provider = crate::config::LlmProvider::Azure;
+        config.azure_deployment_id = "azure-deployment".into();
+        config.external_llm_model = "gpt-4o-mini".into();
+
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+        let app = handler_app(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/models")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data"][0]["id"], "azure-deployment");
+        assert_eq!(json["data"][0]["owned_by"], "azure");
     }
 
     #[tokio::test]

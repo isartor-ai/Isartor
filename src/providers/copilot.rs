@@ -18,7 +18,6 @@ const USER_AGENT: &str = "GitHubCopilotChat/0.29.1";
 const EDITOR_VERSION: &str = "vscode/1.99.0";
 const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 16_000;
 const COPILOT_MAX_OUTPUT_TOKENS: u32 = 16_384;
-const COPILOT_COMPLETION_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 pub struct DeviceFlowResult {
@@ -46,14 +45,21 @@ pub struct CopilotAgent {
     http: Client,
     github_token: String,
     model: String,
+    request_timeout: Duration,
 }
 
 impl CopilotAgent {
-    pub fn new(http: Client, github_token: String, model: String) -> Self {
+    pub fn new(
+        http: Client,
+        github_token: String,
+        model: String,
+        request_timeout: Duration,
+    ) -> Self {
         Self {
             http,
             github_token,
             model,
+            request_timeout,
         }
     }
 
@@ -176,14 +182,13 @@ impl AppLlmAgent for CopilotAgent {
             .header("Editor-Plugin-Version", "copilot-chat/0.29.1")
             .header("Copilot-Integration-Id", "vscode-chat")
             .header("X-GitHub-Api-Version", "2025-04-01")
-            .timeout(COPILOT_COMPLETION_TIMEOUT)
             .json(&body)
             .send()
             .await
             .with_context(|| {
                 format!(
                     "Copilot completions request failed after {:?}",
-                    COPILOT_COMPLETION_TIMEOUT
+                    self.request_timeout
                 )
             })?;
 

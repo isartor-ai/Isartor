@@ -82,10 +82,11 @@ All providers are powered by [rig-core](https://crates.io/crates/rig-core).
 
 | Variable | Type | Default | Description |
 | --- | --- | --- | --- |
-| `ISARTOR__LLM_PROVIDER` | `String` | `openai` | Provider: `openai`, `azure`, `anthropic`, `xai`, `gemini`, `mistral`, `groq`, `deepseek`, `cohere`, `galadriel`, `hyperbolic`, `huggingface`, `mira`, `moonshot`, `ollama`, `openrouter`, `perplexity`, `together` |
+| `ISARTOR__LLM_PROVIDER` | `String` | `openai` | Provider: `openai`, `azure`, `anthropic`, `copilot`, `xai`, `gemini`, `mistral`, `groq`, `deepseek`, `cohere`, `galadriel`, `hyperbolic`, `huggingface`, `mira`, `moonshot`, `ollama`, `openrouter`, `perplexity`, `together` |
 | `ISARTOR__EXTERNAL_LLM_URL` | `String` | `https://api.openai.com/v1/chat/completions` | Base URL for the external LLM API (currently only used for the `azure` provider; other providers use their built-in endpoints) |
 | `ISARTOR__EXTERNAL_LLM_MODEL` | `String` | `gpt-4o-mini` | Model name to request |
 | `ISARTOR__EXTERNAL_LLM_API_KEY` | `String` | *(empty)* | API key for the cloud LLM provider (not needed for Ollama) |
+| `ISARTOR__L3_TIMEOUT_SECS` | `u64` | `120` | HTTP request timeout applied to all Layer 3 provider calls, including Copilot and rig-core providers |
 
 ### Azure OpenAI (Layer 3)
 
@@ -171,6 +172,7 @@ llm_provider = "openai"
 external_llm_url = "https://api.openai.com/v1/chat/completions"
 external_llm_model = "gpt-4o-mini"
 external_llm_api_key = ""  # Prefer env var for secrets
+l3_timeout_secs = 120
 
 # Observability
 enable_monitoring = true

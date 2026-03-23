@@ -22,6 +22,7 @@ pub mod layer1;
 pub mod metrics;
 pub mod middleware;
 pub mod models;
+pub mod openai_sse;
 pub mod pipeline;
 pub mod providers;
 pub mod proxy;

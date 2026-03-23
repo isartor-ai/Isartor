@@ -139,6 +139,7 @@ mod tests {
             external_llm_url: "http://localhost".into(),
             external_llm_model: "test".into(),
             external_llm_api_key: "".into(),
+            l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,

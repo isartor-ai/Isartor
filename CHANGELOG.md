@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.48] - 2026-03-23
+
+### Added
+- **OpenAI model discovery endpoint**: `GET /v1/models` now returns an OpenAI-compatible model list so Cursor, OpenCode, and other agent clients can discover the configured Layer 3 model automatically.
+
+### Changed
+- **OpenAI-compatible tool use passthrough**: `/v1/chat/completions` now preserves `tools`, `tool_choice`, `functions`, and `function_call` fields for tool-enabled requests and returns upstream `tool_calls` responses unchanged.
+- **Tool-aware cache keying for OpenAI requests**: exact-cache keys now include tool definitions and tool-role history, and semantic cache matching is skipped for tool-enabled OpenAI traffic to avoid unsafe collisions.
+- **Layer 3 timeout is now configurable globally**: `ISARTOR__L3_TIMEOUT_SECS` (default `120`) now drives the shared timeout for all Layer 3 providers, including Copilot and rig-core-backed providers.
+
+### Fixed
+- **OpenAI streaming SSE for coding agents**: `POST /v1/chat/completions` now returns OpenAI-style `text/event-stream` responses when `stream: true`, including `data:` chunks and terminal `data: [DONE]`.
+- **Streaming cache hits now preserve OpenAI wire format**: cached OpenAI responses, including tool-call completions, are upgraded to SSE at the response boundary so cache storage stays canonical JSON while streaming clients still receive the protocol they expect.
+
 ## [0.1.47] - 2026-03-23
 
 ### Fixed

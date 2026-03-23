@@ -276,6 +276,20 @@ async fn main() -> anyhow::Result<()> {
             },
         ));
 
+    let state_for_metadata = app_state.clone();
+    let authenticated_metadata = Router::new()
+        .route("/v1/models", get(handler::openai_models_handler))
+        .layer(axum_mw::from_fn(middleware::auth::auth_middleware))
+        .layer(axum_mw::from_fn(
+            move |mut req: axum::extract::Request, next: axum_mw::Next| {
+                let st = state_for_metadata.clone();
+                async move {
+                    req.extensions_mut().insert(st);
+                    next.run(req).await
+                }
+            },
+        ));
+
     let state_for_debug = app_state.clone();
     let debug = Router::new()
         .route(
@@ -338,7 +352,10 @@ async fn main() -> anyhow::Result<()> {
         )))
         .layer(axum::Extension(demo_flag));
 
-    let app = public.merge(debug).merge(authenticated);
+    let app = public
+        .merge(debug)
+        .merge(authenticated_metadata)
+        .merge(authenticated);
 
     // ------------------------------------------------------------------
     // 5. Start the server and, when requested, the CONNECT proxy.

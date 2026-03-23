@@ -133,13 +133,14 @@ const SCAFFOLD_TOML: &str = r#"# ═══════════════�
 # timeout_seconds = 10
 
 # ── Layer 3 — External LLM ───────────────────────────────────────────
-# llm_provider       = "openai"      # "openai", "azure", "anthropic", "xai", "gemini", "mistral",
+# llm_provider       = "openai"      # "openai", "azure", "anthropic", "copilot", "xai", "gemini", "mistral",
 #                                    # "groq", "deepseek", "cohere", "galadriel", "hyperbolic",
 #                                    # "huggingface", "mira", "moonshot", "ollama", "openrouter",
 #                                    # "perplexity", "together"
 # external_llm_url   = "https://api.openai.com/v1/chat/completions"
 # external_llm_model = "gpt-4o-mini"
 # external_llm_api_key = ""          # ← Set this or use ISARTOR__EXTERNAL_LLM_API_KEY
+# l3_timeout_secs    = 120           # Shared timeout for all Layer 3 providers
 
 # ── Azure-specific ───────────────────────────────────────────────────
 # azure_deployment_id = ""

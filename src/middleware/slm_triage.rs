@@ -80,7 +80,11 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     choices: vec![OpenAiChatChoice {
                         message: OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: answer,
+                            content: Some(answer),
+                            name: None,
+                            tool_call_id: None,
+                            tool_calls: None,
+                            function_call: None,
                         },
                         index: 0,
                         finish_reason: Some("stop".to_string()),
@@ -419,6 +423,7 @@ mod tests {
             external_llm_url: "http://localhost".into(),
             external_llm_model: "test".into(),
             external_llm_api_key: "".into(),
+            l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,
@@ -638,6 +643,7 @@ mod tests {
             external_llm_url: "http://localhost".into(),
             external_llm_model: "test".into(),
             external_llm_api_key: "".into(),
+            l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,

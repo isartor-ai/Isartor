@@ -165,14 +165,31 @@ pub struct OllamaEmbedResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenAiMessage {
     pub role: String,
-    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_call: Option<serde_json::Value>,
 }
 
 /// Request body for `POST /v1/chat/completions`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenAiChatRequest {
     pub model: String,
     pub messages: Vec<OpenAiMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub functions: Option<Vec<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_call: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -197,6 +214,40 @@ pub struct OpenAiChatResponse {
     pub choices: Vec<OpenAiChatChoice>,
     #[allow(dead_code)]
     pub model: Option<String>,
+}
+
+/// A single model entry from `GET /v1/models`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenAiModel {
+    pub id: String,
+    pub object: String,
+    pub owned_by: String,
+}
+
+impl OpenAiModel {
+    pub fn new(id: impl Into<String>, owned_by: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            object: "model".to_string(),
+            owned_by: owned_by.into(),
+        }
+    }
+}
+
+/// Response body for `GET /v1/models`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenAiModelList {
+    pub object: String,
+    pub data: Vec<OpenAiModel>,
+}
+
+impl OpenAiModelList {
+    pub fn new(data: Vec<OpenAiModel>) -> Self {
+        Self {
+            object: "list".to_string(),
+            data,
+        }
+    }
 }
 
 /// Request body for `POST /v1/embeddings`.
@@ -270,6 +321,16 @@ mod tests {
         assert!(!json.contains("\"model\""));
     }
 
+    #[test]
+    fn openai_model_list_serialize() {
+        let resp = OpenAiModelList::new(vec![OpenAiModel::new("gpt-4o-mini", "openai")]);
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"object\":\"list\""));
+        assert!(json.contains("\"id\":\"gpt-4o-mini\""));
+        assert!(json.contains("\"object\":\"model\""));
+        assert!(json.contains("\"owned_by\":\"openai\""));
+    }
+
     // ── OllamaRequest ───────────────────────────────────────────
 
     #[test]
@@ -332,12 +393,16 @@ mod tests {
     fn openai_message_roundtrip() {
         let msg = OpenAiMessage {
             role: "user".into(),
-            content: "hello".into(),
+            content: Some("hello".into()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+            function_call: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let back: OpenAiMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(back.role, "user");
-        assert_eq!(back.content, "hello");
+        assert_eq!(back.content.as_deref(), Some("hello"));
     }
 
     #[test]
@@ -346,8 +411,16 @@ mod tests {
             model: "gpt-4o".into(),
             messages: vec![OpenAiMessage {
                 role: "user".into(),
-                content: "hi".into(),
+                content: Some("hi".into()),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                function_call: None,
             }],
+            tools: None,
+            tool_choice: None,
+            functions: None,
+            function_call: None,
             temperature: None,
             max_tokens: None,
             stream: None,
@@ -364,6 +437,10 @@ mod tests {
         let req = OpenAiChatRequest {
             model: "gpt-4o".into(),
             messages: vec![],
+            tools: None,
+            tool_choice: None,
+            functions: None,
+            function_call: None,
             temperature: Some(0.7),
             max_tokens: Some(100),
             stream: Some(false),
@@ -386,7 +463,7 @@ mod tests {
         }"#;
         let resp: OpenAiChatResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.choices.len(), 1);
-        assert_eq!(resp.choices[0].message.content, "Hi!");
+        assert_eq!(resp.choices[0].message.content.as_deref(), Some("Hi!"));
         assert_eq!(resp.model, Some("gpt-4o-mini".into()));
     }
 
@@ -394,8 +471,68 @@ mod tests {
     fn openai_chat_response_deserialize_no_model() {
         let json = r#"{"choices": [{"message": {"role":"assistant","content":"ok"}, "index":0, "finish_reason": null}]}"#;
         let resp: OpenAiChatResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.choices[0].message.content, "ok");
+        assert_eq!(resp.choices[0].message.content.as_deref(), Some("ok"));
         assert!(resp.model.is_none());
+    }
+
+    #[test]
+    fn openai_chat_request_roundtrip_with_tools_and_functions() {
+        let json = r#"{
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "assistant", "content": null, "tool_calls": [{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"city\":\"Berlin\"}"}}]},
+                {"role": "tool", "tool_call_id": "call_1", "content": "{\"temp_c\": 23}"}
+            ],
+            "tools": [{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],
+            "tool_choice": {"type":"function","function":{"name":"lookup"}},
+            "functions": [{"name":"legacy_lookup","parameters":{"type":"object"}}],
+            "function_call": {"name":"legacy_lookup"}
+        }"#;
+
+        let req: OpenAiChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.tools.as_ref().map(Vec::len), Some(1));
+        assert!(req.tool_choice.is_some());
+        assert_eq!(req.functions.as_ref().map(Vec::len), Some(1));
+        assert!(req.function_call.is_some());
+        assert_eq!(req.messages[0].tool_calls.as_ref().map(Vec::len), Some(1));
+        assert_eq!(req.messages[1].role, "tool");
+        assert_eq!(req.messages[1].tool_call_id.as_deref(), Some("call_1"));
+
+        let serialized = serde_json::to_value(&req).unwrap();
+        assert_eq!(serialized["messages"][0]["tool_calls"][0]["id"], "call_1");
+        assert_eq!(serialized["tool_choice"]["function"]["name"], "lookup");
+        assert_eq!(serialized["functions"][0]["name"], "legacy_lookup");
+    }
+
+    #[test]
+    fn openai_chat_response_deserialize_tool_calls() {
+        let json = r#"{
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup_weather",
+                            "arguments": "{\"city\":\"Paris\"}"
+                        }
+                    }]
+                },
+                "index": 0,
+                "finish_reason": "tool_calls"
+            }],
+            "model": "gpt-4o-mini"
+        }"#;
+
+        let resp: OpenAiChatResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.choices[0].message.content.is_none());
+        assert_eq!(resp.choices[0].finish_reason.as_deref(), Some("tool_calls"));
+        assert_eq!(
+            resp.choices[0].message.tool_calls.as_ref().unwrap()[0]["function"]["name"],
+            "lookup_weather"
+        );
     }
 
     // ── OpenAI Embedding Types ───────────────────────────────────

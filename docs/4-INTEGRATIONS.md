@@ -15,6 +15,7 @@ Authenticated chat endpoints:
   - `POST /api/chat`
   - `POST /api/v1/chat` (alias)
 - **OpenAI Chat Completions compatible**
+  - `GET /v1/models`
   - `POST /v1/chat/completions`
 - **Anthropic Messages compatible**
   - `POST /v1/messages`
@@ -60,6 +61,19 @@ If gateway auth is enabled, also add:
 ```bash
 -H 'Authorization: Bearer your-secret-key'
 ```
+
+Many OpenAI SDKs also call the model-discovery endpoint automatically:
+
+```bash
+curl -sS http://localhost:8080/v1/models
+```
+
+OpenAI-compatible agent features supported by Isartor:
+
+- `GET /v1/models` for model discovery
+- `stream: true` on `/v1/chat/completions` with OpenAI-style SSE chunks and `data: [DONE]`
+- `tools`, `tool_choice`, `functions`, and `function_call` passthrough on tool-enabled requests
+- `tool_calls` preserved in provider responses, with tool-aware cache keys and semantic cache disabled for tool-use flows
 
 ## Example: Anthropic-compatible request
 

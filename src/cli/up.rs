@@ -118,6 +118,7 @@ pub fn print_startup_card(config: &AppConfig, mode: StartupMode) {
             eprintln!("  │  Next:    isartor connect copilot|claude|antigravity       │");
             eprintln!("  │                                                              │");
             eprintln!("  │  Endpoints:                                                  │");
+            eprintln!("  │    GET  /v1/models            (OpenAI model list)            │");
             eprintln!("  │    POST /v1/chat/completions  (OpenAI format)                │");
             eprintln!("  │    POST /v1/messages          (Anthropic format)             │");
         }

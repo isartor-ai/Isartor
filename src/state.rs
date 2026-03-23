@@ -32,6 +32,20 @@ pub struct RigAgent<M: rig::completion::CompletionModel> {
     pub agent: Agent<M>,
 }
 
+macro_rules! build_rig_agent {
+    ($name:literal, $client:path, $api_key:expr, $model:expr, $http_client:expr) => {{
+        let client = <$client>::builder()
+            .api_key($api_key.clone())
+            .http_client($http_client.clone())
+            .build()
+            .expect(concat!("Failed to initialize ", $name, " client"));
+        Arc::new(RigAgent {
+            name: $name,
+            agent: client.agent($model).build(),
+        })
+    }};
+}
+
 #[async_trait::async_trait]
 impl<M> AppLlmAgent for RigAgent<M>
 where
@@ -74,10 +88,15 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: Arc<AppConfig>, text_embedder: Arc<TextEmbedder>) -> Self {
+        let l3_timeout = Duration::from_secs(config.l3_timeout_secs);
         let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(l3_timeout)
             .build()
             .expect("failed to build reqwest client");
+        let rig_http_client = rig::http_client::ReqwestClient::builder()
+            .timeout(l3_timeout)
+            .build()
+            .expect("failed to build rig reqwest client");
 
         let exact_cache = Arc::new(ExactMatchCache::new(
             std::num::NonZeroUsize::new(config.cache_max_capacity as usize)
@@ -97,6 +116,7 @@ impl AppState {
             "azure" => {
                 let client: azure::Client = azure::Client::builder()
                     .api_key(config.external_llm_api_key.as_str())
+                    .http_client(rig_http_client.clone())
                     .azure_endpoint(config.external_llm_url.clone())
                     .api_version(&config.azure_api_version)
                     .build()
@@ -107,105 +127,118 @@ impl AppState {
                 })
             }
             "anthropic" => {
-                let client = anthropic::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Anthropic client");
-                Arc::new(RigAgent {
-                    name: "anthropic",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "anthropic",
+                    anthropic::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "copilot" => Arc::new(CopilotAgent::new(
                 http_client.clone(),
                 config.external_llm_api_key.clone(),
                 config.external_llm_model.clone(),
+                l3_timeout,
             )),
             "xai" => {
-                let client = xai::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize xAI client");
-                Arc::new(RigAgent {
-                    name: "xai",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "xai",
+                    xai::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "gemini" => {
-                let client = gemini::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Gemini client");
-                Arc::new(RigAgent {
-                    name: "gemini",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "gemini",
+                    gemini::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "mistral" => {
-                let client = mistral::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Mistral client");
-                Arc::new(RigAgent {
-                    name: "mistral",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "mistral",
+                    mistral::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "groq" => {
-                let client = groq::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Groq client");
-                Arc::new(RigAgent {
-                    name: "groq",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "groq",
+                    groq::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "deepseek" => {
-                let client = deepseek::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize DeepSeek client");
-                Arc::new(RigAgent {
-                    name: "deepseek",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "deepseek",
+                    deepseek::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "cohere" => {
-                let client = cohere::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Cohere client");
-                Arc::new(RigAgent {
-                    name: "cohere",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "cohere",
+                    cohere::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "galadriel" => {
-                let client = galadriel::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Galadriel client");
-                Arc::new(RigAgent {
-                    name: "galadriel",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "galadriel",
+                    galadriel::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "hyperbolic" => {
-                let client = hyperbolic::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Hyperbolic client");
-                Arc::new(RigAgent {
-                    name: "hyperbolic",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "hyperbolic",
+                    hyperbolic::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "huggingface" => {
-                let client = huggingface::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize HuggingFace client");
-                Arc::new(RigAgent {
-                    name: "huggingface",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "huggingface",
+                    huggingface::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "mira" => {
-                let client = mira::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Mira client");
-                Arc::new(RigAgent {
-                    name: "mira",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "mira",
+                    mira::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "moonshot" => {
-                let client = moonshot::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Moonshot client");
-                Arc::new(RigAgent {
-                    name: "moonshot",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "moonshot",
+                    moonshot::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "ollama" => {
                 // Ollama is a local provider — no API key required.
@@ -216,44 +249,51 @@ impl AppState {
                 unsafe {
                     env::set_var("OLLAMA_HOST", &config.external_llm_url);
                 }
-                let client =
-                    ollama::Client::new(Nothing).expect("Failed to initialize Ollama client");
+                let client = ollama::Client::builder()
+                    .api_key(Nothing)
+                    .http_client(rig_http_client.clone())
+                    .build()
+                    .expect("Failed to initialize Ollama client");
                 Arc::new(RigAgent {
                     name: "ollama",
                     agent: client.agent(&config.external_llm_model).build(),
                 })
             }
             "openrouter" => {
-                let client = openrouter::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize OpenRouter client");
-                Arc::new(RigAgent {
-                    name: "openrouter",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "openrouter",
+                    openrouter::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "perplexity" => {
-                let client = perplexity::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Perplexity client");
-                Arc::new(RigAgent {
-                    name: "perplexity",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "perplexity",
+                    perplexity::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             "together" => {
-                let client = together::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize Together AI client");
-                Arc::new(RigAgent {
-                    name: "together",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "together",
+                    together::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
             _ => {
-                let client = openai::Client::new(&config.external_llm_api_key)
-                    .expect("Failed to initialize OpenAI client");
-                Arc::new(RigAgent {
-                    name: "openai",
-                    agent: client.agent(&config.external_llm_model).build(),
-                })
+                build_rig_agent!(
+                    "openai",
+                    openai::Client,
+                    config.external_llm_api_key,
+                    &config.external_llm_model,
+                    rig_http_client
+                )
             }
         };
 
@@ -345,6 +385,7 @@ mod tests {
             external_llm_url: "https://api.openai.com".into(),
             external_llm_api_key: "sk-test".into(),
             external_llm_model: "gpt-4o-mini".into(),
+            l3_timeout_secs: 120,
             azure_api_version: "2024-02-15-preview".into(),
             azure_deployment_id: "my-deployment".into(),
             cache_mode: crate::config::CacheMode::Both,
@@ -491,6 +532,12 @@ mod tests {
     async fn app_state_new_together_provider() {
         let state = AppState::new(make_test_config("together"), shared_test_embedder());
         assert_eq!(state.llm_agent.provider_name(), "together");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_copilot_provider() {
+        let state = AppState::new(make_test_config("copilot"), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "copilot");
     }
 
     #[tokio::test]

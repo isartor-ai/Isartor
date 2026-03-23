@@ -20,6 +20,7 @@
 | llm_provider            | ISARTOR__LLM_PROVIDER          | string   | openai                 | LLM provider (see below for full list)           |
 | external_llm_model      | ISARTOR__EXTERNAL_LLM_MODEL    | string   | gpt-4o-mini            | Model name to request from the provider          |
 | external_llm_api_key    | ISARTOR__EXTERNAL_LLM_API_KEY  | string   | (none)                 | API key for the configured LLM provider (not needed for ollama) |
+| l3_timeout_secs         | ISARTOR__L3_TIMEOUT_SECS       | u64      | 120                    | HTTP timeout applied to all Layer 3 provider requests |
 
 ## Sections
 
@@ -48,6 +49,7 @@
   - `perplexity`, `together`, `copilot`
 - `external_llm_model`: Model name for the selected provider (e.g. `gpt-4o-mini`, `gemini-2.0-flash`, `mistral-small-latest`, `llama-3.1-8b-instant`, `deepseek-chat`, `command-r`, `sonar`, `moonshot-v1-128k`)
 - `external_llm_api_key`: API key for the configured provider (not needed for `ollama`)
+- `l3_timeout_secs`: Shared timeout, in seconds, for all Layer 3 provider HTTP calls
 
 ### Claude Code + GitHub Copilot settings
 

@@ -14,10 +14,29 @@ use sha2::{Digest, Sha256};
 
 use crate::anthropic_sse;
 use crate::config::CacheMode;
-use crate::core::prompt::{extract_prompt, extract_semantic_key};
+use crate::core::prompt::{extract_cache_key, extract_semantic_key, has_tooling};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
+use crate::openai_sse;
 use crate::state::AppState;
+
+fn streaming_cache_response(
+    cache_ns: &str,
+    cached_json: &str,
+    model_fallback: &str,
+) -> Option<Response> {
+    match cache_ns {
+        "anthropic" => Some(anthropic_sse::cached_to_sse_response(
+            cached_json,
+            model_fallback,
+        )),
+        "openai" => Some(openai_sse::cached_to_sse_response(
+            cached_json,
+            model_fallback,
+        )),
+        _ => None,
+    }
+}
 
 /// Layer 1 — Cache middleware with configurable strategy.
 ///
@@ -69,7 +88,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         }
     };
 
-    let prompt = extract_prompt(body_bytes.as_ref());
+    let cache_key_material = extract_cache_key(body_bytes.as_ref());
+    let has_tooling = has_tooling(body_bytes.as_ref());
 
     // For semantic matching, use only the last user message so the embedding
     // captures the actual question rather than a large system prompt that
@@ -83,13 +103,16 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         "/v1/messages" => "anthropic",
         _ => "native",
     };
-    let cache_prompt = format!("{cache_ns}|{prompt}");
+    let cache_prompt = format!("{cache_ns}|{cache_key_material}");
     let semantic_cache_prompt = format!("{cache_ns}|{semantic_prompt}");
-    let semantic_cache_enabled = request.uri().path() != "/v1/messages";
+    let semantic_cache_enabled = request.uri().path() != "/v1/messages" && !has_tooling;
 
     // Detect if the client expects an SSE stream (Claude Code sends stream: true).
-    let is_anthropic = cache_ns == "anthropic";
-    let is_streaming = is_anthropic && anthropic_sse::is_streaming_request(body_bytes.as_ref());
+    let is_streaming = match cache_ns {
+        "anthropic" => anthropic_sse::is_streaming_request(body_bytes.as_ref()),
+        "openai" => openai_sse::is_streaming_request(body_bytes.as_ref()),
+        _ => false,
+    };
 
     let mode = &state.config.cache_mode;
     let layer_start = Instant::now();
@@ -111,7 +134,15 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             tracing::Span::current().record("gateway.cache.hit", true);
             crate::metrics::record_layer_duration("L1a_ExactCache", layer_start.elapsed());
             let mut response = if is_streaming {
-                anthropic_sse::cached_to_sse_response(&cached, &state.config.external_llm_model)
+                streaming_cache_response(cache_ns, &cached, &state.config.external_llm_model)
+                    .unwrap_or_else(|| {
+                        (
+                            StatusCode::OK,
+                            [(axum::http::header::CONTENT_TYPE, "application/json")],
+                            cached.clone(),
+                        )
+                            .into_response()
+                    })
             } else {
                 (
                     StatusCode::OK,
@@ -176,7 +207,15 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             tracing::Span::current().record("gateway.cache.hit", true);
             crate::metrics::record_layer_duration("L1b_SemanticCache", layer_start.elapsed());
             let mut response = if is_streaming {
-                anthropic_sse::cached_to_sse_response(&cached, &state.config.external_llm_model)
+                streaming_cache_response(cache_ns, &cached, &state.config.external_llm_model)
+                    .unwrap_or_else(|| {
+                        (
+                            StatusCode::OK,
+                            [(axum::http::header::CONTENT_TYPE, "application/json")],
+                            cached.clone(),
+                        )
+                            .into_response()
+                    })
             } else {
                 (
                     StatusCode::OK,
@@ -231,15 +270,14 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             }
         }
 
-        // Convert JSON → SSE for streaming Anthropic clients (e.g. Claude Code).
-        // The handler always returns JSON; we convert at this boundary so the
-        // cache always stores canonical JSON regardless of the client's
-        // streaming preference.
-        if is_streaming && resp_parts.status.is_success() {
-            let mut sse_resp = anthropic_sse::cached_to_sse_response(
-                &resp_string,
-                &state.config.external_llm_model,
-            );
+        // Convert JSON → SSE for streaming clients at the boundary.
+        // Handlers always return JSON; conversion happens here so caches keep
+        // canonical JSON regardless of the client's streaming preference.
+        if is_streaming
+            && resp_parts.status.is_success()
+            && let Some(mut sse_resp) =
+                streaming_cache_response(cache_ns, &resp_string, &state.config.external_llm_model)
+        {
             // Preserve extensions (FinalLayer, etc.) from the downstream response.
             *sse_resp.extensions_mut() = resp_parts.extensions;
             return sse_resp;
@@ -269,6 +307,7 @@ mod tests {
 
     use crate::clients::slm::SlmClient;
     use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
+    use crate::core::prompt::{extract_cache_key, extract_semantic_key};
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::middleware::body_buffer::buffer_body_middleware;
@@ -319,6 +358,7 @@ mod tests {
             external_llm_url: "http://localhost".into(),
             external_llm_model: "test".into(),
             external_llm_api_key: "".into(),
+            l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,
@@ -363,6 +403,25 @@ mod tests {
                 }),
             )
             .route(
+                "/v1/chat/completions",
+                post(|| async {
+                    (
+                        StatusCode::OK,
+                        axum::Json(serde_json::json!({
+                            "choices": [{
+                                "message": {
+                                    "role": "assistant",
+                                    "content": "downstream openai response"
+                                },
+                                "index": 0,
+                                "finish_reason": "stop"
+                            }],
+                            "model": "test-model"
+                        })),
+                    )
+                }),
+            )
+            .route(
                 "/v1/messages",
                 post(|| async {
                     (
@@ -401,6 +460,54 @@ mod tests {
                 "messages": [
                     {"role": "user", "content": [{"type": "text", "text": prompt}]}
                 ]
+            }))
+            .unwrap(),
+        )
+    }
+
+    fn openai_body(prompt: &str, stream: bool) -> Body {
+        Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "model": "gpt-4o-mini",
+                "stream": stream,
+                "messages": [{"role": "user", "content": prompt}]
+            }))
+            .unwrap(),
+        )
+    }
+
+    fn openai_tool_body(prompt: &str, tool_name: &str) -> Body {
+        Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_prev",
+                            "type": "function",
+                            "function": {"name": tool_name, "arguments": "{}"}
+                        }]
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": "call_prev",
+                        "content": "{\"ok\":true}"
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                "tools": [{
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "parameters": {"type": "object"}
+                    }
+                }],
+                "tool_choice": {
+                    "type": "function",
+                    "function": {"name": tool_name}
+                }
             }))
             .unwrap(),
         )
@@ -551,5 +658,199 @@ mod tests {
         let json2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
         assert_eq!(json2["model"], "test-model");
         assert_eq!(json2["type"], "message");
+    }
+
+    #[tokio::test]
+    async fn openai_streaming_miss_returns_sse_and_caches_json() {
+        let state = test_state(CacheMode::Exact);
+        let app = cache_app(state.clone());
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(openai_body("hello stream", true))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "text/event-stream"
+        );
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("\"object\":\"chat.completion.chunk\""));
+        assert!(text.contains("\"delta\":{\"content\":\"downstream openai response\"}"));
+        assert!(text.contains("data: [DONE]"));
+
+        let key = hex::encode(sha2::Sha256::digest(b"openai|user: hello stream"));
+        let cached = state
+            .exact_cache
+            .get(&key)
+            .expect("response should be cached");
+        let cached_json: serde_json::Value = serde_json::from_str(&cached).unwrap();
+        assert_eq!(cached_json["model"], "test-model");
+        assert_eq!(
+            cached_json["choices"][0]["message"]["content"],
+            "downstream openai response"
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_streaming_exact_cache_hit_returns_sse() {
+        let state = test_state(CacheMode::Exact);
+        let key = hex::encode(sha2::Sha256::digest(b"openai|user: cached prompt"));
+        state.exact_cache.put(
+            key,
+            serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "cached openai answer"
+                    },
+                    "index": 0,
+                    "finish_reason": "stop"
+                }],
+                "model": "cached-model"
+            })
+            .to_string(),
+        );
+
+        let app = cache_app(state);
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(openai_body("cached prompt", true))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "text/event-stream"
+        );
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("\"model\":\"cached-model\""));
+        assert!(text.contains("\"delta\":{\"content\":\"cached openai answer\"}"));
+        assert!(text.contains("data: [DONE]"));
+    }
+
+    #[tokio::test]
+    async fn openai_tool_requests_use_distinct_exact_cache_keys() {
+        let state = test_state(CacheMode::Exact);
+        let app = cache_app(state.clone());
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(openai_tool_body("check weather", "lookup_weather"))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let request_body = serde_json::to_vec(&serde_json::json!({
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_prev",
+                        "type": "function",
+                        "function": {"name": "lookup_weather", "arguments": "{}"}
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_prev",
+                    "content": "{\"ok\":true}"
+                },
+                {"role": "user", "content": "check weather"}
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "lookup_weather",
+                    "parameters": {"type": "object"}
+                }
+            }],
+            "tool_choice": {
+                "type": "function",
+                "function": {"name": "lookup_weather"}
+            }
+        }))
+        .unwrap();
+        let miss_key = hex::encode(sha2::Sha256::digest(
+            format!("openai|{}", extract_cache_key(&request_body)).as_bytes(),
+        ));
+        assert!(
+            state.exact_cache.get(&miss_key).is_some(),
+            "tool-enabled request should be cached under tooling-aware key"
+        );
+
+        let plain_key = hex::encode(sha2::Sha256::digest(b"openai|user: check weather"));
+        assert!(
+            state.exact_cache.get(&plain_key).is_none(),
+            "tool-enabled request must not reuse plain completion key"
+        );
+    }
+
+    #[tokio::test]
+    async fn semantic_cache_skips_tool_enabled_openai_requests() {
+        let state = test_state(CacheMode::Semantic);
+        let app = cache_app(state.clone());
+        let request_body = serde_json::to_vec(&serde_json::json!({
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_prev",
+                        "type": "function",
+                        "function": {"name": "lookup_weather", "arguments": "{}"}
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_prev",
+                    "content": "{\"ok\":true}"
+                },
+                {"role": "user", "content": "weather details"}
+            ],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "lookup_weather",
+                    "parameters": {"type": "object"}
+                }
+            }]
+        }))
+        .unwrap();
+
+        let req1 = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(request_body.clone()))
+            .unwrap();
+        let resp1 = app.clone().oneshot(req1).await.unwrap();
+        assert_eq!(resp1.status(), StatusCode::OK);
+
+        let semantic_prompt = format!("openai|{}", extract_semantic_key(&request_body));
+        let embedding = state
+            .text_embedder
+            .generate_embedding(&semantic_prompt)
+            .expect("embedding should be generated");
+        assert!(
+            state.vector_cache.search(&embedding).await.is_none(),
+            "tool-enabled request should not populate semantic cache"
+        );
     }
 }

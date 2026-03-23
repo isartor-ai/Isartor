@@ -23,7 +23,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
 
 use crate::config::CacheMode;
-use crate::core::prompt::extract_prompt;
+use crate::core::prompt::{extract_cache_key, extract_prompt, has_tooling};
 use crate::metrics;
 use crate::models::{
     FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage, PromptVisibilityEntry,
@@ -402,6 +402,7 @@ async fn resolve_intercepted_request(
     state: &Arc<AppState>,
 ) -> ProxyInterceptResolution {
     let prompt = extract_prompt(body);
+    let cache_key_material = extract_cache_key(body);
 
     if prompt.is_empty() {
         return ProxyInterceptResolution::ForwardToUpstream {
@@ -417,8 +418,8 @@ async fn resolve_intercepted_request(
         "/v1/messages" => "anthropic",
         _ => "proxy",
     };
-    let cache_prompt = format!("{cache_ns}|{prompt}");
-    let semantic_cache_enabled = path != "/v1/messages";
+    let cache_prompt = format!("{cache_ns}|{cache_key_material}");
+    let semantic_cache_enabled = path != "/v1/messages" && !has_tooling(body);
     let mode = &state.config.cache_mode;
 
     let exact_key = if *mode == CacheMode::Exact || *mode == CacheMode::Both {
@@ -506,7 +507,11 @@ fn build_openai_proxy_response(content: String, model: String) -> String {
         choices: vec![OpenAiChatChoice {
             message: OpenAiMessage {
                 role: "assistant".to_string(),
-                content,
+                content: Some(content),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+                function_call: None,
             },
             index: 0,
             finish_reason: Some("stop".to_string()),
@@ -708,6 +713,7 @@ fn parse_status_code(response: &[u8]) -> u16 {
 /// Cache a response received from the real upstream.
 async fn cache_response(body: &[u8], path: &str, response: &[u8], state: &Arc<AppState>) {
     let prompt = extract_prompt(body);
+    let cache_key_material = extract_cache_key(body);
     if prompt.is_empty() {
         return;
     }
@@ -717,7 +723,7 @@ async fn cache_response(body: &[u8], path: &str, response: &[u8], state: &Arc<Ap
         "/v1/messages" => "anthropic",
         _ => "proxy",
     };
-    let cache_prompt = format!("{cache_ns}|{prompt}");
+    let cache_prompt = format!("{cache_ns}|{cache_key_material}");
     let mode = &state.config.cache_mode;
 
     let resp_string = String::from_utf8_lossy(response).to_string();
@@ -960,6 +966,7 @@ mod tests {
             external_llm_url: "https://api.openai.com/v1/chat/completions".into(),
             external_llm_model: "gpt-4o-mini".into(),
             external_llm_api_key: "".into(),
+            l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
             enable_monitoring: false,
