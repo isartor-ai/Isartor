@@ -1,0 +1,105 @@
+{"prompt": "Create a new React TypeScript project for a todo application with Vite as the build tool."}
+{"prompt": "Set up a new React TypeScript project for a todo app using Vite."}
+{"prompt": "Initialize a TypeScript React todo application project with Vite bundler."}
+{"prompt": "Bootstrap a React todo app with TypeScript and Vite."}
+{"prompt": "Start a new Vite-based React TypeScript project for building a todo list app."}
+{"prompt": "Define the TypeScript interface for a Todo item with id, title, completed, and createdAt fields."}
+{"prompt": "Create a TypeScript type definition for a todo item with id, title, completed status and creation date."}
+{"prompt": "Write a TypeScript interface for a Todo with id, title, completed boolean and createdAt timestamp."}
+{"prompt": "What should the Todo TypeScript interface look like for a todo app?"}
+{"prompt": "Define the data model for a todo item in TypeScript."}
+{"prompt": "Write a React functional component called TodoItem that displays a single todo."}
+{"prompt": "Create a TodoItem React component that shows a checkbox and the todo title."}
+{"prompt": "Build a TodoItem component in React TypeScript that renders a single todo with a delete button."}
+{"prompt": "Write a React component to display a todo item with a checkbox for completion and a delete button."}
+{"prompt": "Create the TodoItem component in React with TypeScript that handles completion toggle."}
+{"prompt": "Write a React component called TodoList that renders an array of todos."}
+{"prompt": "Create a TodoList React component that accepts todos as props and renders each one."}
+{"prompt": "Build a TodoList component that renders a list of TodoItem components."}
+{"prompt": "Write the TodoList component for our React todo app."}
+{"prompt": "Create a component that renders a list of todo items in React TypeScript."}
+{"prompt": "Write a React component for adding new todos with an input field and submit button."}
+{"prompt": "Create an AddTodo component with an input field and a button to add new todos."}
+{"prompt": "Build the AddTodo form component for our React todo application."}
+{"prompt": "Write a React form component that lets users enter and submit a new todo item."}
+{"prompt": "Create an input form component to add new todos to the list."}
+{"prompt": "Write a custom React hook called useTodos that manages the todo state."}
+{"prompt": "Create a useTodos custom hook that handles add, delete, and toggle operations."}
+{"prompt": "Build a custom hook for managing the todo list state in React."}
+{"prompt": "Write a custom React hook to manage todos with add, remove, and toggle functionality."}
+{"prompt": "Create a useTodos hook that wraps todo state management logic."}
+{"prompt": "Implement localStorage persistence in the useTodos hook."}
+{"prompt": "Add localStorage support to the todo custom hook so todos are saved between sessions."}
+{"prompt": "Write the localStorage save and load logic for the useTodos hook."}
+{"prompt": "How do I persist todo items to localStorage in a React hook?"}
+{"prompt": "Add browser storage persistence to our todo app's custom hook."}
+{"prompt": "Write unit tests for the useTodos hook using React Testing Library."}
+{"prompt": "Create tests for the useTodos custom hook with vitest and React Testing Library."}
+{"prompt": "Write test cases for the todo list hook including add, delete, and toggle."}
+{"prompt": "How do I test a custom React hook that manages todo state?"}
+{"prompt": "Write vitest unit tests for our useTodos hook."}
+{"prompt": "Write unit tests for the TodoItem React component."}
+{"prompt": "Create tests for the TodoItem component using React Testing Library and vitest."}
+{"prompt": "Test the TodoItem component: checkbox toggle and delete button click."}
+{"prompt": "How do I write tests for a React component that has a checkbox and delete button?"}
+{"prompt": "Write component tests for TodoItem checking render and user interaction."}
+{"prompt": "Add a filter bar to the todo app to show all, active, and completed todos."}
+{"prompt": "Create a FilterBar component with buttons for All, Active, and Completed filters."}
+{"prompt": "Write the todo filter component that switches between all, active and completed views."}
+{"prompt": "How do I implement filtering in a React todo app?"}
+{"prompt": "Build a filter toolbar component for the todo list application."}
+{"prompt": "Add a counter showing how many todos are remaining in the todo app."}
+{"prompt": "Show the count of incomplete todos at the bottom of the todo list."}
+{"prompt": "Write a React component that displays the number of remaining (incomplete) todos."}
+{"prompt": "Add a todo count display to the footer of the todo application."}
+{"prompt": "How do I display the number of active todos in a React todo app?"}
+{"prompt": "Add CSS styles for the todo app using CSS modules."}
+{"prompt": "Write CSS module styles for the todo application components."}
+{"prompt": "Create the styles for the todo app using CSS Modules in React."}
+{"prompt": "Write CSS for the todo app with a clean minimal design."}
+{"prompt": "Add styling to the React todo app with CSS modules."}
+{"prompt": "Add a bulk complete-all button to the todo app."}
+{"prompt": "Write the toggle-all feature for marking all todos as complete or incomplete."}
+{"prompt": "Implement a button to mark all todos complete or all incomplete."}
+{"prompt": "How do I add a check-all button to a React todo list?"}
+{"prompt": "Create the toggle-all todos functionality for our application."}
+{"prompt": "Add a clear completed button that removes all done todos."}
+{"prompt": "Implement the clear completed feature in the todo app."}
+{"prompt": "Write a function and button to delete all completed todos at once."}
+{"prompt": "How do I add a clear completed button to a React todo app?"}
+{"prompt": "Create the clear-completed todos feature for the todo application."}
+{"prompt": "Add keyboard support to the todo app so pressing Enter adds a new todo."}
+{"prompt": "How do I handle the Enter key press to submit a new todo item?"}
+{"prompt": "Write the keyboard event handler for adding todos with the Enter key."}
+{"prompt": "Implement Enter key submission for the new todo input field."}
+{"prompt": "Add keyboard shortcut for submitting a new todo in the React app."}
+{"prompt": "Add inline editing for todo items so users can double-click to edit."}
+{"prompt": "Implement double-click to edit a todo title in the React todo app."}
+{"prompt": "Write the inline edit functionality for todo items."}
+{"prompt": "How do I implement double-click editing in a React todo list?"}
+{"prompt": "Create the edit-in-place feature for todo items in our app."}
+{"prompt": "Set up React Router for the todo app with routes for all, active, and completed."}
+{"prompt": "Add routing to the todo app so /active and /completed filter the list."}
+{"prompt": "How do I add React Router to a todo app for URL-based filtering?"}
+{"prompt": "Configure React Router v6 routes for todo filter views."}
+{"prompt": "Implement URL-based todo filtering using React Router."}
+{"prompt": "Add drag and drop reordering to the todo list."}
+{"prompt": "Implement drag and drop to reorder todos in the list."}
+{"prompt": "How do I add drag-and-drop reordering to a React list?"}
+{"prompt": "Write the drag and drop todo reordering feature using dnd-kit."}
+{"prompt": "Create drag-and-drop functionality for the todo list."}
+{"prompt": "Write an integration test that adds a todo, completes it, and deletes it."}
+{"prompt": "Create an end-to-end test for the todo app using Playwright."}
+{"prompt": "Write a Playwright test for the full add-complete-delete todo flow."}
+{"prompt": "How do I write an E2E test for a todo application with Playwright?"}
+{"prompt": "Write integration tests for the todo app covering the main user workflows."}
+{"prompt": "Add TypeScript strict mode configuration to the todo project."}
+{"prompt": "Configure strict TypeScript settings in tsconfig.json for the todo app."}
+{"prompt": "What TypeScript compiler options should I use for a strict React project?"}
+{"prompt": "Set up tsconfig.json with strict TypeScript settings for our todo app."}
+{"prompt": "Configure TypeScript strict mode for the React todo application."}
+{"prompt": "Write a README for the React TypeScript todo application."}
+{"prompt": "Create the README.md for our React todo app project."}
+{"prompt": "Write documentation for the todo application explaining setup and features."}
+{"prompt": "Generate a README.md for the todo app with setup instructions."}
+{"prompt": "Write a project README for the React TypeScript todo application."}
