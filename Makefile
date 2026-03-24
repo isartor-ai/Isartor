@@ -1,4 +1,4 @@
-.PHONY: benchmark benchmark-dry-run build test smoke-claude-copilot
+.PHONY: benchmark benchmark-dry-run report report-dry-run build test smoke-claude-copilot
 
 # ── Benchmark targets ─────────────────────────────────────────────────────────
 
@@ -17,6 +17,20 @@ benchmark:
 ## Usage: make benchmark-dry-run
 benchmark-dry-run:
 	python3 benchmarks/run.py --all --dry-run
+
+## Generate the with/without-Isartor ROI report from existing benchmark results.
+## Requires a live benchmark to have been run first (make benchmark).
+## Writes benchmarks/results/roi_report.json and benchmarks/results/roi_report.md.
+## Usage: make report
+report:
+	python3 benchmarks/report.py
+
+## Generate the ROI report using simulated (dry-run) data — no server required.
+## Useful for CI and offline validation.
+## Writes benchmarks/results/roi_report.json and benchmarks/results/roi_report.md.
+## Usage: make report-dry-run
+report-dry-run:
+	python3 benchmarks/report.py --dry-run
 
 # ── Build / test shortcuts ────────────────────────────────────────────────────
 

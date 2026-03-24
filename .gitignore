@@ -15,3 +15,4 @@ isartor_demo_result.txt
 EXPLORATION_SUMMARY.md
 azure_openai_key/
 docs-site/book/
+benchmarks/results/roi_dryrun.json
