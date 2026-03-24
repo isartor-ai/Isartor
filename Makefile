@@ -1,3 +1,4 @@
+.PHONY: benchmark benchmark-dry-run benchmark-qwen build test smoke-claude-copilot
 .PHONY: benchmark benchmark-dry-run build test smoke-claude-copilot \
         benchmark-claude-code benchmark-claude-code-dry-run benchmark-claude-code-report
 .PHONY: benchmark benchmark-dry-run \
@@ -22,6 +23,18 @@ benchmark:
 benchmark-dry-run:
 	python3 benchmarks/run.py --all --dry-run
 
+## Run the Claude Code / Qwen 2.5 Coder benchmark against a live Isartor instance
+## wired to the real Qwen 2.5 Coder 7B sidecar.
+## Prerequisites: start the stack first →
+##   cd docker && docker compose -f docker-compose.qwen-benchmark.yml up --build
+## Usage: make benchmark-qwen
+##        ISARTOR_URL=http://localhost:8080 ISARTOR_API_KEY=changeme make benchmark-qwen
+benchmark-qwen:
+	python3 benchmarks/run.py \
+		--url "$${ISARTOR_URL:-http://localhost:8080}" \
+		--api-key "$${ISARTOR_API_KEY:-changeme}" \
+		--input benchmarks/fixtures/claude_code_tasks.jsonl \
+		--timeout 180
 ## Run the Claude Code + GitHub Copilot three-scenario benchmark
 ## (baseline / cold cache / warm cache) against a live Isartor instance.
 ## Requires Isartor running with the Qwen 2.5 Coder 7B sidecar.
