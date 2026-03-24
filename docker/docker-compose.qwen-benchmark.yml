@@ -1,0 +1,181 @@
+# =============================================================================
+# Isartor — Qwen 2.5 Coder 7B Benchmark Stack
+#
+# A self-contained benchmark profile that wires Isartor Layer 2 to a real
+# Qwen 2.5 Coder 7B Instruct (Q4_K_M) sidecar running via llama.cpp.
+#
+# Model
+# ─────
+#   Repository : Qwen/Qwen2.5-Coder-7B-Instruct-GGUF  (Hugging Face)
+#   File       : qwen2.5-coder-7b-instruct-q4_k_m.gguf
+#   Quantisation: Q4_K_M  (~4.7 GB on disk, ~5.5 GB peak RAM / VRAM)
+#
+# Hardware assumptions
+# ────────────────────
+#   CPU-only (16 GB RAM minimum):
+#     Works, but inference is slow (~3–8 tok/s on 8-core x86).
+#     Good enough to validate Layer 2 routing end-to-end.
+#
+#   GPU (NVIDIA, ≥ 8 GB VRAM):
+#     Pass --n-gpu-layers 33 (or higher) via LLAMA_GPU_LAYERS env var.
+#     Typical throughput: 25–50 tok/s on an RTX 3060 12 GB.
+#     See "GPU passthrough" section in docs/benchmark-qwen-layer2.md.
+#
+# Usage (CPU, no GPU)
+# ───────────────────
+#   cd docker
+#   cp .env.qwen-benchmark.example .env.qwen-benchmark
+#   # edit .env.qwen-benchmark — set ISARTOR__GATEWAY_API_KEY etc.
+#   docker compose -f docker-compose.qwen-benchmark.yml up --build
+#
+# Endpoints
+# ─────────
+#   Gateway (Isartor)   : http://localhost:8080
+#   llama.cpp sidecar   : http://localhost:8081
+#   Health check        : http://localhost:8080/healthz
+#
+# Tear down
+# ─────────
+#   docker compose -f docker-compose.qwen-benchmark.yml down -v
+# =============================================================================
+
+services:
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 1. LAYER 2 SIDECAR — Qwen 2.5 Coder 7B Instruct (Q4_K_M)
+  # ═══════════════════════════════════════════════════════════════════
+
+  qwen-sidecar:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: isartor-qwen-sidecar
+    ports:
+      - "8081:8081"
+    environment:
+      # Increase to a positive integer to offload layers to an NVIDIA GPU
+      # (requires NVIDIA Container Toolkit + compose gpu override).
+      # Set via .env.qwen-benchmark: LLAMA_GPU_LAYERS=33
+      LLAMA_GPU_LAYERS: "${LLAMA_GPU_LAYERS:-0}"
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8081"
+      # Pull the Q4_K_M GGUF directly from Hugging Face on first start.
+      # The model is cached in the named volume (qwen_model_cache) so
+      # subsequent starts do not re-download it.
+      - "--hf-repo"
+      - "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
+      - "--hf-file"
+      - "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+      # Context window — Qwen 2.5 supports up to 128 k tokens;
+      # 8192 is a safe default that fits in 8 GB VRAM or 16 GB RAM.
+      - "--ctx-size"
+      - "8192"
+      # Offload layers to GPU when LLAMA_GPU_LAYERS > 0.
+      - "--n-gpu-layers"
+      - "${LLAMA_GPU_LAYERS:-0}"
+      # Expose an OpenAI-compatible API (POST /v1/chat/completions).
+      - "--chat-template"
+      - "chatml"
+    volumes:
+      - qwen_model_cache:/root/.cache
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      # Allow up to 10 minutes for the first-run model download (~4.7 GB).
+      retries: 60
+      start_period: 600s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # ~5.5 GB for model weights + ~0.5 GB overhead
+          memory: 7G
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 2. ISARTOR GATEWAY — Layer 2 enabled, pointing at qwen-sidecar
+  # ═══════════════════════════════════════════════════════════════════
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.sidecar
+      args:
+        CARGO_OPTS: "--no-default-features"
+    container_name: isartor-qwen-gateway
+    depends_on:
+      qwen-sidecar:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # ── General ──────────────────────────────────────────────────
+      ISARTOR__INFERENCE_ENGINE: "sidecar"
+      ISARTOR__HOST_PORT: "0.0.0.0:8080"
+      ISARTOR__GATEWAY_API_KEY: "${ISARTOR__GATEWAY_API_KEY:-changeme}"
+
+      # ── Layer 1 — Cache ───────────────────────────────────────────
+      ISARTOR__CACHE_MODE: "both"
+      ISARTOR__EMBEDDING_MODEL: "all-minilm"
+      ISARTOR__SIMILARITY_THRESHOLD: "0.85"
+      ISARTOR__CACHE_TTL_SECS: "300"
+      ISARTOR__CACHE_MAX_CAPACITY: "10000"
+
+      # ── Layer 2 — Qwen 2.5 Coder 7B sidecar ─────────────────────
+      ISARTOR__ENABLE_SLM_ROUTER: "true"
+      ISARTOR__LAYER2__SIDECAR_URL: "http://qwen-sidecar:8081"
+      ISARTOR__LAYER2__MODEL_NAME: "qwen2.5-coder-7b"
+      ISARTOR__LAYER2__TIMEOUT_SECONDS: "120"
+
+      # Legacy v1 Layer 2 endpoint (same sidecar, OpenAI path)
+      ISARTOR__LOCAL_SLM_URL: "http://qwen-sidecar:8081/v1/chat/completions"
+      ISARTOR__LOCAL_SLM_MODEL: "qwen2.5-coder-7b"
+
+      # Embedding sidecar is not needed here — the gateway uses its
+      # built-in candle BertModel for Layer 1b semantic embeddings.
+      ISARTOR__EMBEDDING_SIDECAR__SIDECAR_URL: "http://qwen-sidecar:8081"
+      ISARTOR__EMBEDDING_SIDECAR__MODEL_NAME: "qwen2.5-coder-7b"
+      ISARTOR__EMBEDDING_SIDECAR__TIMEOUT_SECONDS: "30"
+
+      # ── Layer 3 — External LLM (optional cloud fallback) ─────────
+      # Requests that Layer 2 cannot answer fall through to Layer 3.
+      # Leave blank to return a 502 for un-deflected requests (useful
+      # for pure Layer 2 smoke tests without cloud credentials).
+      ISARTOR__LLM_PROVIDER: "${ISARTOR__LLM_PROVIDER:-openai}"
+      ISARTOR__EXTERNAL_LLM_MODEL: "${ISARTOR__EXTERNAL_LLM_MODEL:-gpt-4o-mini}"
+      ISARTOR__EXTERNAL_LLM_API_KEY: "${ISARTOR__EXTERNAL_LLM_API_KEY:-}"
+      ISARTOR__EXTERNAL_LLM_URL: "${ISARTOR__EXTERNAL_LLM_URL:-https://api.openai.com/v1/chat/completions}"
+
+      # ── Azure (only used when provider=azure) ────────────────────
+      ISARTOR__AZURE_DEPLOYMENT_ID: "${ISARTOR__AZURE_DEPLOYMENT_ID:-}"
+      ISARTOR__AZURE_API_VERSION: "${ISARTOR__AZURE_API_VERSION:-2024-08-01-preview}"
+
+      # ── Observability (optional) ──────────────────────────────────
+      ISARTOR__ENABLE_MONITORING: "false"
+      ISARTOR__OTEL_EXPORTER_ENDPOINT: ""
+    env_file:
+      - path: .env.qwen-benchmark
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+
+volumes:
+  qwen_model_cache:
+    # Persists the downloaded GGUF across restarts so the model is only
+    # fetched once.  Remove with `docker volume rm isartor-qwen-model-cache`
+    # to force a fresh download.
+    name: isartor-qwen-model-cache

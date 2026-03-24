@@ -28,6 +28,10 @@ python3 benchmarks/run.py \
     --url http://localhost:8080 \
     --input benchmarks/fixtures/faq_loop.jsonl \
     --requests 500
+
+# 6. Run the Claude Code / Qwen 2.5 Coder 7B Layer 2 benchmark
+#    (requires the Qwen sidecar stack: cd docker && docker compose -f docker-compose.qwen-benchmark.yml up --build)
+make benchmark-qwen
 ```
 
 ## Requirements
@@ -41,6 +45,7 @@ python3 benchmarks/run.py \
 |------|---------|-------------|
 | `fixtures/faq_loop.jsonl` | 1,000 | Simulates a repetitive FAQ / agent-loop workload. Covers returns, shipping, billing, account management, and more — all with semantic rephrasings. Designed to stress L1a (exact cache) and L1b (semantic cache). |
 | `fixtures/diverse_tasks.jsonl` | 500 | Genuine variety: code generation, summarisation, Q&A, data extraction, and creative writing. Represents a realistic mixed-workload with lower deflection than the FAQ loop corpus. |
+| `fixtures/claude_code_tasks.jsonl` | 388 | Realistic Claude Code / Copilot workload: coding questions, algorithm explanations, Rust/Go/Python/TypeScript patterns, DevOps tasks, and architecture concepts. Designed to stress Layer 2 (SLM) with a Qwen 2.5 Coder 7B sidecar. Run via `make benchmark-qwen`. |
 
 Each file is in [JSONL](https://jsonlines.org/) format — one JSON object per line:
 
