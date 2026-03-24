@@ -1,0 +1,58 @@
+{"prompt": "Create a TypeScript interface for a Todo item with id, title, completed, and createdAt fields."}
+{"prompt": "Set up a basic Express.js server in TypeScript with health check and graceful shutdown."}
+{"prompt": "Create a TodoRepository interface in TypeScript for data persistence operations."}
+{"prompt": "Write a tsconfig.json for the todo TypeScript project with strict mode enabled."}
+{"prompt": "Create a package.json for the TypeScript todo app with Express, uuid, and Jest dependencies."}
+{"prompt": "Implement an in-memory TodoRepository class in TypeScript that stores todos in a Map."}
+{"prompt": "Write a TodoService class in TypeScript with create, findById, findAll, update, toggle, and delete methods."}
+{"prompt": "Add input validation to the TodoService create method that rejects empty titles."}
+{"prompt": "Create Express route handlers in TypeScript for GET /todos and POST /todos."}
+{"prompt": "Add a PATCH /todos/:id route handler in TypeScript to update a todo's title or completion status."}
+{"prompt": "Define a TypeScript type for a Todo with fields: id, title, completed status, and creation timestamp."}
+{"prompt": "Set up an Express server in TypeScript including a /healthz route and clean process exit handling."}
+{"prompt": "Design a TypeScript repository interface for todo CRUD operations."}
+{"prompt": "Implement DELETE /todos/:id route handler in TypeScript with proper 404 error handling."}
+{"prompt": "Write TypeScript middleware to validate the request body for POST /todos."}
+{"prompt": "Add a request logging middleware in TypeScript that logs method, path, and response time."}
+{"prompt": "Implement TypeScript error handling middleware that returns JSON error responses."}
+{"prompt": "Create a TypeScript type for the CreateTodoDto with only the title field required."}
+{"prompt": "Write a TypeScript type for UpdateTodoDto that makes title and completed both optional."}
+{"prompt": "Build an in-memory store for todos in TypeScript using a Map data structure."}
+{"prompt": "Implement a service layer in TypeScript for managing todo items with full CRUD support."}
+{"prompt": "Add validation logic to reject todos with blank or missing titles."}
+{"prompt": "Create GET and POST handlers for /todos in a TypeScript Express application."}
+{"prompt": "Handle PATCH requests to /todos/:id in TypeScript, allowing partial updates."}
+{"prompt": "Write Jest unit tests for the TodoService create method covering happy path and validation errors."}
+{"prompt": "Write Jest unit tests for the TodoService toggle method."}
+{"prompt": "Write Jest unit tests for the TodoService delete method including non-existent id case."}
+{"prompt": "Create supertest integration tests for the POST /todos endpoint."}
+{"prompt": "Write supertest integration tests for the GET /todos endpoint with an empty list."}
+{"prompt": "Add supertest integration tests for PATCH /todos/:id including 404 case."}
+{"prompt": "Create a TypeScript interface for a Todo item with id, title, completed, and createdAt fields."}
+{"prompt": "Write a TodoService class in TypeScript with create, findById, findAll, update, toggle, and delete methods."}
+{"prompt": "Write Jest unit tests for the TodoService create method covering happy path and validation errors."}
+{"prompt": "Add pagination to GET /todos with page and limit query parameters in TypeScript."}
+{"prompt": "Write a README.md for the TypeScript todo app with setup instructions and API documentation."}
+{"prompt": "Add pagination to GET /todos with page and limit query parameters in TypeScript."}
+{"prompt": "Implement filtering by completed status in GET /todos using a query parameter."}
+{"prompt": "Add sorting by createdAt ascending or descending in GET /todos."}
+{"prompt": "Write a TypeScript function to export todos as a JSON array."}
+{"prompt": "Implement a bulk delete endpoint DELETE /todos that accepts an array of ids."}
+{"prompt": "Add a search endpoint GET /todos/search that filters by title substring."}
+{"prompt": "Add error handling for missing todos when deleting by id in the TypeScript API."}
+{"prompt": "Write TypeScript middleware that validates the body of incoming create-todo requests."}
+{"prompt": "Write unit tests using Jest for the todo service's create functionality."}
+{"prompt": "Test the todo toggle function with Jest to cover both true and false transitions."}
+{"prompt": "Use supertest to test the POST /todos endpoint in the todo TypeScript app."}
+{"prompt": "Add page and limit parameters to the todos list endpoint for pagination support."}
+{"prompt": "Support filtering todos by their done/undone status via a query string parameter."}
+{"prompt": "Add documentation comments to the TypeScript TodoService class and its public methods."}
+{"prompt": "Write a README.md for the TypeScript todo app with setup instructions and API documentation."}
+{"prompt": "Add JSDoc comments to the TodoService class methods."}
+{"prompt": "Refactor the todo router to use Express Router in a separate file."}
+{"prompt": "Configure ESLint for the TypeScript todo project."}
+{"prompt": "Create Express route handlers in TypeScript for GET /todos and POST /todos."}
+{"prompt": "Add a PATCH /todos/:id route handler in TypeScript to update a todo's title or completion status."}
+{"prompt": "Write supertest integration tests for the GET /todos endpoint with an empty list."}
+{"prompt": "Add input validation to the TodoService create method that rejects empty titles."}
+{"prompt": "Implement filtering by completed status in GET /todos using a query parameter."}

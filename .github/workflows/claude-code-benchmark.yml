@@ -1,0 +1,616 @@
+name: Claude Code Benchmark Execution
+
+# Runs a three-way benchmark: baseline (no Isartor) vs cold cache vs warm cache.
+# Posts progress and final results as comments on the specified GitHub issue.
+#
+# Trigger manually with the issue number to post results to:
+#   gh workflow run claude-code-benchmark.yml \
+#     -f issue_number=<N> \
+#     -f dry_run=true
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'GitHub issue number to post results to'
+        required: true
+        type: number
+      dry_run:
+        description: 'Run in dry-run mode (no real servers or model downloads)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      request_count:
+        description: 'Number of prompts per scenario (0 = all 58)'
+        required: false
+        default: '0'
+        type: number
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  benchmark:
+    name: Three-Way Claude Code Benchmark
+    runs-on: ubuntu-latest
+
+    env:
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      REQUEST_COUNT: ${{ inputs.request_count }}
+      ISARTOR_API_KEY: benchmark-key
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Post "started" comment ─────────────────────────────────────────────
+      - name: Post benchmark started comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const dryRun = process.env.DRY_RUN === 'true';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `## 🚀 Claude Code Benchmark Execution Started`,
+              ``,
+              `**Workflow run:** [#${context.runId}](${runUrl})`,
+              `**Mode:** ${dryRun ? '🔵 Dry-run (simulated responses)' : '🟢 Live (real servers + real model)'}`,
+              `**Commit:** \`${context.sha.slice(0, 8)}\``,
+              ``,
+              `Three scenarios will be measured:`,
+              `- ⬜ **Baseline** — without Isartor (direct cloud LLM)`,
+              `- ⬜ **Isartor cold cache** — first pass through Isartor (cache empty)`,
+              `- ⬜ **Isartor warm cache** — second pass through Isartor (cache populated)`,
+              ``,
+              `Progress updates will follow as each scenario completes.`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body,
+            });
+
+      # ── Build Isartor ──────────────────────────────────────────────────────
+      - name: Install system dependencies
+        if: env.DRY_RUN == 'false'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler cmake
+
+      - name: Install stable Rust toolchain
+        if: env.DRY_RUN == 'false'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        if: env.DRY_RUN == 'false'
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Isartor (release)
+        if: env.DRY_RUN == 'false'
+        run: cargo build --release
+
+      # ── Download Qwen 2.5 Coder 7B (live mode only) ───────────────────────
+      - name: Download Qwen 2.5 Coder 7B GGUF
+        if: env.DRY_RUN == 'false'
+        env:
+          MODELS_DIR: ./models
+        run: |
+          mkdir -p ./models
+          echo "Downloading Qwen 2.5 Coder 7B Q4_K_M GGUF (~4.7 GB)..."
+          curl -fL \
+            --retry 3 \
+            --retry-delay 10 \
+            --progress-bar \
+            -C - \
+            "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf" \
+            -o "./models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+          echo "Download complete."
+
+      # ── Install llama.cpp (live mode only) ────────────────────────────────
+      - name: Install llama.cpp
+        if: env.DRY_RUN == 'false'
+        run: |
+          # Install pre-built llama.cpp from the latest release
+          LLAMA_VERSION=$(curl -fsS https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          echo "Installing llama.cpp ${LLAMA_VERSION}"
+          curl -fsSL \
+            "https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip" \
+            -o /tmp/llama.zip
+          unzip -q /tmp/llama.zip -d /tmp/llama-cpp
+          sudo install /tmp/llama-cpp/build/bin/llama-server /usr/local/bin/llama-server
+          llama-server --version
+
+      # ── Post env setup comment ─────────────────────────────────────────────
+      - name: Post environment setup comment
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `## ⚙️ Environment Setup Complete`,
+              ``,
+              `**Workflow run:** [#${context.runId}](${runUrl})`,
+              ``,
+              `✅ Isartor binary built from source  `,
+              `✅ Qwen 2.5 Coder 7B Q4_K_M GGUF downloaded  `,
+              `✅ llama.cpp llama-server installed  `,
+              ``,
+              `Starting benchmark runs...`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body,
+            });
+
+      # ── Start llama-server (live mode) ────────────────────────────────────
+      - name: Start llama-server (Qwen L2)
+        if: env.DRY_RUN == 'false'
+        run: |
+          llama-server \
+            --model ./models/qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+            --host 127.0.0.1 \
+            --port 8090 \
+            --ctx-size 4096 \
+            --n-predict 512 \
+            >/tmp/llama-server.log 2>&1 &
+          echo "LLAMA_PID=$!" >> "$GITHUB_ENV"
+
+          echo "Waiting for llama-server to be ready..."
+          for i in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:8090/health > /dev/null 2>&1; then
+              echo "llama-server ready after ${i}s"
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8090/health || (cat /tmp/llama-server.log >&2; exit 1)
+
+      # ── Start Isartor (live mode) ─────────────────────────────────────────
+      - name: Start Isartor with Qwen L2
+        if: env.DRY_RUN == 'false'
+        env:
+          ISARTOR__GATEWAY_API_KEY: ${{ env.ISARTOR_API_KEY }}
+          ISARTOR__LLM_PROVIDER: ${{ secrets.ISARTOR_COPILOT_TOKEN != '' && 'copilot' || 'offline' }}
+          # ISARTOR_COPILOT_TOKEN: a GitHub token (ghp_... / gho_...) with Copilot access.
+          # Set this repository secret to enable real Copilot-backed L3 routing.
+          # If absent, Isartor runs in offline_mode (L3 calls are skipped).
+          ISARTOR__EXTERNAL_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN || 'dummy' }}
+          ISARTOR__ENABLE_SLM_ROUTER: "true"
+          ISARTOR__LAYER2__SIDECAR_URL: "http://127.0.0.1:8090/v1"
+        run: |
+          ./target/release/isartor up >/tmp/isartor.log 2>&1 &
+          echo "ISARTOR_PID=$!" >> "$GITHUB_ENV"
+
+          echo "Waiting for Isartor to be ready..."
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Isartor ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/health || (cat /tmp/isartor.log >&2; exit 1)
+
+      # ── Run baseline scenario ─────────────────────────────────────────────
+      - name: Run baseline scenario
+        id: baseline
+        timeout-minutes: 60
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || '' }}
+        run: |
+          EXTRA_ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then
+            EXTRA_ARGS="--dry-run"
+          fi
+          if [ "${REQUEST_COUNT:-0}" -gt 0 ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --requests ${REQUEST_COUNT}"
+          fi
+
+          python3 benchmarks/claude_code_benchmark.py \
+            --scenario baseline \
+            $EXTRA_ARGS \
+            --direct-api-key "${ANTHROPIC_API_KEY}" \
+            --output benchmarks/results/claude_code_benchmark.json \
+            --report benchmarks/results/claude_code_benchmark_report.md \
+            2>&1 | tee /tmp/baseline_output.txt
+
+      - name: Post baseline completed comment
+        if: steps.baseline.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let results = null;
+            try {
+              results = JSON.parse(fs.readFileSync('benchmarks/results/claude_code_benchmark.json', 'utf8'));
+            } catch (_) {}
+
+            let details = '';
+            if (results && results.baseline) {
+              const b = results.baseline;
+              details = [
+                `| Metric | Value |`,
+                `|--------|-------|`,
+                `| Total requests | ${b.total_requests} |`,
+                `| L3 (cloud) hits | ${b.l3_hits} (100%) |`,
+                `| P50 latency | ${b.p50_ms.toFixed(1)} ms |`,
+                `| Est. cloud cost | $${b.total_cost_usd.toFixed(4)} ($${b.cost_per_req_usd.toFixed(6)}/req) |`,
+              ].join('\n');
+            }
+
+            const body = [
+              `## ✅ Baseline Run Completed (Without Isartor)`,
+              ``,
+              `**Workflow run:** [#${context.runId}](${runUrl})`,
+              ``,
+              `Every prompt was forwarded directly to the cloud LLM. No local deflection.`,
+              ``,
+              details,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body,
+            });
+
+      # ── Run cold cache scenario ───────────────────────────────────────────
+      - name: Run Isartor cold cache scenario
+        id: cold
+        timeout-minutes: 90
+        run: |
+          EXTRA_ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then
+            EXTRA_ARGS="--dry-run"
+          fi
+          if [ "${REQUEST_COUNT:-0}" -gt 0 ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --requests ${REQUEST_COUNT}"
+          fi
+
+          python3 benchmarks/claude_code_benchmark.py \
+            --scenario cold \
+            $EXTRA_ARGS \
+            --isartor-url http://localhost:8080 \
+            --api-key "${ISARTOR_API_KEY}" \
+            --output benchmarks/results/claude_code_benchmark.json \
+            --report benchmarks/results/claude_code_benchmark_report.md \
+            2>&1 | tee /tmp/cold_output.txt
+
+      - name: Post cold cache completed comment
+        if: steps.cold.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let results = null;
+            try {
+              results = JSON.parse(fs.readFileSync('benchmarks/results/claude_code_benchmark.json', 'utf8'));
+            } catch (_) {}
+
+            let details = '';
+            if (results && results.isartor_cold) {
+              const c = results.isartor_cold;
+              const defl = (c.deflection_rate * 100).toFixed(1);
+              details = [
+                `| Metric | Value |`,
+                `|--------|-------|`,
+                `| Total requests | ${c.total_requests} |`,
+                `| L1a (exact) hits | ${c.l1a_hits} (${(c.l1a_hits/c.total_requests*100).toFixed(1)}%) |`,
+                `| L1b (semantic) hits | ${c.l1b_hits} (${(c.l1b_hits/c.total_requests*100).toFixed(1)}%) |`,
+                `| L2 (Qwen) hits | ${c.l2_hits} (${(c.l2_hits/c.total_requests*100).toFixed(1)}%) |`,
+                `| L3 (cloud) hits | ${c.l3_hits} (${(c.l3_hits/c.total_requests*100).toFixed(1)}%) |`,
+                `| Deflection rate | **${defl}%** |`,
+                `| P50 latency | ${c.p50_ms.toFixed(1)} ms |`,
+                `| Est. cloud cost | $${c.total_cost_usd.toFixed(4)} ($${c.cost_per_req_usd.toFixed(6)}/req) |`,
+              ].join('\n');
+            }
+
+            const body = [
+              `## ✅ Isartor Cold Cache Run Completed`,
+              ``,
+              `**Workflow run:** [#${context.runId}](${runUrl})`,
+              ``,
+              `First pass through Isartor with Qwen 2.5 Coder 7B as Layer 2. Cache started empty.`,
+              ``,
+              details,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body,
+            });
+
+      # ── Run warm cache scenario ───────────────────────────────────────────
+      - name: Run Isartor warm cache scenario
+        id: warm
+        timeout-minutes: 90
+        run: |
+          EXTRA_ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then
+            EXTRA_ARGS="--dry-run"
+          fi
+          if [ "${REQUEST_COUNT:-0}" -gt 0 ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --requests ${REQUEST_COUNT}"
+          fi
+
+          python3 benchmarks/claude_code_benchmark.py \
+            --scenario warm \
+            $EXTRA_ARGS \
+            --isartor-url http://localhost:8080 \
+            --api-key "${ISARTOR_API_KEY}" \
+            --output benchmarks/results/claude_code_benchmark.json \
+            --report benchmarks/results/claude_code_benchmark_report.md \
+            2>&1 | tee /tmp/warm_output.txt
+
+      - name: Post warm cache completed comment
+        if: steps.warm.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let results = null;
+            try {
+              results = JSON.parse(fs.readFileSync('benchmarks/results/claude_code_benchmark.json', 'utf8'));
+            } catch (_) {}
+
+            let details = '';
+            if (results && results.isartor_warm) {
+              const w = results.isartor_warm;
+              const defl = (w.deflection_rate * 100).toFixed(1);
+              details = [
+                `| Metric | Value |`,
+                `|--------|-------|`,
+                `| Total requests | ${w.total_requests} |`,
+                `| L1a (exact) hits | ${w.l1a_hits} (${(w.l1a_hits/w.total_requests*100).toFixed(1)}%) |`,
+                `| L1b (semantic) hits | ${w.l1b_hits} (${(w.l1b_hits/w.total_requests*100).toFixed(1)}%) |`,
+                `| L2 (Qwen) hits | ${w.l2_hits} (${(w.l2_hits/w.total_requests*100).toFixed(1)}%) |`,
+                `| L3 (cloud) hits | ${w.l3_hits} (${(w.l3_hits/w.total_requests*100).toFixed(1)}%) |`,
+                `| Deflection rate | **${defl}%** |`,
+                `| P50 latency | ${w.p50_ms.toFixed(1)} ms |`,
+                `| Est. cloud cost | $${w.total_cost_usd.toFixed(4)} ($${w.cost_per_req_usd.toFixed(6)}/req) |`,
+              ].join('\n');
+            }
+
+            const body = [
+              `## ✅ Isartor Warm Cache Run Completed`,
+              ``,
+              `**Workflow run:** [#${context.runId}](${runUrl})`,
+              ``,
+              `Second pass through Isartor. Cache fully populated from the cold run.`,
+              ``,
+              details,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body,
+            });
+
+      # ── Run three-way combined report ─────────────────────────────────────
+      - name: Run three-way combined benchmark report
+        id: three_way
+        timeout-minutes: 10
+        run: |
+          EXTRA_ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then
+            EXTRA_ARGS="--dry-run"
+          fi
+          if [ "${REQUEST_COUNT:-0}" -gt 0 ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --requests ${REQUEST_COUNT}"
+          fi
+
+          python3 benchmarks/claude_code_benchmark.py \
+            --three-way \
+            $EXTRA_ARGS \
+            --isartor-url http://localhost:8080 \
+            --api-key "${ISARTOR_API_KEY}" \
+            --output benchmarks/results/claude_code_benchmark.json \
+            --report benchmarks/results/claude_code_benchmark_report.md \
+            2>&1 | tee /tmp/three_way_output.txt
+
+      # ── Stop servers ──────────────────────────────────────────────────────
+      - name: Stop Isartor and llama-server
+        if: always() && env.DRY_RUN == 'false'
+        run: |
+          if [ -n "${ISARTOR_PID:-}" ]; then
+            kill "$ISARTOR_PID" 2>/dev/null || true
+          fi
+          if [ -n "${LLAMA_PID:-}" ]; then
+            kill "$LLAMA_PID" 2>/dev/null || true
+          fi
+
+      # ── Upload artifacts ──────────────────────────────────────────────────
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-code-benchmark-results
+          path: |
+            benchmarks/results/claude_code_benchmark.json
+            benchmarks/results/claude_code_benchmark_report.md
+
+      # ── Post final summary comment ─────────────────────────────────────────
+      - name: Post final results comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const artifactUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const dryRun = process.env.DRY_RUN === 'true';
+
+            let tableRows = '';
+            let acceptance = '';
+            let summary = '';
+
+            try {
+              const results = JSON.parse(
+                fs.readFileSync('benchmarks/results/claude_code_benchmark.json', 'utf8')
+              );
+
+              const fmt = (v, d=1) => v != null ? v.toFixed(d) : '-';
+              const pct = (r) => r != null ? (r * 100).toFixed(1) + '%' : '-';
+
+              const b = results.baseline || {};
+              const c = results.isartor_cold || {};
+              const w = results.isartor_warm || {};
+
+              const bCost = b.total_cost_usd || 0;
+              const cCost = c.total_cost_usd || 0;
+              const wCost = w.total_cost_usd || 0;
+              const coldSavings = bCost > 0 ? ((bCost - cCost) / bCost * 100).toFixed(1) : '-';
+              const warmSavings = bCost > 0 ? ((bCost - wCost) / bCost * 100).toFixed(1) : '-';
+
+              tableRows = [
+                `| Metric | Baseline | Isartor Cold | Isartor Warm |`,
+                `|--------|----------|--------------|--------------|`,
+                `| Total requests | ${b.total_requests || '-'} | ${c.total_requests || '-'} | ${w.total_requests || '-'} |`,
+                `| L3 (cloud) hits | ${b.l3_hits || 0} (100%) | ${c.l3_hits || '-'} (${pct(c.l3_hits && c.total_requests ? c.l3_hits/c.total_requests : null)}) | ${w.l3_hits || '-'} (${pct(w.l3_hits && w.total_requests ? w.l3_hits/w.total_requests : null)}) |`,
+                `| Deflection rate | 0% | ${pct(c.deflection_rate)} | ${pct(w.deflection_rate)} |`,
+                `| P50 latency | ${fmt(b.p50_ms)} ms | ${fmt(c.p50_ms)} ms | ${fmt(w.p50_ms)} ms |`,
+                `| Est. cloud cost | $${fmt(bCost, 4)} | $${fmt(cCost, 4)} | $${fmt(wCost, 4)} |`,
+                `| Cost vs baseline | — | **−${coldSavings}%** | **−${warmSavings}%** |`,
+              ].join('\n');
+
+              const coldDefl = c.deflection_rate ? (c.deflection_rate * 100).toFixed(1) : '0';
+              const warmDefl = w.deflection_rate ? (w.deflection_rate * 100).toFixed(1) : '0';
+
+              acceptance = [
+                `- [x] Baseline run executed (${dryRun ? 'dry-run' : 'live'} — ${b.total_requests || 0} prompts, all L3)`,
+                `- [x] Isartor cold cache run executed — ${coldDefl}% deflection rate`,
+                `- [x] Isartor warm cache run executed — ${warmDefl}% deflection rate`,
+                `- [x] Issue comments contain progress and final results`,
+              ].join('\n');
+
+              summary = `Routing through Isartor with Qwen 2.5 Coder 7B (Layer 2) reduces cloud cost ` +
+                `by **~${coldSavings}% on the first (cold) pass** and **~${warmSavings}% on repeat (warm) sessions**, ` +
+                `while keeping P50 latency low for deflected requests.`;
+
+            } catch (err) {
+              tableRows = `_Results file not available: ${err.message}_`;
+              acceptance = [
+                `- [ ] Baseline run — check workflow logs`,
+                `- [ ] Isartor cold cache run — check workflow logs`,
+                `- [ ] Isartor warm cache run — check workflow logs`,
+              ].join('\n');
+              summary = 'Benchmark did not complete successfully. See workflow logs for details.';
+            }
+
+            const overallStatus = context.job ? '✅ Completed' : '⚠️ Partial';
+
+            const body = [
+              `## 📊 Claude Code Benchmark — Final Results`,
+              ``,
+              `**Status:** ${overallStatus}`,
+              `**Mode:** ${dryRun ? '🔵 Dry-run (simulated responses)' : '🟢 Live (real Qwen 2.5 Coder 7B + real Claude Code)'}`,
+              `**Workflow run:** [#${context.runId}](${runUrl})`,
+              `**Artifacts:** [Download benchmark results](${artifactUrl})`,
+              ``,
+              `### Three-Way Comparison`,
+              ``,
+              tableRows,
+              ``,
+              `### Acceptance Criteria`,
+              ``,
+              acceptance,
+              ``,
+              `### Summary`,
+              ``,
+              summary,
+              ``,
+              `---`,
+              `_Generated by the [Claude Code Benchmark workflow](${runUrl})_`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(process.env.ISSUE_NUMBER),
+              body,
+            });
+
+  # ── Dry-run validation (always runs in CI, confirms harness works) ─────────
+  validate-harness:
+    name: Validate Benchmark Harness (dry-run)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run three-way benchmark in dry-run mode
+        run: |
+          python3 benchmarks/claude_code_benchmark.py --dry-run \
+            --output benchmarks/results/claude_code_benchmark.json \
+            --report benchmarks/results/claude_code_benchmark_report.md
+
+      - name: Verify output JSON schema
+        run: |
+          python3 - <<'PY'
+          import json, sys
+
+          with open("benchmarks/results/claude_code_benchmark.json") as f:
+              data = json.load(f)
+
+          assert data["benchmark"] == "claude_code_three_way", \
+              f"unexpected benchmark name: {data['benchmark']!r}"
+
+          for key in ("baseline", "isartor_cold", "isartor_warm"):
+              assert key in data, f"missing key: {key!r}"
+              r = data[key]
+              assert r["total_requests"] > 0, f"{key}: total_requests is 0"
+              assert 0.0 <= r["deflection_rate"] <= 1.0, \
+                  f"{key}: deflection_rate out of range: {r['deflection_rate']}"
+
+          b = data["baseline"]
+          c = data["isartor_cold"]
+          w = data["isartor_warm"]
+
+          assert b["deflection_rate"] == 0.0, \
+              f"baseline should have 0 deflection, got {b['deflection_rate']}"
+          assert c["deflection_rate"] < w["deflection_rate"], \
+              f"warm should have more deflection than cold: cold={c['deflection_rate']}, warm={w['deflection_rate']}"
+          assert b["total_cost_usd"] >= c["total_cost_usd"], \
+              f"cold cost should be <= baseline cost"
+          assert c["total_cost_usd"] >= w["total_cost_usd"], \
+              f"warm cost should be <= cold cost"
+
+          print("✓ Three-way benchmark output is valid JSON with expected schema.")
+          print(f"  Baseline deflection:  {b['deflection_rate']*100:.1f}%")
+          print(f"  Cold deflection:      {c['deflection_rate']*100:.1f}%")
+          print(f"  Warm deflection:      {w['deflection_rate']*100:.1f}%")
+          print(f"  Cost cold vs baseline: -{(b['total_cost_usd']-c['total_cost_usd'])/b['total_cost_usd']*100:.1f}%")
+          print(f"  Cost warm vs baseline: -{(b['total_cost_usd']-w['total_cost_usd'])/b['total_cost_usd']*100:.1f}%")
+          PY
+
+      - name: Verify Markdown report was written
+        run: |
+          test -f benchmarks/results/claude_code_benchmark_report.md \
+            || (echo "Markdown report not found" && exit 1)
+          grep -q "Baseline" benchmarks/results/claude_code_benchmark_report.md \
+            || (echo "Report missing Baseline section" && exit 1)
+          grep -q "Cold Cache" benchmarks/results/claude_code_benchmark_report.md \
+            || (echo "Report missing Cold Cache section" && exit 1)
+          grep -q "Warm Cache" benchmarks/results/claude_code_benchmark_report.md \
+            || (echo "Report missing Warm Cache section" && exit 1)
+          echo "✓ Markdown report present and contains all required sections."

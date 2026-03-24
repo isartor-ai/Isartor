@@ -3,7 +3,18 @@
 This directory contains the reproducible benchmark harness and fixtures for
 measuring Isartor's deflection rate and latency characteristics.
 
-## Quick Start
+Two benchmark tracks are available:
+
+| Track | Script | Use case |
+|-------|--------|----------|
+| **General harness** | `run.py` | FAQ / mixed-workload deflection rate via `/api/chat` |
+| **Claude Code 3-way** | `claude_code_benchmark.py` | Baseline vs cold vs warm comparison for Claude Code agent sessions via `/v1/messages` |
+
+---
+
+## General Benchmark (FAQ / Mixed Workload)
+
+### Quick Start
 
 ```bash
 # 1. Start the Isartor server (requires a running instance)
@@ -41,6 +52,7 @@ python3 benchmarks/run.py \
 |------|---------|-------------|
 | `fixtures/faq_loop.jsonl` | 1,000 | Simulates a repetitive FAQ / agent-loop workload. Covers returns, shipping, billing, account management, and more — all with semantic rephrasings. Designed to stress L1a (exact cache) and L1b (semantic cache). |
 | `fixtures/diverse_tasks.jsonl` | 500 | Genuine variety: code generation, summarisation, Q&A, data extraction, and creative writing. Represents a realistic mixed-workload with lower deflection than the FAQ loop corpus. |
+| `fixtures/claude_code_todo_app.jsonl` | 58 | Deterministic TypeScript todo-app coding workload for the Claude Code three-way benchmark. Includes unique implementation prompts, semantic variants, and exact repeats. |
 
 Each file is in [JSONL](https://jsonlines.org/) format — one JSON object per line:
 
@@ -272,3 +284,137 @@ Actions → New repository secret**):
 
 Without this secret the server cannot reach the Azure backend and L3 requests
 will return 502 errors. L1a/L1b cache-hit rows are unaffected.
+
+---
+
+## Claude Code Three-Way Benchmark
+
+`benchmarks/claude_code_benchmark.py` runs a three-way comparison benchmark
+that quantifies the ROI of routing Claude Code through Isartor.
+
+### What it measures
+
+- **Baseline — without Isartor:** every prompt goes directly to the cloud LLM.
+  No local deflection. All latency is cloud-round-trip latency.
+- **Isartor cold cache:** first pass through Isartor with an empty cache.
+  Novel prompts fall through to L2 (Qwen) or L3 (cloud). Only exact duplicate
+  prompts within the run hit L1a.
+- **Isartor warm cache:** second pass with the cache populated from the cold
+  run. Previously-seen prompts are deflected locally at L1a or L1b.
+
+### Quick Start
+
+```bash
+# Dry-run — no server needed, CI-safe, deterministic output:
+make benchmark-claude-code-dry-run
+
+# Live three-way benchmark against a running Isartor instance:
+ISARTOR_URL=http://localhost:8080 ISARTOR_API_KEY=changeme \
+  make benchmark-claude-code
+
+# Full end-to-end with auto-start (requires Qwen GGUF + llama-server):
+GITHUB_TOKEN=ghp_... \
+  ./scripts/run_claude_code_benchmark.sh \
+    --start-llama-server \
+    --start-isartor
+```
+
+### Model setup (Layer 2 — Qwen 2.5 Coder 7B)
+
+```bash
+# 1. Download the Qwen 2.5 Coder 7B GGUF (~4.7 GB):
+./scripts/download_qwen_gguf.sh
+
+# 2. Start llama-server:
+llama-server \
+  --model models/qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+  --host 127.0.0.1 --port 8090 \
+  --ctx-size 4096 --n-predict 512
+
+# 3. Start Isartor with Qwen as Layer 2:
+ISARTOR__ENABLE_SLM_ROUTER=true \
+ISARTOR__LAYER2__SIDECAR_URL=http://127.0.0.1:8090/v1 \
+./target/release/isartor up
+```
+
+### GitHub Actions workflow
+
+The `.github/workflows/claude-code-benchmark.yml` workflow runs the three-way
+benchmark on demand and posts progress + final results as GitHub issue comments.
+
+**Trigger:**
+```bash
+gh workflow run claude-code-benchmark.yml \
+  -f issue_number=<N> \
+  -f dry_run=true
+```
+
+**Issue comment sequence:**
+1. 🚀 Benchmark started
+2. ⚙️ Environment setup complete (live mode)
+3. ✅ Baseline run completed
+4. ✅ Isartor cold cache run completed
+5. ✅ Isartor warm cache run completed
+6. 📊 Final results table
+
+### Output files
+
+| File | Description |
+|------|-------------|
+| `results/claude_code_benchmark.json` | Machine-readable three-way results |
+| `results/claude_code_benchmark_report.md` | Human-readable Markdown report |
+
+### CLI Reference
+
+```
+usage: claude_code_benchmark.py [-h] [--three-way] [--scenario {baseline,cold,warm}]
+                                  [--dry-run] [--isartor-url URL] [--api-key KEY]
+                                  [--direct-url URL] [--direct-api-key KEY]
+                                  [--input FILE] [--requests N]
+                                  [--output FILE] [--report FILE]
+
+Options:
+  --three-way           Run all three scenarios and generate a comparison report
+  --scenario {baseline,cold,warm}
+                        Run a single scenario
+  --dry-run             Simulate responses locally — no server required (CI-safe)
+  --isartor-url URL     Isartor base URL (default: $ISARTOR_URL or http://localhost:8080)
+  --api-key KEY         Isartor X-API-Key (default: $ISARTOR_API_KEY or 'changeme')
+  --direct-url URL      Direct API URL for baseline (default: $ANTHROPIC_BASE_URL)
+  --direct-api-key KEY  API key for baseline (default: $ANTHROPIC_API_KEY)
+  --input FILE          JSONL fixture file (default: fixtures/claude_code_todo_app.jsonl)
+  --requests N          Limit number of prompts per scenario (0 = all)
+  --output FILE         JSON results file (default: results/claude_code_benchmark.json)
+  --report FILE         Markdown report file (default: results/claude_code_benchmark_report.md)
+```
+
+### Sample output (dry-run)
+
+```
+-- Baseline — without Isartor --
+  Total requests : 58
+  L3  (cloud)    :    58  (100.0%)
+  Deflection rate: 0.0%  (no local deflection — every request hits cloud)
+  P50 latency    : 1421.0 ms
+  Est. cloud cost: $0.3132  ($0.005400/req)
+
+-- Isartor cold cache — with Qwen L2 --
+  Total requests : 58
+  L1a (exact)    :     6  (10.3%)
+  L1b (semantic) :     3  ( 5.2%)
+  L2  (Qwen)     :     6  (10.3%)
+  L3  (cloud)    :    43  (74.1%)
+  Deflection rate: 25.9%
+  P50 latency    : 1454.8 ms
+  Est. cloud cost: $0.2322  ($0.004003/req)
+
+-- Isartor warm cache — with Qwen L2 --
+  Total requests : 58
+  L1a (exact)    :    21  (36.2%)
+  L1b (semantic) :     9  (15.5%)
+  L2  (Qwen)     :     5  ( 8.6%)
+  L3  (cloud)    :    23  (39.7%)
+  Deflection rate: 60.3%
+  P50 latency    :  7.4 ms
+  Est. cloud cost: $0.1242  ($0.002141/req)
+```
