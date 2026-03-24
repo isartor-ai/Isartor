@@ -4,6 +4,7 @@
         benchmark-claude-code benchmark-claude-code-dry-run benchmark-claude-code-report \
         benchmark-claude-copilot benchmark-claude-copilot-dry-run \
         validate-todo-app scenario-run scenario-run-dry \
+        claude-bench claude-bench-dry \
         build test smoke-claude-copilot
 
 # -- Benchmark targets ---------------------------------------------------------
@@ -84,6 +85,15 @@ scenario-run:
 
 scenario-run-dry:
 	python3 benchmarks/scenario_runner.py --dry-run
+
+claude-bench:
+	python3 benchmarks/claude_bench.py \
+		--binary "$${ISARTOR_BINARY:-./target/release/isartor}" \
+		--copilot-token "$${COPILOT_KEY}" \
+		--model "$${MODEL:-gpt-5.4}"
+
+claude-bench-dry:
+	python3 benchmarks/claude_bench.py --dry-run
 
 # -- Build / test shortcuts ----------------------------------------------------
 

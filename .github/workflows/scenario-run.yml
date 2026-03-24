@@ -1,24 +1,27 @@
 name: Scenario Runner — Code Generation Benchmark
 
-# Replays claude_code_todo_app.jsonl through two scenarios:
-#   A) Baseline  — Claude Code + Copilot (no Isartor)
-#   B) Isartor   — Claude Code + Isartor + Copilot
+# Two runner modes:
+#   fixture:    Replays claude_code_todo_app.jsonl via HTTP
+#   claude_cli: Real Claude Code CLI builds a TODO app end-to-end
 #
-# Produces tokens.json, code.diff, summary.md, and full_results.json
-# as downloadable workflow artifacts.
+# Both compare: Baseline (no optimization) vs Isartor (L1+L2+L3)
 #
-# Usage (dry-run):
+# Usage:
 #   gh workflow run scenario-run.yml -f mode=dry_run
-#
-# Usage (live, Isartor-only):
-#   gh workflow run scenario-run.yml -f mode=isartor_only
-#
-# Usage (full comparison):
-#   gh workflow run scenario-run.yml -f mode=both
+#   gh workflow run scenario-run.yml -f runner=claude_cli -f mode=both
+#   gh workflow run scenario-run.yml -f mode=both -f issue_number=83
 
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: 'Runner type'
+        required: true
+        default: 'fixture'
+        type: choice
+        options:
+          - 'fixture'
+          - 'claude_cli'
       mode:
         description: 'Run mode'
         required: true
@@ -30,9 +33,14 @@ on:
           - 'baseline_only'
           - 'both'
       request_count:
-        description: 'Number of prompts (0 = all 78)'
+        description: 'Number of prompts for fixture runner (0 = all 78)'
         required: false
         default: '0'
+        type: number
+      max_turns:
+        description: 'Max Claude turns for claude_cli runner'
+        required: false
+        default: '50'
         type: number
       issue_number:
         description: 'GitHub issue number to post results to (optional)'
@@ -51,7 +59,9 @@ jobs:
 
     env:
       MODE: ${{ inputs.mode }}
+      RUNNER: ${{ inputs.runner || 'fixture' }}
       REQUEST_COUNT: ${{ inputs.request_count || '0' }}
+      MAX_TURNS: ${{ inputs.max_turns || '50' }}
       ISARTOR_API_KEY: benchmark-key
 
     steps:
@@ -62,6 +72,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Set up Node.js
+        if: env.RUNNER == 'claude_cli'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude Code CLI
+        if: env.RUNNER == 'claude_cli'
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude --version
 
       # ── Post "started" comment ──────────────────────────────────────────
       - name: Post started comment
@@ -446,31 +468,54 @@ jobs:
         id: run
         run: |
           set -euo pipefail
-          ARGS=""
-
-          case "${MODE}" in
-            dry_run)        ARGS="--dry-run" ;;
-            isartor_only)   ARGS="--isartor-only --api-key ${ISARTOR_API_KEY}" ;;
-            baseline_only)  ARGS="--baseline-only --copilot-token ${COPILOT_WORKFLOW_KEY:-none}" ;;
-            both)           ARGS="--api-key ${ISARTOR_API_KEY} --copilot-token ${COPILOT_WORKFLOW_KEY:-none}" ;;
-          esac
-
-          REQ_ARGS=""
-          if [ "${REQUEST_COUNT}" != "0" ]; then
-            REQ_ARGS="--requests ${REQUEST_COUNT}"
-          fi
 
           PUSH_ARGS=""
           if [ "${MODE}" != "dry_run" ]; then
             PUSH_ARGS="--push-repo https://x-access-token:${GITHUB_TOKEN}@github.com/isartor-ai/isartor-dist.git"
           fi
 
-          python3 benchmarks/scenario_runner.py \
-            --output-dir results \
-            --model gpt-5.4 \
-            ${ARGS} \
-            ${REQ_ARGS} \
-            ${PUSH_ARGS}
+          if [ "${RUNNER}" = "claude_cli" ]; then
+            # ── Real Claude Code CLI mode ──
+            ARGS=""
+            case "${MODE}" in
+              dry_run)        ARGS="--dry-run" ;;
+              isartor_only)   ARGS="--isartor-only" ;;
+              baseline_only)  ARGS="--baseline-only" ;;
+              both)           ARGS="" ;;
+            esac
+
+            python3 benchmarks/claude_bench.py \
+              --binary ./target/release/isartor \
+              --copilot-token "${COPILOT_WORKFLOW_KEY:-}" \
+              --model gpt-5.4 \
+              --max-turns "${MAX_TURNS}" \
+              --timeout 900 \
+              --sidecar-url "http://127.0.0.1:8090/v1" \
+              --output-dir results \
+              ${ARGS} \
+              ${PUSH_ARGS}
+          else
+            # ── Fixture replay mode (original) ──
+            ARGS=""
+            case "${MODE}" in
+              dry_run)        ARGS="--dry-run" ;;
+              isartor_only)   ARGS="--isartor-only --api-key ${ISARTOR_API_KEY}" ;;
+              baseline_only)  ARGS="--baseline-only --copilot-token ${COPILOT_WORKFLOW_KEY:-none}" ;;
+              both)           ARGS="--api-key ${ISARTOR_API_KEY} --copilot-token ${COPILOT_WORKFLOW_KEY:-none}" ;;
+            esac
+
+            REQ_ARGS=""
+            if [ "${REQUEST_COUNT}" != "0" ]; then
+              REQ_ARGS="--requests ${REQUEST_COUNT}"
+            fi
+
+            python3 benchmarks/scenario_runner.py \
+              --output-dir results \
+              --model gpt-5.4 \
+              ${ARGS} \
+              ${REQ_ARGS} \
+              ${PUSH_ARGS}
+          fi
 
           echo "output_dir=results" >> "$GITHUB_OUTPUT"
         env:
