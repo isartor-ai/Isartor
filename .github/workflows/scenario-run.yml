@@ -426,7 +426,7 @@ jobs:
           ISARTOR__GATEWAY_API_KEY: benchmark-key
           ISARTOR__LLM_PROVIDER: copilot
           ISARTOR__EXTERNAL_LLM_API_KEY: ${{ env.COPILOT_WORKFLOW_KEY }}
-          ISARTOR__EXTERNAL_LLM_MODEL: gpt-5.4
+          ISARTOR__EXTERNAL_LLM_MODEL: gpt-4.1
           ISARTOR__EXTERNAL_LLM_URL: "https://api.githubcopilot.com/chat/completions"
           ISARTOR__ENABLE_SLM_ROUTER: "true"
           ISARTOR__LAYER2__SIDECAR_URL: "http://127.0.0.1:8090/v1"
@@ -437,9 +437,9 @@ jobs:
           set -euo pipefail
 
           # Write minimal config to override repo defaults
-          printf 'llm_provider = "copilot"\nexternal_llm_model = "gpt-5.4"\noffline_mode = false\nenable_slm_router = true\n\n[layer2]\nsidecar_url = "http://127.0.0.1:8090/v1"\nclassifier_mode = "tiered"\nmax_answer_tokens = 2048\n' > isartor.toml
+          printf 'llm_provider = "copilot"\nexternal_llm_model = "gpt-4.1"\noffline_mode = false\nenable_slm_router = true\n\n[layer2]\nsidecar_url = "http://127.0.0.1:8090/v1"\nclassifier_mode = "tiered"\nmax_answer_tokens = 2048\n' > isartor.toml
 
-          echo "LLM_PROVIDER=copilot, MODEL=gpt-5.4"
+          echo "LLM_PROVIDER=copilot, MODEL=gpt-4.1"
           echo "SLM_ROUTER=true, SIDECAR=http://127.0.0.1:8090/v1"
           echo "CLASSIFIER_MODE=tiered, MAX_ANSWER_TOKENS=2048"
           echo "EXTERNAL_LLM_API_KEY is $([ -n "${ISARTOR__EXTERNAL_LLM_API_KEY:-}" ] && echo 'set' || echo 'EMPTY')"
@@ -488,7 +488,7 @@ jobs:
               --cli copilot \
               --binary ./target/release/isartor \
               --copilot-token "${COPILOT_WORKFLOW_KEY:-}" \
-              --model gpt-5.4 \
+              --model gpt-4.1 \
               --max-turns "${MAX_TURNS}" \
               --timeout 900 \
               --sidecar-url "http://127.0.0.1:8090/v1" \
@@ -512,7 +512,7 @@ jobs:
 
             python3 benchmarks/scenario_runner.py \
               --output-dir results \
-              --model gpt-5.4 \
+              --model gpt-4.1 \
               ${ARGS} \
               ${REQ_ARGS} \
               ${PUSH_ARGS}

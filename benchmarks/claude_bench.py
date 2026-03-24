@@ -181,11 +181,11 @@ def get_isartor_stats(port: int) -> dict:
     return stats or {}
 
 
-def preflight_api_test(port: int) -> bool:
+def preflight_api_test(port: int, model: str = "gpt-4.1") -> bool:
     """Send a tiny /v1/messages request to verify Isartor→Copilot chain works."""
     url = f"http://127.0.0.1:{port}/v1/messages"
     payload = json.dumps({
-        "model": "gpt-5.4",
+        "model": model,
         "max_tokens": 50,
         "messages": [{"role": "user", "content": "Say hello"}],
     }).encode()
@@ -270,7 +270,6 @@ def run_copilot_cli(
         "-p", prompt,
         "--allow-all-tools",
         "--output-format", "json",
-        "--max-turns", str(max_turns),
     ]
 
     try:
@@ -403,6 +402,11 @@ def commit_workspace(ws: Path, message: str) -> None:
 
 
 def push_workspace(ws: Path, repo_url: str, branch: str) -> bool:
+    # Don't push empty workspaces
+    files = [f for f in ws.rglob("*") if f.is_file() and ".git" not in f.parts]
+    if not files:
+        print(f"  ⚠ Skipping push — workspace is empty", file=sys.stderr)
+        return False
     subprocess.run(
         ["git", "remote", "remove", "dist"],
         cwd=ws, capture_output=True,
@@ -547,7 +551,7 @@ def run_scenario(
 
     # Pre-flight
     print(f"  Running preflight API test...", file=sys.stderr)
-    if not preflight_api_test(port):
+    if not preflight_api_test(port, model):
         stop_isartor(proc)
         print(f"  ❌ Preflight failed — Isartor→Copilot chain is broken", file=sys.stderr)
         res.claude_exit_code = -3
@@ -779,7 +783,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("COPILOT_WORKFLOW_KEY", ""),
         help="GitHub Copilot token (or set COPILOT_WORKFLOW_KEY)",
     )
-    p.add_argument("--model", default="gpt-5.4", help="LLM model name")
+    p.add_argument("--model", default="gpt-4.1", help="LLM model name")
     p.add_argument(
         "--output-dir", default="benchmarks/results/claude_bench",
         help="Output directory for results",
