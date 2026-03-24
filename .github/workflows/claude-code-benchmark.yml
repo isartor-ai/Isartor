@@ -255,14 +255,17 @@ jobs:
         if: env.DRY_RUN == 'false'
         env:
           ISARTOR__GATEWAY_API_KEY: ${{ env.ISARTOR_API_KEY }}
-          ISARTOR__LLM_PROVIDER: ${{ secrets.ISARTOR_COPILOT_TOKEN != '' && 'copilot' || 'offline' }}
+          ISARTOR__LLM_PROVIDER: copilot
           # ISARTOR_COPILOT_TOKEN: a GitHub token (ghp_... / gho_...) with Copilot access.
-          # Set this repository secret to enable real Copilot-backed L3 routing.
-          # If absent, Isartor runs in offline_mode (L3 calls are skipped).
-          ISARTOR__EXTERNAL_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN || 'dummy' }}
+          # This workflow is intended to execute a real Copilot-backed L3 path.
+          ISARTOR__EXTERNAL_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN }}
           ISARTOR__ENABLE_SLM_ROUTER: "true"
           ISARTOR__LAYER2__SIDECAR_URL: "http://127.0.0.1:8090/v1"
         run: |
+          if [ -z "${ISARTOR__EXTERNAL_LLM_API_KEY:-}" ]; then
+            echo "::error::Repository secret ISARTOR_COPILOT_TOKEN is required for the live Claude benchmark workflow."
+            exit 1
+          fi
           ./target/release/isartor up >/tmp/isartor.log 2>&1 &
           echo "ISARTOR_PID=$!" >> "$GITHUB_ENV"
 
