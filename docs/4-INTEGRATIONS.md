@@ -112,6 +112,9 @@ isartor connect status
 # GitHub Copilot CLI (MCP server — isartor_chat tool)
 isartor connect copilot
 
+# GitHub Copilot in VS Code (settings.json debug overrides)
+isartor connect copilot-vscode
+
 # Claude Code (base URL override)
 isartor connect claude
 
@@ -123,6 +126,9 @@ isartor connect codex
 
 # Gemini CLI (base URL override)
 isartor connect gemini
+
+# OpenCode (global provider config)
+isartor connect opencode
 
 # Antigravity (base URL override)
 isartor connect antigravity
@@ -139,7 +145,9 @@ Add `--gateway-api-key <key>` to these commands only if you have explicitly enab
 ### GitHub Copilot CLI (MCP server — cache-only)
 
 Copilot CLI integrates via an **MCP (Model Context Protocol) server** that
-Isartor registers as a stdio subprocess. The MCP server exposes two tools:
+Isartor registers as a stdio subprocess. Isartor also exposes the same MCP
+tools over **Streamable HTTP** at `http://localhost:8080/mcp/` for editors and
+web agents that prefer HTTP/SSE transport. Both transports expose two tools:
 
 - **`isartor_chat`** — cache lookup only. Returns the cached answer on hit
   (L1a exact or L1b semantic), or an empty string on miss. On a miss, Copilot
@@ -187,6 +195,22 @@ copilot
    - **Cache miss**: returns empty → Copilot uses its own LLM
 7. After Copilot gets an answer from its LLM, it can call `isartor_cache_store` to
    populate the cache for future requests
+
+#### HTTP/SSE MCP endpoint
+
+Isartor now exposes the same MCP tool surface at `/mcp/` using Streamable HTTP:
+
+- `POST /mcp/` — client → server JSON-RPC
+- `GET /mcp/` — server → client SSE stream
+- `DELETE /mcp/` — explicit session teardown
+
+The HTTP transport uses the MCP `Mcp-Session-Id` header after `initialize`, and
+supports both JSON responses and SSE responses for POST requests. A minimal
+editor config looks like:
+
+```json
+{"servers":{"isartor":{"type":"http","url":"http://localhost:8080/mcp/"}}}
+```
 
 #### Important note about "still going to L3"
 
@@ -285,6 +309,44 @@ isartor connect claude
 isartor connect claude --disconnect
 ```
 
+### GitHub Copilot in VS Code (settings.json debug overrides)
+
+GitHub Copilot in VS Code can be pointed at Isartor by writing the
+`github.copilot.advanced.debug.*` override settings into VS Code's
+`settings.json`.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up --detach
+
+# 2. Configure VS Code automatically
+isartor connect copilot-vscode
+
+# 3. Reload VS Code
+# Developer: Reload Window
+```
+
+#### How it works
+
+1. `isartor connect copilot-vscode` auto-detects your VS Code user `settings.json`
+2. It backs up the existing file to `settings.json.isartor-backup`
+3. It writes:
+   - `github.copilot.advanced.debug.overrideProxyUrl`
+   - `github.copilot.advanced.debug.overrideCAPIUrl`
+   - `github.copilot.advanced.debug.chatOverrideProxyUrl`
+4. It validates that Isartor is reachable before writing
+
+> **Caveat:** these `debug.*` settings are unsupported internal Copilot settings
+> from GitHub and may break on extension updates.
+
+#### Disconnecting
+
+```bash
+isartor connect copilot-vscode --disconnect
+```
+
 ### Antigravity (base URL override)
 
 Antigravity integrates via an environment file that sets the OpenAI base URL.
@@ -367,8 +429,9 @@ isartor connect cursor
 1. `isartor connect cursor` writes a reference env file to `~/.isartor/env/cursor.sh`
 2. It also registers Isartor as an MCP server in `~/.cursor/mcp.json`
 3. In Cursor, override the OpenAI Base URL to point at Isartor's `/v1` endpoint
-4. All chat completions requests route through Isartor's L1/L2/L3 deflection stack
-5. Cursor's Ask and Plan modes are supported; Agent mode requires native keys
+4. The generated MCP entry points at Isartor's HTTP/SSE MCP endpoint: `http://localhost:8080/mcp/`
+5. All chat completions requests route through Isartor's L1/L2/L3 deflection stack
+6. Cursor's Ask and Plan modes are supported; Agent mode requires native keys
 
 #### Disconnecting
 
@@ -443,6 +506,42 @@ gemini
 isartor connect gemini --disconnect
 ```
 
+### OpenCode (global provider config)
+
+OpenCode reads a global JSON config and auth store. Isartor installs an
+`isartor` provider backed by `@ai-sdk/openai-compatible` and points it at the
+gateway's `/v1` endpoint.
+
+#### Step-by-step setup
+
+```bash
+# 1. Start Isartor
+isartor up
+
+# 2. Configure OpenCode
+isartor connect opencode
+
+# 3. Start OpenCode
+opencode
+```
+
+#### How it works
+
+1. `isartor connect opencode` backs up `~/.config/opencode/opencode.json` to `~/.config/opencode/opencode.json.isartor-backup`
+2. It writes an `isartor` provider to `~/.config/opencode/opencode.json`
+3. It writes a matching auth entry to `~/.local/share/opencode/auth.json`
+4. The provider uses `@ai-sdk/openai-compatible` with `baseURL` set to `http://localhost:8080/v1` (or your configured `--gateway-url`)
+5. The auth entry uses your gateway API key when gateway auth is enabled, otherwise a dummy `isartor-local` key
+
+#### Disconnecting
+
+```bash
+isartor connect opencode --disconnect
+```
+
+Disconnect restores the pre-Isartor config/auth backups when available, and
+otherwise removes only the managed `isartor` entries.
+
 ### Generic (any OpenAI-compatible tool)
 
 For tools not explicitly supported (Windsurf, Zed, Cline, Roo Code, etc.),
@@ -499,6 +598,7 @@ isartor connect status
 | "connection refused" | Isartor not running | Run `isartor up` first |
 | Copilot has no `isartor_chat` tool | MCP server not registered | Run `isartor connect copilot` |
 | Copilot works but bypasses cache | Isartor instructions not installed or custom instructions disabled | Run `isartor connect copilot` again and do not launch Copilot with `--no-custom-instructions` |
+| VS Code Copilot not routing through Isartor | `github.copilot.advanced` overrides missing or stale | Run `isartor connect copilot-vscode`, then reload VS Code |
 | Cache never hits for Copilot | Responses not stored after LLM answers | Ask Copilot to call `isartor_cache_store` after answering |
 | Claude not routing through Isartor | `settings.json` not updated | Run `isartor connect claude` |
 | Cursor not routing through Isartor | Base URL override not set | Open Cursor Settings → Models → enable Override OpenAI Base URL |

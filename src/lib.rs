@@ -19,6 +19,7 @@ pub mod handler;
 pub mod health;
 pub mod hf;
 pub mod layer1;
+pub mod mcp;
 pub mod metrics;
 pub mod middleware;
 pub mod models;

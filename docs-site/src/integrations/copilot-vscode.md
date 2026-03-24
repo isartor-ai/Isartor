@@ -41,11 +41,20 @@ curl http://localhost:8080/health
 
 ## Step 2 — Configure VS Code
 
-Open your VS Code **User Settings (JSON)**:
-- Press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux)
-- Type **"Preferences: Open User Settings (JSON)"** and select it
+Recommended:
 
-Add the following block:
+```bash
+isartor connect copilot-vscode
+```
+
+This command:
+
+- auto-detects the VS Code `settings.json` path on macOS, Linux, and Windows
+- backs up the original file to `settings.json.isartor-backup`
+- writes the three `github.copilot.advanced.debug.*` overrides
+- refuses to write if Isartor is not reachable
+
+Manual alternative: open your VS Code **User Settings (JSON)** and add:
 
 ```json
 {
@@ -91,7 +100,8 @@ isartor stats --by-tool
 ```
 
 Copilot VS Code traffic appears as `copilot` in the tool column (identified
-from the `User-Agent` header).
+from the `User-Agent` header). The table now includes requests, cache
+hits/misses, average latency, retries, errors, and L1a/L1b safety.
 
 ---
 
@@ -119,13 +129,22 @@ VS Code Copilot Extension
 4. **L3 Cloud** — only genuinely new prompts reach your configured LLM provider
 5. Response flows back to Copilot transparently — no change to the editor UX
 
+## Disconnecting
+
+```bash
+isartor connect copilot-vscode --disconnect
+```
+
+If a backup exists, Isartor restores it. Otherwise it removes only the three
+managed `github.copilot.advanced.debug.*` keys.
+
 ## Benefits
 
 | Benefit | How |
 |---------|-----|
 | **Reduced API costs** | Repetitive completions are served from cache |
 | **Lower latency** | Cache hits return in < 5 ms vs hundreds of ms for cloud |
-| **Visibility** | `isartor stats --by-tool` shows Copilot request counts and cache hit rates |
+| **Visibility** | `isartor stats --by-tool` shows Copilot request counts, cache hit/miss safety, latency, retries, and errors |
 | **Privacy** | Cached prompts never leave your machine on repeat requests |
 | **Model flexibility** | Route L3 to any provider (OpenAI, Anthropic, Azure, local Ollama) |
 
@@ -211,6 +230,7 @@ dashboards and OTel setup.
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Copilot suggestions stop working | Isartor not running | Run `isartor up --detach` and verify with `curl http://localhost:8080/health` |
+| `isartor connect copilot-vscode` cannot find VS Code settings | Non-standard editor config path | Pass through manual JSON editing as a fallback |
 | No requests in `isartor stats` | Settings not applied | Verify `settings.json` has the override block, then reload VS Code |
 | Chat works but completions don't | Wrong endpoint URL | Ensure `debug.overrideCAPIUrl` ends with `/v1` |
 | Completions work but chat doesn't | Known chat override limitation | Add `debug.chatOverrideProxyUrl` or use `http.proxy` as workaround |

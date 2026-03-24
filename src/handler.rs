@@ -1,20 +1,30 @@
+use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use axum::Json;
+use axum::body::Body;
 use axum::extract::Request;
-use axum::http::StatusCode;
-use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use axum::response::IntoResponse;
+use axum::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::IntervalStream;
 use tracing::{Instrument, info_span};
 
 use crate::anthropic_sse;
 use crate::config::LlmProvider;
+use crate::core::cache_scope::{
+    build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
+};
 use crate::core::prompt::{extract_prompt, has_tooling};
 use crate::core::retry::{RetryConfig, execute_with_retry};
 use crate::errors::GatewayError;
+use crate::mcp::{self, ToolExecutor};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{
     ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatRequest, OpenAiChatResponse,
@@ -43,6 +53,16 @@ fn configured_openai_model_id(state: &AppState) -> String {
         .next()
         .map(|model| model.id)
         .unwrap_or_else(|| state.config.external_llm_model.clone())
+}
+
+fn request_tool(request: &Request, traffic_surface: &str) -> &'static str {
+    crate::tool_identity::identify_tool_or_fallback(
+        request
+            .headers()
+            .get(axum::http::header::USER_AGENT)
+            .and_then(|value| value.to_str().ok()),
+        traffic_surface,
+    )
 }
 
 fn supports_openai_passthrough(provider: &LlmProvider) -> bool {
@@ -163,6 +183,7 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
     );
     async move {
         let layer_start = Instant::now();
+        let tool = request_tool(&request, "gateway");
         let state = match request.extensions().get::<Arc<AppState>>() {
             Some(s) => s.clone(),
             None => {
@@ -202,118 +223,150 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
         }
 
         // ------------------------------------------------------------------
-    // 1. Extract the prompt from the buffered body (set by body_buffer
-    //    middleware). No body-stream consumption needed.
-    // ------------------------------------------------------------------
-    let body_bytes = match request.extensions().get::<BufferedBody>() {
-        Some(buf) => buf.0.clone(),
-        None => {
-            tracing::error!("Layer 3: BufferedBody missing from request extensions");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ChatResponse {
-                    layer: 3,
-                    message: "Firewall misconfiguration: missing buffered body".into(),
-                    model: None,
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let prompt = extract_prompt(&body_bytes);
-
-    tracing::Span::current().record("ai.prompt.length_bytes", prompt.len() as u64);
-
-    let provider_name = state.llm_agent.provider_name();
-    tracing::Span::current().record("provider.name", provider_name);
-    tracing::Span::current().record("model", state.config.external_llm_model.as_str());
-    tracing::info!(prompt = %prompt, provider = provider_name, "Layer 3: Forwarding to LLM via Rig");
-
-    // ------------------------------------------------------------------
-    // 2. Dispatch to the configured rig-core Agent — with retry.
-    // ------------------------------------------------------------------
-    let retry_cfg = RetryConfig::default();
-    let agent = state.llm_agent.clone();
-    let provider_for_err = provider_name.to_string();
-    let prompt_for_retry = prompt.clone();
-
-    let result = execute_with_retry(&retry_cfg, "L3_Cloud_LLM", || {
-        let agent = agent.clone();
-        let prompt = prompt_for_retry.clone();
-        let provider = provider_for_err.clone();
-        async move {
-            agent
-                .chat(&prompt)
-                .await
-                .map_err(|e| GatewayError::from_llm_error(&provider, &e))
-        }
-    })
-    .await;
-
-    match result {
-        Ok(text) => {
-            crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
-            let mut response = (
-                StatusCode::OK,
-                Json(ChatResponse {
-                    layer: 3,
-                    message: text,
-                    model: Some(state.config.external_llm_model.clone()),
-                }),
-            )
-                .into_response();
-            response.extensions_mut().insert(FinalLayer::Cloud);
-            response
-        }
-        Err(gw_err) => {
-            crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
-            crate::metrics::record_error(gw_err.layer_label(), if gw_err.is_retryable() { "retryable" } else { "fatal" });
-            tracing::error!(error = %gw_err, provider = provider_name, "Layer 3: LLM call failed after retries");
-
-            // ── Stale-cache fallback ─────────────────────────────
-            // If the LLM is down, try to serve a previously-cached
-            // answer for this exact prompt so the user still gets
-            // *something* useful.
-            // Cache keys are now namespaced by endpoint format (e.g. "native|<prompt>")
-            // to prevent cross-endpoint schema poisoning. For stale fallback, we try
-            // the new namespaced key first, then fall back to the legacy key for
-            // backwards compatibility with older cache entries.
-            let legacy_key = hex::encode(Sha256::digest(prompt.as_bytes()));
-            let namespaced_input = format!("native|{prompt}");
-            let namespaced_key = hex::encode(Sha256::digest(namespaced_input.as_bytes()));
-
-            for exact_key in [namespaced_key, legacy_key] {
-                if let Some(cached) = state.exact_cache.get(&exact_key) {
-                    tracing::info!(
-                        cache.key = %exact_key,
-                        "Layer 3: Serving stale cache entry as fallback"
-                    );
-                    crate::metrics::record_error("L3_StaleFallback", "fallback_used");
-                    let mut response = (
-                        StatusCode::OK,
-                        [(axum::http::header::CONTENT_TYPE, "application/json")],
-                        cached,
-                    )
-                        .into_response();
-                    response.extensions_mut().insert(FinalLayer::Cloud);
-                    return response;
-                }
+        // 1. Extract the prompt from the buffered body (set by body_buffer
+        //    middleware). No body-stream consumption needed.
+        // ------------------------------------------------------------------
+        let body_bytes = match request.extensions().get::<BufferedBody>() {
+            Some(buf) => buf.0.clone(),
+            None => {
+                tracing::error!("Layer 3: BufferedBody missing from request extensions");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ChatResponse {
+                        layer: 3,
+                        message: "Firewall misconfiguration: missing buffered body".into(),
+                        model: None,
+                    }),
+                )
+                    .into_response();
             }
+        };
 
-            let mut response = (
-                StatusCode::BAD_GATEWAY,
-                Json(ChatResponse {
-                    layer: 3,
-                    message: format!("[{provider_name}] {gw_err}"),
-                    model: None,
-                }),
-            )
-                .into_response();
-            response.extensions_mut().insert(FinalLayer::Cloud);
-            response
+        let session_cache_scope = extract_session_cache_scope(request.headers(), &body_bytes);
+        let prompt = extract_prompt(&body_bytes);
+
+        tracing::Span::current().record("ai.prompt.length_bytes", prompt.len() as u64);
+
+        let provider_name = state.llm_agent.provider_name();
+        tracing::Span::current().record("provider.name", provider_name);
+        tracing::Span::current().record("model", state.config.external_llm_model.as_str());
+        tracing::info!(prompt = %prompt, provider = provider_name, "Layer 3: Forwarding to LLM via Rig");
+
+        // ------------------------------------------------------------------
+        // 2. Dispatch to the configured rig-core Agent — with retry.
+        // ------------------------------------------------------------------
+        let retry_cfg = RetryConfig::default();
+        let agent = state.llm_agent.clone();
+        let provider_for_err = provider_name.to_string();
+        let prompt_for_retry = prompt.clone();
+
+        let result = execute_with_retry(&retry_cfg, "L3_Cloud_LLM", tool, || {
+            let agent = agent.clone();
+            let prompt = prompt_for_retry.clone();
+            let provider = provider_for_err.clone();
+            async move {
+                agent
+                    .chat(&prompt)
+                    .await
+                    .map_err(|e| GatewayError::from_llm_error(&provider, &e))
+            }
+        })
+        .await;
+
+        match result {
+            Ok(text) => {
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
+                let mut response = (
+                    StatusCode::OK,
+                    Json(ChatResponse {
+                        layer: 3,
+                        message: text,
+                        model: Some(state.config.external_llm_model.clone()),
+                    }),
+                )
+                    .into_response();
+                response.extensions_mut().insert(FinalLayer::Cloud);
+                response
+            }
+            Err(gw_err) => {
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
+                crate::metrics::record_error_with_tool(
+                    gw_err.layer_label(),
+                    if gw_err.is_retryable() {
+                        "retryable"
+                    } else {
+                        "fatal"
+                    },
+                    tool,
+                );
+                crate::visibility::record_agent_error(tool);
+                tracing::error!(error = %gw_err, provider = provider_name, "Layer 3: LLM call failed after retries");
+
+                // ── Stale-cache fallback ─────────────────────────────
+                // If the LLM is down, try to serve a previously-cached
+                // answer for this exact prompt so the user still gets
+                // *something* useful.
+                // Cache keys are now namespaced by endpoint format (e.g. "native|<prompt>")
+                // to prevent cross-endpoint schema poisoning. For stale fallback, we try
+                // the new namespaced key first, then fall back to the legacy key for
+                // backwards compatibility with older cache entries.
+                let exact_keys = if session_cache_scope.is_some() {
+                    vec![build_exact_cache_key(
+                        "native",
+                        &prompt,
+                        session_cache_scope.as_deref(),
+                    )]
+                } else {
+                    vec![
+                        build_exact_cache_key("native", &prompt, None),
+                        hex::encode(Sha256::digest(prompt.as_bytes())),
+                    ]
+                };
+
+                for exact_key in exact_keys {
+                    if let Some(cached) = state.exact_cache.get(&exact_key) {
+                        tracing::info!(
+                            cache.key = %exact_key,
+                            "Layer 3: Serving stale cache entry as fallback"
+                        );
+                        crate::metrics::record_error_with_tool(
+                            "L3_StaleFallback",
+                            "fallback_used",
+                            tool,
+                        );
+                        crate::visibility::record_agent_error(tool);
+                        let mut response = (
+                            StatusCode::OK,
+                            [(axum::http::header::CONTENT_TYPE, "application/json")],
+                            cached,
+                        )
+                            .into_response();
+                        response.extensions_mut().insert(FinalLayer::Cloud);
+                        return response;
+                    }
+                }
+
+                let mut response = (
+                    StatusCode::BAD_GATEWAY,
+                    Json(ChatResponse {
+                        layer: 3,
+                        message: format!("[{provider_name}] {gw_err}"),
+                        model: None,
+                    }),
+                )
+                    .into_response();
+                response.extensions_mut().insert(FinalLayer::Cloud);
+                response
+            }
         }
-    }
     }
     .instrument(span)
     .await
@@ -326,6 +379,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
     let span = info_span!("openai_chat_completions");
     async move {
         let layer_start = Instant::now();
+        let tool = request_tool(&request, "gateway");
         let state = match request.extensions().get::<Arc<AppState>>() {
             Some(s) => s.clone(),
             None => {
@@ -385,7 +439,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             let provider_for_err = provider_name.to_string();
             let state_for_retry = state.clone();
             let request_for_retry = request.clone();
-            let result = execute_with_retry(&retry_cfg, "L3_OpenAIToolPassthrough", || {
+            let result = execute_with_retry(&retry_cfg, "L3_OpenAIToolPassthrough", tool, || {
                 let state = state_for_retry.clone();
                 let request = request_for_retry.clone();
                 let provider = provider_for_err.clone();
@@ -399,14 +453,32 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
 
             match result {
                 Ok(body) => {
-                    crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                    crate::metrics::record_layer_duration_with_tool(
+                        "L3_Cloud",
+                        layer_start.elapsed(),
+                        tool,
+                    );
                     let mut resp = (StatusCode::OK, [(CONTENT_TYPE, "application/json")], body)
                         .into_response();
                     resp.extensions_mut().insert(FinalLayer::Cloud);
                     return resp;
                 }
                 Err(gw_err) => {
-                    crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                    crate::metrics::record_layer_duration_with_tool(
+                        "L3_Cloud",
+                        layer_start.elapsed(),
+                        tool,
+                    );
+                    crate::metrics::record_error_with_tool(
+                        gw_err.layer_label(),
+                        if gw_err.is_retryable() {
+                            "retryable"
+                        } else {
+                            "fatal"
+                        },
+                        tool,
+                    );
+                    crate::visibility::record_agent_error(tool);
                     let mut resp = (
                         StatusCode::BAD_GATEWAY,
                         Json(serde_json::json!({
@@ -427,7 +499,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
         let provider_for_err = provider_name.to_string();
         let prompt_for_retry = prompt.clone();
 
-        let result = execute_with_retry(&retry_cfg, "L3_OpenAICompat", || {
+        let result = execute_with_retry(&retry_cfg, "L3_OpenAICompat", tool, || {
             let agent = agent.clone();
             let prompt = prompt_for_retry.clone();
             let provider = provider_for_err.clone();
@@ -442,7 +514,11 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
 
         match result {
             Ok(text) => {
-                crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
 
                 let response = OpenAiChatResponse {
                     choices: vec![OpenAiChatChoice {
@@ -465,7 +541,21 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                 resp
             }
             Err(gw_err) => {
-                crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
+                crate::metrics::record_error_with_tool(
+                    gw_err.layer_label(),
+                    if gw_err.is_retryable() {
+                        "retryable"
+                    } else {
+                        "fatal"
+                    },
+                    tool,
+                );
+                crate::visibility::record_agent_error(tool);
                 let mut resp = (
                     StatusCode::BAD_GATEWAY,
                     Json(serde_json::json!({
@@ -507,6 +597,7 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
     let span = info_span!("anthropic_messages");
     async move {
         let layer_start = Instant::now();
+        let tool = request_tool(&request, "gateway");
         let state = match request.extensions().get::<Arc<AppState>>() {
             Some(s) => s.clone(),
             None => {
@@ -556,7 +647,7 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
         let provider_for_err = provider_name.to_string();
         let prompt_for_retry = prompt.clone();
 
-        let result = execute_with_retry(&retry_cfg, "L3_AnthropicCompat", || {
+        let result = execute_with_retry(&retry_cfg, "L3_AnthropicCompat", tool, || {
             let agent = agent.clone();
             let prompt = prompt_for_retry.clone();
             let provider = provider_for_err.clone();
@@ -573,7 +664,11 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
 
         match result {
             Ok(text) => {
-                crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
                 let mut resp = (
                     StatusCode::OK,
                     Json(anthropic_sse::build_json_response(&text, model)),
@@ -583,7 +678,21 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
                 resp
             }
             Err(gw_err) => {
-                crate::metrics::record_layer_duration("L3_Cloud", layer_start.elapsed());
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
+                crate::metrics::record_error_with_tool(
+                    gw_err.layer_label(),
+                    if gw_err.is_retryable() {
+                        "retryable"
+                    } else {
+                        "fatal"
+                    },
+                    tool,
+                );
+                crate::visibility::record_agent_error(tool);
                 let mut resp = (
                     StatusCode::BAD_GATEWAY,
                     Json(serde_json::json!({
@@ -670,7 +779,8 @@ pub async fn cache_lookup_handler(request: Request) -> impl IntoResponse {
         "mcp",
     );
 
-    let body_bytes = match axum::body::to_bytes(request.into_body(), 1024 * 64).await {
+    let (parts, body) = request.into_parts();
+    let body_bytes = match axum::body::to_bytes(body, 1024 * 64).await {
         Ok(b) => b,
         Err(_) => {
             return (
@@ -680,6 +790,7 @@ pub async fn cache_lookup_handler(request: Request) -> impl IntoResponse {
                 .into_response();
         }
     };
+    let session_cache_scope = extract_session_cache_scope(&parts.headers, &body_bytes);
 
     let prompt = serde_json::from_slice::<serde_json::Value>(&body_bytes)
         .ok()
@@ -695,8 +806,7 @@ pub async fn cache_lookup_handler(request: Request) -> impl IntoResponse {
     }
 
     // L1a exact match.
-    let namespaced = format!("native|{prompt}");
-    let exact_key = hex::encode(Sha256::digest(namespaced.as_bytes()));
+    let exact_key = build_exact_cache_key("native", &prompt, session_cache_scope.as_deref());
     if let Some(cached) = state.exact_cache.get(&exact_key) {
         tracing::info!("Cache lookup: L1a exact hit");
         record_cache_lookup_prompt(
@@ -721,10 +831,13 @@ pub async fn cache_lookup_handler(request: Request) -> impl IntoResponse {
 
     // L1b semantic match.
     let embedder = state.text_embedder.clone();
-    let prompt_for_embed = prompt.clone();
+    let prompt_for_embed = namespaced_semantic_cache_input("native", &prompt);
     if let Ok(Ok(embedding)) =
         tokio::task::spawn_blocking(move || embedder.generate_embedding(&prompt_for_embed)).await
-        && let Some(cached) = state.vector_cache.search(&embedding).await
+        && let Some(cached) = state
+            .vector_cache
+            .search(&embedding, session_cache_scope.as_deref())
+            .await
     {
         tracing::info!("Cache lookup: L1b semantic hit");
         record_cache_lookup_prompt(
@@ -770,7 +883,8 @@ pub async fn cache_store_handler(request: Request) -> impl IntoResponse {
         .cloned()
         .expect("AppState missing");
 
-    let body_bytes = match axum::body::to_bytes(request.into_body(), 1024 * 256).await {
+    let (parts, body) = request.into_parts();
+    let body_bytes = match axum::body::to_bytes(body, 1024 * 256).await {
         Ok(b) => b,
         Err(_) => {
             return (
@@ -780,6 +894,7 @@ pub async fn cache_store_handler(request: Request) -> impl IntoResponse {
                 .into_response();
         }
     };
+    let session_cache_scope = extract_session_cache_scope(&parts.headers, &body_bytes);
 
     #[derive(serde::Deserialize)]
     struct CacheStoreRequest {
@@ -813,17 +928,19 @@ pub async fn cache_store_handler(request: Request) -> impl IntoResponse {
     .unwrap_or_default();
 
     // L1a exact cache.
-    let namespaced = format!("native|{}", req.prompt);
-    let exact_key = hex::encode(Sha256::digest(namespaced.as_bytes()));
+    let exact_key = build_exact_cache_key("native", &req.prompt, session_cache_scope.as_deref());
     state.exact_cache.put(exact_key, cached_json.clone());
 
     // L1b semantic cache.
     let embedder = state.text_embedder.clone();
-    let prompt_for_embed = req.prompt.clone();
+    let prompt_for_embed = namespaced_semantic_cache_input("native", &req.prompt);
     if let Ok(Ok(embedding)) =
         tokio::task::spawn_blocking(move || embedder.generate_embedding(&prompt_for_embed)).await
     {
-        state.vector_cache.insert(embedding, cached_json).await;
+        state
+            .vector_cache
+            .insert(embedding, cached_json, session_cache_scope)
+            .await;
     }
 
     tracing::info!(
@@ -834,6 +951,264 @@ pub async fn cache_store_handler(request: Request) -> impl IntoResponse {
     (StatusCode::OK, Json(serde_json::json!({"stored": true}))).into_response()
 }
 
+#[derive(Clone)]
+struct InProcessMcpToolExecutor {
+    state: Arc<AppState>,
+    user_agent: Option<String>,
+}
+
+#[async_trait]
+impl ToolExecutor for InProcessMcpToolExecutor {
+    async fn cache_lookup(&self, prompt: &str) -> anyhow::Result<Option<String>> {
+        let request = self.internal_request(
+            "/api/v1/cache/lookup",
+            serde_json::json!({ "prompt": prompt }),
+        )?;
+        let response = cache_lookup_handler(request).await.into_response();
+
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+
+        if !response.status().is_success() {
+            anyhow::bail!("cache lookup failed: {}", response.status());
+        }
+
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 128).await?;
+        let payload: Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+        let answer = payload
+            .get("message")
+            .and_then(|message| message.as_str())
+            .or_else(|| {
+                payload
+                    .get("response")
+                    .and_then(|response| response.as_str())
+            })
+            .unwrap_or("")
+            .to_string();
+
+        if answer.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(answer))
+        }
+    }
+
+    async fn cache_store(&self, prompt: &str, response: &str, model: &str) -> anyhow::Result<()> {
+        let request = self.internal_request(
+            "/api/v1/cache/store",
+            serde_json::json!({
+                "prompt": prompt,
+                "response": response,
+                "model": model,
+            }),
+        )?;
+        let response = cache_store_handler(request).await.into_response();
+        if !response.status().is_success() {
+            anyhow::bail!("cache store failed: {}", response.status());
+        }
+        Ok(())
+    }
+}
+
+impl InProcessMcpToolExecutor {
+    fn internal_request(&self, uri: &str, body: Value) -> anyhow::Result<Request> {
+        let mut builder = Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(CONTENT_TYPE, "application/json");
+        if let Some(user_agent) = self.user_agent.as_deref() {
+            builder = builder.header(USER_AGENT, user_agent);
+        }
+        let mut request = builder.body(Body::from(serde_json::to_vec(&body)?))?;
+        request.extensions_mut().insert(self.state.clone());
+        Ok(request)
+    }
+}
+
+/// MCP Streamable HTTP GET endpoint.
+pub async fn mcp_http_get_handler(headers: HeaderMap) -> Response {
+    let Some(session_id) = extract_mcp_session_id(&headers) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Mcp-Session-Id header is required"})),
+        )
+            .into_response();
+    };
+
+    if !mcp::http_session_exists(&session_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(15)))
+        .map(|_| Ok::<Event, Infallible>(Event::default().comment("keepalive")));
+
+    let mut response = Sse::new(stream)
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .into_response();
+    if let Ok(header_value) = HeaderValue::from_str(&session_id) {
+        response
+            .headers_mut()
+            .insert(mcp::SESSION_HEADER, header_value);
+    }
+    response
+}
+
+/// MCP Streamable HTTP POST endpoint.
+pub async fn mcp_http_post_handler(request: Request) -> Response {
+    let state = request
+        .extensions()
+        .get::<Arc<AppState>>()
+        .cloned()
+        .expect("AppState missing");
+    let headers = request.headers().clone();
+    let wants_sse = accepts_mcp_sse(&headers);
+    let user_agent = headers
+        .get(USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    let (_parts, body) = request.into_parts();
+    let body_bytes = match axum::body::to_bytes(body, 1024 * 256).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid body"})),
+            )
+                .into_response();
+        }
+    };
+
+    let payload: Value = match serde_json::from_slice(&body_bytes) {
+        Ok(payload) => payload,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid JSON-RPC body"})),
+            )
+                .into_response();
+        }
+    };
+
+    let messages: Vec<Value> = match &payload {
+        Value::Array(values) => values.clone(),
+        _ => vec![payload.clone()],
+    };
+
+    if !messages.iter().any(mcp::is_request_message) {
+        return StatusCode::ACCEPTED.into_response();
+    }
+
+    let initialize_requested = messages
+        .iter()
+        .any(|message| mcp::message_method(message) == Some("initialize"));
+    let session_id = if initialize_requested {
+        Some(mcp::register_http_session())
+    } else {
+        match extract_mcp_session_id(&headers) {
+            Some(session_id) if mcp::http_session_exists(&session_id) => Some(session_id),
+            Some(_) => return StatusCode::NOT_FOUND.into_response(),
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "Mcp-Session-Id header is required after initialize"})),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    let executor = InProcessMcpToolExecutor { state, user_agent };
+    let mut responses = Vec::new();
+    for message in &messages {
+        if let Some(response) =
+            mcp::handle_message(message, mcp::STREAMABLE_HTTP_PROTOCOL_VERSION, &executor).await
+        {
+            responses.push(response);
+        }
+    }
+
+    if responses.is_empty() {
+        return StatusCode::ACCEPTED.into_response();
+    }
+
+    let response_payload = if payload.is_array() {
+        Value::Array(responses)
+    } else {
+        responses
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| serde_json::json!({}))
+    };
+
+    build_mcp_response(
+        response_payload,
+        wants_sse,
+        session_id.as_deref().filter(|_| initialize_requested),
+    )
+}
+
+/// MCP Streamable HTTP DELETE endpoint.
+pub async fn mcp_http_delete_handler(headers: HeaderMap) -> Response {
+    let Some(session_id) = extract_mcp_session_id(&headers) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Mcp-Session-Id header is required"})),
+        )
+            .into_response();
+    };
+
+    if mcp::remove_http_session(&session_id) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+fn accepts_mcp_sse(headers: &HeaderMap) -> bool {
+    headers
+        .get(ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.contains("text/event-stream"))
+        .unwrap_or(false)
+}
+
+fn extract_mcp_session_id(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(mcp::SESSION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+}
+
+fn build_mcp_response(payload: Value, wants_sse: bool, session_id: Option<&str>) -> Response {
+    if wants_sse {
+        let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+        let stream = tokio_stream::iter(vec![Ok::<Event, Infallible>(
+            Event::default().event("message").data(body),
+        )]);
+        let mut response = Sse::new(stream).into_response();
+        if let Some(session_id) = session_id
+            && let Ok(header_value) = HeaderValue::from_str(session_id)
+        {
+            response
+                .headers_mut()
+                .insert(mcp::SESSION_HEADER, header_value);
+        }
+        response
+    } else {
+        let mut response = Json(payload).into_response();
+        if let Some(session_id) = session_id
+            && let Ok(header_value) = HeaderValue::from_str(session_id)
+        {
+            response
+                .headers_mut()
+                .insert(mcp::SESSION_HEADER, header_value);
+        }
+        response
+    }
+}
+
 fn record_cache_lookup_prompt(
     final_layer: &str,
     deflected: bool,
@@ -842,6 +1217,31 @@ fn record_cache_lookup_prompt(
     status_code: StatusCode,
     tool: &str,
 ) {
+    match final_layer {
+        "l1a" => {
+            crate::metrics::record_cache_event_with_tool("l1a", "hit", tool);
+            crate::visibility::record_agent_cache_event(tool, "l1a", "hit");
+        }
+        "l1b" => {
+            crate::metrics::record_cache_event_with_tool("l1a", "miss", tool);
+            crate::metrics::record_cache_event_with_tool("l1b", "hit", tool);
+            crate::visibility::record_agent_cache_event(tool, "l1a", "miss");
+            crate::visibility::record_agent_cache_event(tool, "l1b", "hit");
+        }
+        "miss" => {
+            crate::metrics::record_cache_event_with_tool("l1a", "miss", tool);
+            crate::metrics::record_cache_event_with_tool("l1b", "miss", tool);
+            crate::visibility::record_agent_cache_event(tool, "l1a", "miss");
+            crate::visibility::record_agent_cache_event(tool, "l1b", "miss");
+        }
+        _ => {}
+    }
+    crate::metrics::record_cache_event_with_tool(
+        "l1",
+        if deflected { "hit" } else { "miss" },
+        tool,
+    );
+    crate::visibility::record_agent_cache_event(tool, "l1", if deflected { "hit" } else { "miss" });
     crate::metrics::record_request_with_tool(
         final_layer,
         status_code.as_u16(),
@@ -903,7 +1303,7 @@ mod tests {
     use crate::middleware::body_buffer::buffer_body_middleware;
     use crate::state::AppLlmAgent;
     use crate::vector_cache::VectorCache;
-    use crate::visibility::{clear_prompt_stats, prompt_stats_snapshot};
+    use crate::visibility::{agent_stats_snapshot, clear_prompt_stats, prompt_stats_snapshot};
     use std::num::NonZeroUsize;
 
     struct SuccessAgent;
@@ -1008,6 +1408,31 @@ mod tests {
         Router::new()
             .route("/api/v1/cache/lookup", post(cache_lookup_handler))
             .route("/api/v1/cache/store", post(cache_store_handler))
+            .layer(axum_mw::from_fn(
+                move |mut req: Request, next: axum_mw::Next| {
+                    let st = state.clone();
+                    async move {
+                        req.extensions_mut().insert(st);
+                        next.run(req).await
+                    }
+                },
+            ))
+    }
+
+    fn mcp_app(state: Arc<AppState>) -> Router {
+        Router::new()
+            .route(
+                "/mcp",
+                get(mcp_http_get_handler)
+                    .post(mcp_http_post_handler)
+                    .delete(mcp_http_delete_handler),
+            )
+            .route(
+                "/mcp/",
+                get(mcp_http_get_handler)
+                    .post(mcp_http_post_handler)
+                    .delete(mcp_http_delete_handler),
+            )
             .layer(axum_mw::from_fn(
                 move |mut req: Request, next: axum_mw::Next| {
                     let st = state.clone();
@@ -1394,6 +1819,13 @@ mod tests {
                 && entry.final_layer == "l1a"
                 && entry.route == "/api/v1/cache/lookup"
         }));
+        let agents = agent_stats_snapshot();
+        assert!(
+            agents
+                .agents
+                .values()
+                .any(|entry| entry.cache_hits >= 1 && entry.l1a_hits >= 1)
+        );
     }
 
     #[tokio::test]
@@ -1427,5 +1859,213 @@ mod tests {
                 && entry.route == "/api/v1/cache/lookup"
                 && entry.resolved_by.as_deref() == Some("copilot_upstream")
         }));
+        let agents = agent_stats_snapshot();
+        assert!(agents.agents.values().any(|entry| {
+            entry.cache_misses >= 1 && entry.l1a_misses >= 1 && entry.l1b_misses >= 1
+        }));
+    }
+
+    #[tokio::test]
+    async fn mcp_http_initialize_get_and_delete_manage_sessions() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let app = mcp_app(state);
+
+        let initialize_req = Request::builder()
+            .method("POST")
+            .uri("/mcp/")
+            .header("accept", "application/json")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {}
+                    }
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let initialize_resp = app.clone().oneshot(initialize_req).await.unwrap();
+        assert_eq!(initialize_resp.status(), StatusCode::OK);
+        let session_id = initialize_resp
+            .headers()
+            .get(mcp::SESSION_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap()
+            .to_string();
+
+        let initialize_body = initialize_resp
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        let initialize_json: Value = serde_json::from_slice(&initialize_body).unwrap();
+        assert_eq!(
+            initialize_json["result"]["protocolVersion"],
+            mcp::STREAMABLE_HTTP_PROTOCOL_VERSION
+        );
+
+        let stream_req = Request::builder()
+            .method("GET")
+            .uri("/mcp/")
+            .header("accept", "text/event-stream")
+            .header(mcp::SESSION_HEADER, &session_id)
+            .body(Body::empty())
+            .unwrap();
+        let stream_resp = app.clone().oneshot(stream_req).await.unwrap();
+        assert_eq!(stream_resp.status(), StatusCode::OK);
+        assert_eq!(
+            stream_resp
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap(),
+            "text/event-stream"
+        );
+
+        let delete_req = Request::builder()
+            .method("DELETE")
+            .uri("/mcp/")
+            .header(mcp::SESSION_HEADER, &session_id)
+            .body(Body::empty())
+            .unwrap();
+        let delete_resp = app.clone().oneshot(delete_req).await.unwrap();
+        assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
+
+        let missing_stream_req = Request::builder()
+            .method("GET")
+            .uri("/mcp/")
+            .header("accept", "text/event-stream")
+            .header(mcp::SESSION_HEADER, &session_id)
+            .body(Body::empty())
+            .unwrap();
+        let missing_stream_resp = app.oneshot(missing_stream_req).await.unwrap();
+        assert_eq!(missing_stream_resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn mcp_http_tool_flow_supports_sse_post_responses() {
+        clear_prompt_stats();
+        let state = test_state(Arc::new(SuccessAgent));
+        let app = mcp_app(state);
+
+        let initialize_req = Request::builder()
+            .method("POST")
+            .uri("/mcp/")
+            .header("accept", "application/json")
+            .header("content-type", "application/json")
+            .header(USER_AGENT, "Cursor/1.0")
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {}
+                    }
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let initialize_resp = app.clone().oneshot(initialize_req).await.unwrap();
+        let session_id = initialize_resp
+            .headers()
+            .get(mcp::SESSION_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap()
+            .to_string();
+
+        let store_req = Request::builder()
+            .method("POST")
+            .uri("/mcp/")
+            .header("accept", "application/json, text/event-stream")
+            .header("content-type", "application/json")
+            .header(USER_AGENT, "Cursor/1.0")
+            .header(mcp::SESSION_HEADER, &session_id)
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "isartor_cache_store",
+                        "arguments": {
+                            "prompt": "capital of France",
+                            "response": "Paris."
+                        }
+                    }
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let store_resp = app.clone().oneshot(store_req).await.unwrap();
+        assert_eq!(store_resp.status(), StatusCode::OK);
+        assert_eq!(
+            store_resp
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap(),
+            "text/event-stream"
+        );
+        let store_body = store_resp.into_body().collect().await.unwrap().to_bytes();
+        let store_json = parse_sse_message(&store_body);
+        assert_eq!(
+            store_json["result"]["content"][0]["text"],
+            "Cached successfully"
+        );
+
+        let chat_req = Request::builder()
+            .method("POST")
+            .uri("/mcp/")
+            .header("accept", "application/json, text/event-stream")
+            .header("content-type", "application/json")
+            .header(USER_AGENT, "Cursor/1.0")
+            .header(mcp::SESSION_HEADER, &session_id)
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "isartor_chat",
+                        "arguments": {
+                            "prompt": "capital of France"
+                        }
+                    }
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let chat_resp = app.oneshot(chat_req).await.unwrap();
+        assert_eq!(chat_resp.status(), StatusCode::OK);
+        let chat_body = chat_resp.into_body().collect().await.unwrap().to_bytes();
+        let chat_json = parse_sse_message(&chat_body);
+        assert_eq!(chat_json["result"]["content"][0]["text"], "Paris.");
+
+        let stats = prompt_stats_snapshot(50);
+        assert!(stats.by_layer.get("l1a").copied().unwrap_or(0) >= 1);
+        let agents = agent_stats_snapshot();
+        assert!(
+            agents
+                .agents
+                .values()
+                .any(|entry| entry.cache_hits >= 1 && entry.l1a_hits >= 1)
+        );
+    }
+
+    fn parse_sse_message(body: &[u8]) -> Value {
+        let text = String::from_utf8_lossy(body);
+        let payload = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        serde_json::from_str(&payload).unwrap()
     }
 }

@@ -9,11 +9,12 @@
 //!
 //! | Name                                 | Type      | Labels                              |
 //! |--------------------------------------|-----------|--------------------------------------|
-//! | `isartor_requests_total`             | Counter   | `final_layer`, `status_code`, `traffic_surface`, `client`, `endpoint_family` |
-//! | `isartor_layer_duration_seconds`     | Histogram | `layer_name`                         |
-//! | `isartor_tokens_saved_total`         | Counter   | `final_layer`, `traffic_surface`, `client`, `endpoint_family` |
-//! | `isartor_errors_total`               | Counter   | `layer`, `error_class`               |
-//! | `isartor_retries_total`              | Counter   | `operation`, `outcome`               |
+//! | `isartor_requests_total`             | Counter   | `final_layer`, `status_code`, `traffic_surface`, `client`, `endpoint_family`, `tool` |
+//! | `isartor_layer_duration_seconds`     | Histogram | `layer_name`, `tool`                 |
+//! | `isartor_tokens_saved_total`         | Counter   | `final_layer`, `traffic_surface`, `client`, `endpoint_family`, `tool` |
+//! | `isartor_errors_total`               | Counter   | `layer`, `error_class`, `tool`       |
+//! | `isartor_retries_total`              | Counter   | `operation`, `attempts`, `outcome`, `tool` |
+//! | `isartor_cache_events_total`         | Counter   | `cache_layer`, `outcome`, `tool`     |
 
 use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{KeyValue, global};
@@ -40,6 +41,9 @@ pub struct GatewayMetrics {
 
     /// Total retry attempts, labelled by operation and outcome (success / exhausted).
     pub retries_total: Counter<u64>,
+
+    /// Cache hits and misses, labelled by cache layer (L1 / L1a / L1b) and tool.
+    pub cache_events_total: Counter<u64>,
 }
 
 /// Singleton accessor.  The instruments are created on first call.
@@ -81,6 +85,11 @@ pub fn metrics() -> &'static GatewayMetrics {
             retries_total: meter
                 .u64_counter("isartor_retries_total")
                 .with_description("Total retry attempts and their outcomes")
+                .build(),
+
+            cache_events_total: meter
+                .u64_counter("isartor_cache_events_total")
+                .with_description("Cache hits and misses by cache layer and tool")
                 .build(),
         }
     })
@@ -129,6 +138,41 @@ fn request_attrs_with_tool(
         KeyValue::new("traffic_surface", traffic_surface.to_string()),
         KeyValue::new("client", client.to_string()),
         KeyValue::new("endpoint_family", endpoint_family.to_string()),
+        KeyValue::new("tool", tool.to_string()),
+    ]
+}
+
+fn layer_duration_attrs(layer_name: &str, tool: &str) -> [KeyValue; 2] {
+    [
+        KeyValue::new("layer_name", layer_name.to_string()),
+        KeyValue::new("tool", tool.to_string()),
+    ]
+}
+
+fn error_attrs(layer: &str, error_class: &str, tool: &str) -> [KeyValue; 3] {
+    [
+        KeyValue::new("layer", layer.to_string()),
+        KeyValue::new("error_class", error_class.to_string()),
+        KeyValue::new("tool", tool.to_string()),
+    ]
+}
+
+fn retry_attrs(operation: &str, attempts: u32, succeeded: bool, tool: &str) -> [KeyValue; 4] {
+    [
+        KeyValue::new("operation", operation.to_string()),
+        KeyValue::new("attempts", attempts.to_string()),
+        KeyValue::new(
+            "outcome",
+            if succeeded { "success" } else { "exhausted" }.to_string(),
+        ),
+        KeyValue::new("tool", tool.to_string()),
+    ]
+}
+
+fn cache_event_attrs(cache_layer: &str, outcome: &str, tool: &str) -> [KeyValue; 3] {
+    [
+        KeyValue::new("cache_layer", cache_layer.to_string()),
+        KeyValue::new("outcome", outcome.to_string()),
         KeyValue::new("tool", tool.to_string()),
     ]
 }
@@ -191,11 +235,19 @@ pub fn record_request_with_tool(
 
 /// Record per-layer latency.
 pub fn record_layer_duration(layer_name: &str, duration: std::time::Duration) {
+    record_layer_duration_with_tool(layer_name, duration, "unknown");
+}
+
+/// Record per-layer latency with tool identification.
+pub fn record_layer_duration_with_tool(
+    layer_name: &str,
+    duration: std::time::Duration,
+    tool: &str,
+) {
     let m = metrics();
-    m.layer_duration_seconds.record(
-        duration.as_secs_f64(),
-        &[KeyValue::new("layer_name", layer_name.to_string())],
-    );
+    let attrs = layer_duration_attrs(layer_name, tool);
+    m.layer_duration_seconds
+        .record(duration.as_secs_f64(), &attrs);
 }
 
 /// Record tokens saved (call when a request is resolved before Layer 3).
@@ -244,29 +296,71 @@ pub fn record_tokens_saved_with_tool(
 /// Record an error occurrence, labelled by the layer that produced it and
 /// the error class (`fatal` or `retryable`).
 pub fn record_error(layer: &str, error_class: &str) {
+    record_error_with_tool(layer, error_class, "unknown");
+}
+
+/// Record an error occurrence with tool identification.
+pub fn record_error_with_tool(layer: &str, error_class: &str, tool: &str) {
     let m = metrics();
-    m.errors_total.add(
-        1,
-        &[
-            KeyValue::new("layer", layer.to_string()),
-            KeyValue::new("error_class", error_class.to_string()),
-        ],
-    );
+    let attrs = error_attrs(layer, error_class, tool);
+    m.errors_total.add(1, &attrs);
 }
 
 /// Record a retry event, labelled by the operation name and outcome
 /// (`success` or `exhausted`).
 pub fn record_retry(operation: &str, attempts: u32, succeeded: bool) {
+    record_retry_with_tool(operation, attempts, succeeded, "unknown");
+}
+
+/// Record a retry event with tool identification.
+pub fn record_retry_with_tool(operation: &str, attempts: u32, succeeded: bool, tool: &str) {
     let m = metrics();
-    m.retries_total.add(
-        1,
-        &[
-            KeyValue::new("operation", operation.to_string()),
-            KeyValue::new("attempts", attempts.to_string()),
-            KeyValue::new(
-                "outcome",
-                if succeeded { "success" } else { "exhausted" }.to_string(),
-            ),
-        ],
-    );
+    let attrs = retry_attrs(operation, attempts, succeeded, tool);
+    m.retries_total.add(1, &attrs);
+}
+
+/// Record a cache hit or miss with tool identification.
+pub fn record_cache_event_with_tool(cache_layer: &str, outcome: &str, tool: &str) {
+    let m = metrics();
+    let attrs = cache_event_attrs(cache_layer, outcome, tool);
+    m.cache_events_total.add(1, &attrs);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key_value<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+        attrs.iter().find_map(|attr| {
+            if attr.key.as_str() == key {
+                match &attr.value {
+                    opentelemetry::Value::String(value) => Some(value.as_str()),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+    }
+
+    #[test]
+    fn tool_label_is_added_to_request_metrics() {
+        let attrs = request_attrs_with_tool("l1a", 200, "gateway", "direct", "native", "cursor");
+        assert_eq!(key_value(&attrs, "tool"), Some("cursor"));
+        assert_eq!(key_value(&attrs, "final_layer"), Some("l1a"));
+    }
+
+    #[test]
+    fn tool_label_is_added_to_error_retry_and_cache_metrics() {
+        let error = error_attrs("L3_Cloud", "fatal", "copilot");
+        assert_eq!(key_value(&error, "tool"), Some("copilot"));
+
+        let retry = retry_attrs("L3_Cloud_LLM", 3, false, "copilot");
+        assert_eq!(key_value(&retry, "tool"), Some("copilot"));
+        assert_eq!(key_value(&retry, "outcome"), Some("exhausted"));
+
+        let cache = cache_event_attrs("l1a", "miss", "copilot");
+        assert_eq!(key_value(&cache, "tool"), Some("copilot"));
+        assert_eq!(key_value(&cache, "cache_layer"), Some("l1a"));
+    }
 }

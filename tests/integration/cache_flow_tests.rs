@@ -103,6 +103,68 @@ async fn exact_cache_different_prompts_are_separate() {
     assert!(state.exact_cache.get(&key_b).is_some());
 }
 
+#[tokio::test]
+async fn exact_cache_same_prompt_different_sessions_do_not_collide() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let counter = Arc::new(AtomicU32::new(0));
+    let agent = CountingAgent {
+        response: "session-aware".into(),
+        counter: counter.clone(),
+    };
+    let config = test_config(CacheMode::Exact, "http://127.0.0.1:1");
+    let embedder =
+        Arc::new(isartor::layer1::embeddings::TextEmbedder::new().expect("TextEmbedder init"));
+    let state = build_state(Arc::new(agent), config, embedder);
+
+    let req1 = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("content-type", "application/json")
+        .header("x-thread-id", "session-a")
+        .body(json_body("same prompt"))
+        .unwrap();
+    let resp1 = common::gateway::cache_only_gateway(state.clone())
+        .oneshot(req1)
+        .await
+        .unwrap();
+    let body1 = resp1.into_body().collect().await.unwrap().to_bytes();
+    let json1: serde_json::Value = serde_json::from_slice(&body1).unwrap();
+    assert_eq!(json1["layer"], 3);
+
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("content-type", "application/json")
+        .header("x-thread-id", "session-a")
+        .body(json_body("same prompt"))
+        .unwrap();
+    let resp2 = common::gateway::cache_only_gateway(state.clone())
+        .oneshot(req2)
+        .await
+        .unwrap();
+    let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
+    let json2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+    assert_eq!(json2["layer"], 1);
+
+    let req3 = Request::builder()
+        .method("POST")
+        .uri("/api/chat")
+        .header("content-type", "application/json")
+        .header("x-thread-id", "session-b")
+        .body(json_body("same prompt"))
+        .unwrap();
+    let resp3 = common::gateway::cache_only_gateway(state.clone())
+        .oneshot(req3)
+        .await
+        .unwrap();
+    let body3 = resp3.into_body().collect().await.unwrap().to_bytes();
+    let json3: serde_json::Value = serde_json::from_slice(&body3).unwrap();
+    assert_eq!(json3["layer"], 3);
+
+    assert_eq!(counter.load(Ordering::SeqCst), 2);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Both-Mode Cache Flow
 // ═══════════════════════════════════════════════════════════════════════

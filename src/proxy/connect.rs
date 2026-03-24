@@ -401,6 +401,7 @@ async fn resolve_intercepted_request(
     proxy_client: Option<ProxyClient>,
     state: &Arc<AppState>,
 ) -> ProxyInterceptResolution {
+    let tool = proxy_client.map(ProxyClient::id).unwrap_or("unknown");
     let prompt = extract_prompt(body);
     let cache_key_material = extract_cache_key(body);
 
@@ -426,12 +427,18 @@ async fn resolve_intercepted_request(
         let key = hex::encode(Sha256::digest(cache_prompt.as_bytes()));
         if let Some(cached) = state.exact_cache.get(&key) {
             tracing::info!(cache.key = %key, "Proxy L1a: exact cache HIT");
+            metrics::record_cache_event_with_tool("l1a", "hit", tool);
+            metrics::record_cache_event_with_tool("l1", "hit", tool);
+            visibility::record_agent_cache_event(tool, "l1a", "hit");
+            visibility::record_agent_cache_event(tool, "l1", "hit");
             return ProxyInterceptResolution::Local {
                 final_layer: FinalLayer::ExactCache,
                 resolved_by: "exact_cache",
                 response_body: cached,
             };
         }
+        metrics::record_cache_event_with_tool("l1a", "miss", tool);
+        visibility::record_agent_cache_event(tool, "l1a", "miss");
         Some(key)
     } else {
         None
@@ -441,18 +448,26 @@ async fn resolve_intercepted_request(
         if semantic_cache_enabled && (*mode == CacheMode::Semantic || *mode == CacheMode::Both) {
             match state.text_embedder.generate_embedding(&prompt) {
                 Ok(emb) => {
-                    if let Some(cached) = state.vector_cache.search(&emb).await {
+                    if let Some(cached) = state.vector_cache.search(&emb, None).await {
                         tracing::info!("Proxy L1b: semantic cache HIT");
+                        metrics::record_cache_event_with_tool("l1b", "hit", tool);
+                        metrics::record_cache_event_with_tool("l1", "hit", tool);
+                        visibility::record_agent_cache_event(tool, "l1b", "hit");
+                        visibility::record_agent_cache_event(tool, "l1", "hit");
                         return ProxyInterceptResolution::Local {
                             final_layer: FinalLayer::SemanticCache,
                             resolved_by: "semantic_cache",
                             response_body: cached,
                         };
                     }
+                    metrics::record_cache_event_with_tool("l1b", "miss", tool);
+                    visibility::record_agent_cache_event(tool, "l1b", "miss");
                     Some(emb)
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "Proxy L1b: embedding generation failed, skipping");
+                    metrics::record_error_with_tool("L1b_Embedding", "retryable", tool);
+                    visibility::record_agent_error(tool);
                     None
                 }
             }
@@ -465,7 +480,10 @@ async fn resolve_intercepted_request(
             state.exact_cache.put(key, response_body.clone());
         }
         if let Some(emb) = embedding {
-            state.vector_cache.insert(emb, response_body.clone()).await;
+            state
+                .vector_cache
+                .insert(emb, response_body.clone(), None)
+                .await;
         }
 
         return ProxyInterceptResolution::Local {
@@ -474,6 +492,9 @@ async fn resolve_intercepted_request(
             response_body,
         };
     }
+
+    metrics::record_cache_event_with_tool("l1", "miss", tool);
+    visibility::record_agent_cache_event(tool, "l1", "miss");
 
     if state.config.offline_mode {
         tracing::debug!("Proxy: offline mode, blocking native upstream");
@@ -654,21 +675,23 @@ fn emit_proxy_decision(context: ProxyDecisionContext<'_>) {
         latency_ms,
     };
 
-    metrics::record_request_with_context(
+    metrics::record_request_with_tool(
         final_layer.as_str(),
         status_code,
         latency_ms as f64 / 1000.0,
         "proxy",
         &client,
         &endpoint_family,
+        &client,
     );
     if final_layer.is_deflected() {
-        metrics::record_tokens_saved_with_context(
+        metrics::record_tokens_saved_with_tool(
             final_layer.as_str(),
             estimated_tokens.unwrap_or(256),
             "proxy",
             &client,
             &endpoint_family,
+            &client,
         );
     }
 
@@ -743,7 +766,7 @@ async fn cache_response(body: &[u8], path: &str, response: &[u8], state: &Arc<Ap
     if (*mode == CacheMode::Semantic || *mode == CacheMode::Both)
         && let Ok(emb) = state.text_embedder.generate_embedding(&prompt)
     {
-        state.vector_cache.insert(emb, cache_value).await;
+        state.vector_cache.insert(emb, cache_value, None).await;
     }
 }
 

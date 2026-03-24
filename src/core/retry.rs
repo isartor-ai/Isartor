@@ -58,6 +58,7 @@ impl Default for RetryConfig {
 pub async fn execute_with_retry<F, Fut, T>(
     config: &RetryConfig,
     operation_name: &str,
+    tool: &str,
     mut f: F,
 ) -> Result<T, GatewayError>
 where
@@ -71,7 +72,8 @@ where
             Ok(val) => {
                 if attempt > 1 {
                     tracing::info!(operation = operation_name, attempt, "Retry succeeded");
-                    crate::metrics::record_retry(operation_name, attempt, true);
+                    crate::metrics::record_retry_with_tool(operation_name, attempt, true, tool);
+                    crate::visibility::record_agent_retry(tool, attempt);
                 }
                 return Ok(val);
             }
@@ -88,11 +90,13 @@ where
 
                 // Fatal errors are never retried.
                 if class == ErrorClass::Fatal {
-                    crate::metrics::record_error(e.layer_label(), "fatal");
+                    crate::metrics::record_error_with_tool(e.layer_label(), "fatal", tool);
+                    crate::visibility::record_agent_error(tool);
                     return Err(e);
                 }
 
-                crate::metrics::record_error(e.layer_label(), "retryable");
+                crate::metrics::record_error_with_tool(e.layer_label(), "retryable", tool);
+                crate::visibility::record_agent_error(tool);
 
                 last_error = Some(e);
 
@@ -113,7 +117,8 @@ where
 
     // All attempts exhausted — record and return the final error.
     if let Some(ref err) = last_error {
-        crate::metrics::record_retry(operation_name, config.max_attempts, false);
+        crate::metrics::record_retry_with_tool(operation_name, config.max_attempts, false, tool);
+        crate::visibility::record_agent_retry(tool, config.max_attempts);
         tracing::error!(
             operation = operation_name,
             attempts = config.max_attempts,
@@ -182,7 +187,7 @@ mod tests {
 
     #[tokio::test]
     async fn succeeds_on_first_try() {
-        let result = execute_with_retry(&fast_config(), "test_op", || async {
+        let result = execute_with_retry(&fast_config(), "test_op", "cursor", || async {
             Ok::<_, GatewayError>(42)
         })
         .await;
@@ -195,7 +200,7 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
 
         let c = counter.clone();
-        let result = execute_with_retry(&fast_config(), "test_op", move || {
+        let result = execute_with_retry(&fast_config(), "test_op", "cursor", move || {
             let c = c.clone();
             async move {
                 let attempt = c.fetch_add(1, Ordering::SeqCst) + 1;
@@ -217,7 +222,7 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
 
         let c = counter.clone();
-        let result = execute_with_retry(&fast_config(), "test_op", move || {
+        let result = execute_with_retry(&fast_config(), "test_op", "cursor", move || {
             let c = c.clone();
             async move {
                 c.fetch_add(1, Ordering::SeqCst);
@@ -237,7 +242,7 @@ mod tests {
         let counter = Arc::new(AtomicU32::new(0));
 
         let c = counter.clone();
-        let result = execute_with_retry(&fast_config(), "test_op", move || {
+        let result = execute_with_retry(&fast_config(), "test_op", "cursor", move || {
             let c = c.clone();
             async move {
                 c.fetch_add(1, Ordering::SeqCst);

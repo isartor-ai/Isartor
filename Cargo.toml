@@ -1,6 +1,6 @@
 [package]
 name = "isartor"
-version = "0.1.48"
+version = "0.1.49"
 edition = "2024"
 license = "Apache-2.0"
 description = "Open-source Prompt Firewall — a local LLM gateway with caching, semantic deduplication, and content filtering"
@@ -51,10 +51,12 @@ log = "0.4"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+json5 = "0.4"
 
 # Body / bytes utilities
 bytes = "1"
 http-body-util = "0.1"
+tokio-stream = "0.1"
 
 # Hashing (exact-match cache keys)
 sha2 = "0.10"

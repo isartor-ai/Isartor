@@ -65,7 +65,7 @@ fn bench_vector_cache_insert(c: &mut Criterion) {
         let mut i = 0usize;
         b.iter(|| {
             let v: Vec<f32> = (0..64).map(|j| ((i * 7 + j) as f32).sin()).collect();
-            rt.block_on(cache.insert(v, format!("entry-{i}")));
+            rt.block_on(cache.insert(v, format!("entry-{i}"), None));
             i += 1;
         })
     });
@@ -79,7 +79,7 @@ fn bench_vector_cache_search(c: &mut Criterion) {
     rt.block_on(async {
         for i in 0..500 {
             let v: Vec<f32> = (0..64).map(|j| ((i * 7 + j) as f32).sin()).collect();
-            cache.insert(v, format!("entry-{i}")).await;
+            cache.insert(v, format!("entry-{i}"), None).await;
         }
     });
 
@@ -87,7 +87,7 @@ fn bench_vector_cache_search(c: &mut Criterion) {
 
     c.bench_function("vector_cache_search_500", |b| {
         b.iter(|| {
-            rt.block_on(cache.search(black_box(&query)));
+            rt.block_on(cache.search(black_box(&query), None));
         })
     });
 }

@@ -147,13 +147,15 @@ isartor demo                  # run the deflection demo (no API key needed)
 isartor init                  # generate a commented config scaffold
 isartor set-key -p openai     # configure your LLM provider API key
 isartor connect copilot       # connect GitHub Copilot CLI via MCP
+isartor connect copilot-vscode # configure GitHub Copilot in VS Code
 isartor connect claude-copilot # use Claude Code with GitHub Copilot through Isartor
 isartor connect cursor        # connect Cursor IDE
 isartor connect claude        # connect Claude Code
 isartor connect codex         # connect OpenAI Codex CLI
 isartor connect gemini        # connect Gemini CLI
+isartor connect opencode      # connect OpenCode
 isartor stats                 # prompt totals, layer hits, routing history
-isartor stats --by-tool       # per-tool breakdown (Copilot, Cursor, etc.)
+isartor stats --by-tool       # per-tool requests, cache safety, latency, retries, errors
 isartor stop                  # stop a running Isartor instance
 isartor update                # self-update to the latest release
 ```
@@ -189,12 +191,14 @@ Connect your favourite AI coding tools to Isartor with a single command. Isartor
 
 | Tool | Connect Command | How It Works |
 |:-----|:----------------|:-------------|
-| **GitHub Copilot CLI** | `isartor connect copilot` | MCP server (`isartor_chat` / `isartor_cache_store` tools) |
+| **GitHub Copilot CLI** | `isartor connect copilot` | MCP tools (`isartor_chat` / `isartor_cache_store`) via stdio or `/mcp/` HTTP/SSE |
+| **GitHub Copilot in VS Code** | `isartor connect copilot-vscode` | Managed `settings.json` debug overrides |
 | **Claude Code + GitHub Copilot** | `isartor connect claude-copilot` | Claude base URL override + Copilot-backed Layer 3 |
-| **Cursor IDE** | `isartor connect cursor` | Base URL override + MCP registration |
+| **Cursor IDE** | `isartor connect cursor` | Base URL override + HTTP/SSE MCP registration at `/mcp/` |
 | **Claude Code** | `isartor connect claude` | `ANTHROPIC_BASE_URL` env override |
 | **OpenAI Codex CLI** | `isartor connect codex` | `OPENAI_BASE_URL` env script |
 | **Gemini CLI** | `isartor connect gemini` | `GEMINI_API_BASE_URL` env script |
+| **OpenCode** | `isartor connect opencode` | Global OpenCode provider + auth config |
 | **Any OpenAI-compatible tool** | `isartor connect generic` | Configurable env var override |
 
 See the [full integration guides →](https://isartor-ai.github.io/Isartor/integrations/overview.html)

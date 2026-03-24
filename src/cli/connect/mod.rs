@@ -3,10 +3,12 @@ pub mod claude;
 pub mod claude_copilot;
 pub mod codex;
 pub mod copilot;
+pub mod copilot_vscode;
 pub mod cursor;
 pub mod gemini;
 pub mod generic;
 pub mod openclaw;
+pub mod opencode;
 pub mod state;
 pub mod status;
 
@@ -30,6 +32,9 @@ pub enum ConnectClient {
     /// Connect GitHub Copilot CLI to Isartor
     Copilot(copilot::CopilotArgs),
 
+    /// Connect GitHub Copilot in VS Code to Isartor
+    CopilotVscode(copilot_vscode::CopilotVscodeArgs),
+
     /// Connect Claude Code to Isartor
     Claude(claude::ClaudeArgs),
 
@@ -38,6 +43,9 @@ pub enum ConnectClient {
 
     /// Connect OpenClaw to Isartor
     Openclaw(openclaw::OpenclawArgs),
+
+    /// Connect OpenCode to Isartor
+    Opencode(opencode::OpencodeArgs),
 
     /// Connect Antigravity to Isartor
     Antigravity(antigravity::AntigravityArgs),
@@ -297,6 +305,19 @@ pub async fn handle_connect(args: ConnectArgs) -> anyhow::Result<()> {
             print_connect_result(&result);
             update_state("copilot", &gateway, base.disconnect, base.dry_run, &result);
         }
+        ConnectClient::CopilotVscode(a) => {
+            let base = a.base.clone();
+            let gateway = base.effective_gateway_url();
+            let result = copilot_vscode::handle_copilot_vscode_connect(a).await;
+            print_connect_result(&result);
+            update_state(
+                "copilot-vscode",
+                &gateway,
+                base.disconnect,
+                base.dry_run,
+                &result,
+            );
+        }
         ConnectClient::Claude(a) => {
             let base = a.base.clone();
             let gateway = base.effective_gateway_url();
@@ -323,6 +344,13 @@ pub async fn handle_connect(args: ConnectArgs) -> anyhow::Result<()> {
             let result = openclaw::handle_openclaw_connect(a).await;
             print_connect_result(&result);
             update_state("openclaw", &gateway, base.disconnect, base.dry_run, &result);
+        }
+        ConnectClient::Opencode(a) => {
+            let base = a.base.clone();
+            let gateway = base.effective_gateway_url();
+            let result = opencode::handle_opencode_connect(a).await;
+            print_connect_result(&result);
+            update_state("opencode", &gateway, base.disconnect, base.dry_run, &result);
         }
         ConnectClient::Antigravity(a) => {
             let base = a.base.clone();

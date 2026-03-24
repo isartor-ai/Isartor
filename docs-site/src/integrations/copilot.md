@@ -1,7 +1,9 @@
 # GitHub Copilot CLI
 
 Copilot CLI integrates via an **MCP (Model Context Protocol) server** that
-Isartor registers as a stdio subprocess. The MCP server exposes two tools:
+Isartor registers as a stdio subprocess. Isartor also exposes the same MCP
+tools over **Streamable HTTP** at `http://localhost:8080/mcp/` for editors and
+web agents that prefer HTTP/SSE transport. Both transports expose two tools:
 
 - **`isartor_chat`** — cache lookup only. Returns the cached answer on hit
   (L1a exact or L1b semantic), or an empty string on miss. On a miss, Copilot
@@ -49,6 +51,22 @@ copilot
    - **Cache miss**: returns empty → Copilot uses its own LLM
 7. After Copilot gets an answer from its LLM, it can call `isartor_cache_store` to
    populate the cache for future requests
+
+## HTTP/SSE MCP endpoint
+
+Isartor now exposes the same MCP tool surface at `/mcp/` using Streamable HTTP:
+
+- `POST /mcp/` — client → server JSON-RPC
+- `GET /mcp/` — server → client SSE stream
+- `DELETE /mcp/` — explicit session teardown
+
+The HTTP transport uses the MCP `Mcp-Session-Id` header after `initialize`, and
+supports both JSON responses and SSE responses for POST requests. A minimal
+editor config looks like:
+
+```json
+{"servers":{"isartor":{"type":"http","url":"http://localhost:8080/mcp/"}}}
+```
 
 ## Important note about "still going to L3"
 

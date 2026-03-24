@@ -116,6 +116,13 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
     let span = info_span!("layer2_slm", slm.complexity_score = tracing::field::Empty);
     async move {
         let layer_start = Instant::now();
+        let tool = crate::tool_identity::identify_tool_or_fallback(
+            request
+                .headers()
+                .get(axum::http::header::USER_AGENT)
+                .and_then(|value| value.to_str().ok()),
+            "gateway",
+        );
         let request_path = request.uri().path().to_string();
         let state = match request.extensions().get::<Arc<AppState>>() {
             Some(s) => s.clone(),
@@ -185,7 +192,8 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Layer 2: Embedded classification failed – falling through");
-                        crate::metrics::record_error("L2_SLM", "retryable");
+                        crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
+                        crate::visibility::record_agent_error(tool);
                         false
                     }
                 }
@@ -252,13 +260,15 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "Layer 2: Failed to parse SLM response – falling through");
-                    crate::metrics::record_error("L2_SLM", "retryable");
+                    crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
+                    crate::visibility::record_agent_error(tool);
                     false
                 }
             },
             Err(e) => {
                 tracing::warn!(error = %e, "Layer 2: SLM unreachable – falling through to Layer 3");
-                crate::metrics::record_error("L2_SLM", "retryable");
+                crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
+                crate::visibility::record_agent_error(tool);
                 false
             }
         }
@@ -277,7 +287,11 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 if let Some(classifier) = &state.embedded_classifier {
                     match classifier.execute(&prompt).await {
                         Ok(answer) => {
-                            crate::metrics::record_layer_duration("L2_SLM", layer_start.elapsed());
+                            crate::metrics::record_layer_duration_with_tool(
+                                "L2_SLM",
+                                layer_start.elapsed(),
+                                tool,
+                            );
                             let model = "embedded(gemma-2)".to_string();
                             let mut response = slm_response_for_path(
                                 &request_path,
@@ -290,7 +304,8 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "Layer 2: Embedded answer generation failed – falling through");
-                            crate::metrics::record_error("L2_SLM", "retryable");
+                            crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
+                            crate::visibility::record_agent_error(tool);
                         }
                     }
                 }
@@ -329,7 +344,11 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                             .next()
                             .map(|c| c.message.content)
                             .unwrap_or_default();
-                        crate::metrics::record_layer_duration("L2_SLM", layer_start.elapsed());
+                        crate::metrics::record_layer_duration_with_tool(
+                            "L2_SLM",
+                            layer_start.elapsed(),
+                            tool,
+                        );
                         let model = state.config.layer2.model_name.clone();
                         let mut response = slm_response_for_path(
                             &request_path,
@@ -342,12 +361,14 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Layer 2: Sidecar answer parse failed – falling through");
-                        crate::metrics::record_error("L2_SLM", "retryable");
+                        crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
+                        crate::visibility::record_agent_error(tool);
                     }
                 },
                 Err(e) => {
                     tracing::warn!(error = %e, "Layer 2: Sidecar answer call failed – falling through");
-                    crate::metrics::record_error("L2_SLM", "retryable");
+                    crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
+                    crate::visibility::record_agent_error(tool);
                 }
             }
         }

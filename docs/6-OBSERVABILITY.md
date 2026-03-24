@@ -138,10 +138,13 @@ Four instruments are registered as a singleton `GatewayMetrics` via `OnceLock`:
 
 | Metric Name                          | Type       | Attributes                      | Description                              |
 |--------------------------------------|------------|---------------------------------|------------------------------------------|
-| `isartor_requests_total`             | Counter    | `final_layer`, `status_code`, `traffic_surface`, `client`, `endpoint_family` | Total prompts processed |
+| `isartor_requests_total`             | Counter    | `final_layer`, `status_code`, `traffic_surface`, `client`, `endpoint_family`, `tool` | Total prompts processed |
 | `isartor_request_duration_seconds`   | Histogram  | `final_layer`, `status_code`, `traffic_surface`, `client`, `endpoint_family` | End-to-end request duration |
-| `isartor_layer_duration_seconds`     | Histogram  | `layer_name`                    | Per-layer latency                        |
-| `isartor_tokens_saved_total`         | Counter    | `final_layer`, `traffic_surface`, `client`, `endpoint_family` | Estimated tokens saved by early resolve |
+| `isartor_layer_duration_seconds`     | Histogram  | `layer_name`, `tool`            | Per-layer latency                        |
+| `isartor_tokens_saved_total`         | Counter    | `final_layer`, `traffic_surface`, `client`, `endpoint_family`, `tool` | Estimated tokens saved by early resolve |
+| `isartor_errors_total`               | Counter    | `layer`, `error_class`, `tool`  | Error occurrences by layer / agent       |
+| `isartor_retries_total`              | Counter    | `operation`, `attempts`, `outcome`, `tool` | Retry outcomes by agent |
+| `isartor_cache_events_total`         | Counter    | `cache_layer`, `outcome`, `tool` | L1 / L1a / L1b hit-miss safety by agent |
 
 ### Where metrics are recorded
 
@@ -265,15 +268,20 @@ For quick operator checks without a separate telemetry stack:
 
 ```bash
 isartor stats --gateway-url http://localhost:8080
+isartor stats --gateway-url http://localhost:8080 --by-tool
 ```
 
 Add `--gateway-api-key <key>` only when gateway auth is enabled.
+
+`--by-tool` now shows per-agent requests, cache hits/misses, average
+latency, retry count, error count, and L1a/L1b hit-vs-miss safety.
 
 Built-in JSON endpoints:
 
 - `GET /health`
 - `GET /debug/proxy/recent`
 - `GET /debug/stats/prompts`
+- `GET /debug/stats/agents`
 
 ---
 

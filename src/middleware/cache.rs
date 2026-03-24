@@ -10,10 +10,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
-use sha2::{Digest, Sha256};
 
 use crate::anthropic_sse;
 use crate::config::CacheMode;
+use crate::core::cache_scope::{
+    build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
+};
 use crate::core::prompt::{extract_cache_key, extract_semantic_key, has_tooling};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
@@ -52,6 +54,11 @@ fn streaming_cache_response(
 /// active cache(s). If the embedding service is unreachable in
 /// `semantic`/`both` modes, the layer gracefully falls through.
 pub async fn cache_middleware(request: Request, next: Next) -> Response {
+    let user_agent = request
+        .headers()
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok());
+    let tool = crate::tool_identity::identify_tool_or_fallback(user_agent, "gateway");
     let state = match request.extensions().get::<Arc<AppState>>() {
         Some(s) => s.clone(),
         None => {
@@ -90,6 +97,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
 
     let cache_key_material = extract_cache_key(body_bytes.as_ref());
     let has_tooling = has_tooling(body_bytes.as_ref());
+    let session_cache_scope = extract_session_cache_scope(request.headers(), body_bytes.as_ref());
 
     // For semantic matching, use only the last user message so the embedding
     // captures the actual question rather than a large system prompt that
@@ -103,8 +111,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         "/v1/messages" => "anthropic",
         _ => "native",
     };
-    let cache_prompt = format!("{cache_ns}|{cache_key_material}");
-    let semantic_cache_prompt = format!("{cache_ns}|{semantic_prompt}");
+    let semantic_cache_prompt = namespaced_semantic_cache_input(cache_ns, &semantic_prompt);
     let semantic_cache_enabled = request.uri().path() != "/v1/messages" && !has_tooling;
 
     // Detect if the client expects an SSE stream (Claude Code sends stream: true).
@@ -121,18 +128,31 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     // 2. Exact-match lookup (when mode is Exact or Both).
     // ------------------------------------------------------------------
     let exact_key = if *mode == CacheMode::Exact || *mode == CacheMode::Both {
-        let key = hex::encode(Sha256::digest(cache_prompt.as_bytes()));
+        let key = build_exact_cache_key(
+            cache_ns,
+            &cache_key_material,
+            session_cache_scope.as_deref(),
+        );
 
         tracing::debug!(
             cache.mode = ?mode,
             cache.key = %key,
+            cache.session_scoped = session_cache_scope.is_some(),
             "L1a: exact-match lookup",
         );
 
         if let Some(cached) = state.exact_cache.get(&key) {
             tracing::info!(cache.key = %key, "L1a: exact cache HIT");
             tracing::Span::current().record("gateway.cache.hit", true);
-            crate::metrics::record_layer_duration("L1a_ExactCache", layer_start.elapsed());
+            crate::metrics::record_layer_duration_with_tool(
+                "L1a_ExactCache",
+                layer_start.elapsed(),
+                tool,
+            );
+            crate::metrics::record_cache_event_with_tool("l1a", "hit", tool);
+            crate::metrics::record_cache_event_with_tool("l1", "hit", tool);
+            crate::visibility::record_agent_cache_event(tool, "l1a", "hit");
+            crate::visibility::record_agent_cache_event(tool, "l1", "hit");
             let mut response = if is_streaming {
                 streaming_cache_response(cache_ns, &cached, &state.config.external_llm_model)
                     .unwrap_or_else(|| {
@@ -154,6 +174,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             response.extensions_mut().insert(FinalLayer::ExactCache);
             return response;
         }
+        crate::metrics::record_cache_event_with_tool("l1a", "miss", tool);
+        crate::visibility::record_agent_cache_event(tool, "l1a", "miss");
         Some(key)
     } else {
         None
@@ -183,7 +205,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
                     error = %e,
                     "L1b: in-process embedding failed – skipping semantic cache",
                 );
-                crate::metrics::record_error("L1b_Embedding", "retryable");
+                crate::metrics::record_error_with_tool("L1b_Embedding", "retryable", tool);
+                crate::visibility::record_agent_error(tool);
                 None
             }
             Err(e) => {
@@ -191,7 +214,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
                     error = %e,
                     "L1b: embedding task panicked – skipping semantic cache",
                 );
-                crate::metrics::record_error("L1b_Embedding", "fatal");
+                crate::metrics::record_error_with_tool("L1b_Embedding", "fatal", tool);
+                crate::visibility::record_agent_error(tool);
                 None
             }
         }
@@ -202,10 +226,22 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     // Search the vector cache if we obtained an embedding.
     if let Some(ref emb) = embedding {
         tracing::debug!(embedding.dims = emb.len(), "L1b: semantic lookup");
-        if let Some(cached) = state.vector_cache.search(emb).await {
+        if let Some(cached) = state
+            .vector_cache
+            .search(emb, session_cache_scope.as_deref())
+            .await
+        {
             tracing::info!("L1b: semantic cache HIT");
             tracing::Span::current().record("gateway.cache.hit", true);
-            crate::metrics::record_layer_duration("L1b_SemanticCache", layer_start.elapsed());
+            crate::metrics::record_layer_duration_with_tool(
+                "L1b_SemanticCache",
+                layer_start.elapsed(),
+                tool,
+            );
+            crate::metrics::record_cache_event_with_tool("l1b", "hit", tool);
+            crate::metrics::record_cache_event_with_tool("l1", "hit", tool);
+            crate::visibility::record_agent_cache_event(tool, "l1b", "hit");
+            crate::visibility::record_agent_cache_event(tool, "l1", "hit");
             let mut response = if is_streaming {
                 streaming_cache_response(cache_ns, &cached, &state.config.external_llm_model)
                     .unwrap_or_else(|| {
@@ -227,12 +263,16 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             response.extensions_mut().insert(FinalLayer::SemanticCache);
             return response;
         }
+        crate::metrics::record_cache_event_with_tool("l1b", "miss", tool);
+        crate::visibility::record_agent_cache_event(tool, "l1b", "miss");
     }
 
     tracing::debug!(
         cache.mode = ?mode,
         "L1: cache MISS – forwarding downstream",
     );
+    crate::metrics::record_cache_event_with_tool("l1", "miss", tool);
+    crate::visibility::record_agent_cache_event(tool, "l1", "miss");
 
     // ------------------------------------------------------------------
     // 4. Cache miss: forward to next layer (body stream intact).
@@ -266,7 +306,10 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             // Store in vector cache.
             if let Some(emb) = embedding {
                 tracing::debug!("L1b: storing in vector cache");
-                state.vector_cache.insert(emb, cache_value.clone()).await;
+                state
+                    .vector_cache
+                    .insert(emb, cache_value.clone(), session_cache_scope.clone())
+                    .await;
             }
         }
 
@@ -286,7 +329,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         return Response::from_parts(resp_parts, Body::from(resp_bytes));
     }
 
-    crate::metrics::record_error("L1_Cache", "retryable");
+    crate::metrics::record_error_with_tool("L1_Cache", "retryable", tool);
+    crate::visibility::record_agent_error(tool);
     (
         StatusCode::BAD_GATEWAY,
         Json(ChatResponse {
@@ -303,10 +347,12 @@ mod tests {
     use super::*;
     use axum::{Router, middleware as axum_mw, routing::post};
     use http_body_util::BodyExt;
+    use sha2::Digest;
     use tower::ServiceExt;
 
     use crate::clients::slm::SlmClient;
     use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
+    use crate::core::cache_scope::{build_exact_cache_key, derive_session_cache_scope};
     use crate::core::prompt::{extract_cache_key, extract_semantic_key};
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
@@ -849,8 +895,86 @@ mod tests {
             .generate_embedding(&semantic_prompt)
             .expect("embedding should be generated");
         assert!(
-            state.vector_cache.search(&embedding).await.is_none(),
+            state.vector_cache.search(&embedding, None).await.is_none(),
             "tool-enabled request should not populate semantic cache"
         );
+    }
+
+    #[tokio::test]
+    async fn exact_cache_isolated_by_session_scope() {
+        let state = test_state(CacheMode::Exact);
+        let app = cache_app(state.clone());
+
+        let req1 = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .header("x-thread-id", "thread-a")
+            .body(json_body("hello"))
+            .unwrap();
+        let resp1 = app.clone().oneshot(req1).await.unwrap();
+        assert_eq!(resp1.status(), StatusCode::OK);
+        let body1 = resp1.into_body().collect().await.unwrap().to_bytes();
+        let json1: serde_json::Value = serde_json::from_slice(&body1).unwrap();
+        assert_eq!(json1["layer"], 3);
+
+        let req2 = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .header("x-thread-id", "thread-a")
+            .body(json_body("hello"))
+            .unwrap();
+        let resp2 = app.clone().oneshot(req2).await.unwrap();
+        let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
+        let json2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+        assert_eq!(json2["layer"], 1);
+
+        let req3 = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .header("x-thread-id", "thread-b")
+            .body(json_body("hello"))
+            .unwrap();
+        let resp3 = app.oneshot(req3).await.unwrap();
+        let body3 = resp3.into_body().collect().await.unwrap().to_bytes();
+        let json3: serde_json::Value = serde_json::from_slice(&body3).unwrap();
+        assert_eq!(json3["layer"], 3);
+
+        let session_a = derive_session_cache_scope("thread-a");
+        let session_b = derive_session_cache_scope("thread-b");
+        let key_a = build_exact_cache_key("native", "hello", session_a.as_deref());
+        let key_b = build_exact_cache_key("native", "hello", session_b.as_deref());
+
+        assert!(state.exact_cache.get(&key_a).is_some());
+        assert!(state.exact_cache.get(&key_b).is_some());
+    }
+
+    #[tokio::test]
+    async fn exact_cache_uses_body_session_identifier_when_header_missing() {
+        let state = test_state(CacheMode::Exact);
+        let app = cache_app(state.clone());
+        let body = serde_json::to_vec(&serde_json::json!({
+            "prompt": "hello",
+            "metadata": {"session_id": "body-session"}
+        }))
+        .unwrap();
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let session = derive_session_cache_scope("body-session");
+        let scoped_key = build_exact_cache_key("native", "hello", session.as_deref());
+        let global_key = build_exact_cache_key("native", "hello", None);
+
+        assert!(state.exact_cache.get(&scoped_key).is_some());
+        assert!(state.exact_cache.get(&global_key).is_none());
     }
 }

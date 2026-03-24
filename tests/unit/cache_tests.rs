@@ -88,10 +88,10 @@ async fn vector_cache_insert_and_search() {
     let cache = VectorCache::new(0.8, 300, 100);
     let embedding = vec![1.0_f32, 0.0, 0.0];
     cache
-        .insert(embedding.clone(), "semantic result".into())
+        .insert(embedding.clone(), "semantic result".into(), None)
         .await;
 
-    let result = cache.search(&embedding).await;
+    let result = cache.search(&embedding, None).await;
     assert_eq!(result, Some("semantic result".to_string()));
 }
 
@@ -101,8 +101,8 @@ async fn vector_cache_search_miss() {
     let v1 = vec![1.0_f32, 0.0, 0.0];
     let v2 = vec![0.0_f32, 1.0, 0.0]; // orthogonal → cosine ~0
 
-    cache.insert(v1, "stored".into()).await;
-    let result = cache.search(&v2).await;
+    cache.insert(v1, "stored".into(), None).await;
+    let result = cache.search(&v2, None).await;
     assert_eq!(result, None);
 }
 
@@ -112,8 +112,8 @@ async fn vector_cache_similar_vectors_hit() {
     let v1 = vec![1.0_f32, 0.0, 0.0];
     let similar = vec![0.99_f32, 0.1, 0.0]; // cosine ≈ 0.995
 
-    cache.insert(v1, "semantic hit".into()).await;
-    let result = cache.search(&similar).await;
+    cache.insert(v1, "semantic hit".into(), None).await;
+    let result = cache.search(&similar, None).await;
     assert_eq!(result, Some("semantic hit".to_string()));
 }
 
@@ -121,21 +121,27 @@ async fn vector_cache_similar_vectors_hit() {
 async fn vector_cache_capacity_eviction() {
     // Capacity of 2.
     let cache = VectorCache::new(0.8, 300, 2);
-    cache.insert(vec![1.0, 0.0, 0.0], "first".into()).await;
-    cache.insert(vec![0.0, 1.0, 0.0], "second".into()).await;
-    cache.insert(vec![0.0, 0.0, 1.0], "third".into()).await;
+    cache
+        .insert(vec![1.0, 0.0, 0.0], "first".into(), None)
+        .await;
+    cache
+        .insert(vec![0.0, 1.0, 0.0], "second".into(), None)
+        .await;
+    cache
+        .insert(vec![0.0, 0.0, 1.0], "third".into(), None)
+        .await;
 
     // The first entry should have been evicted.
-    let r1 = cache.search(&[1.0, 0.0, 0.0]).await;
+    let r1 = cache.search(&[1.0, 0.0, 0.0], None).await;
     assert_eq!(r1, None, "first entry should be evicted");
-    let r3 = cache.search(&[0.0, 0.0, 1.0]).await;
+    let r3 = cache.search(&[0.0, 0.0, 1.0], None).await;
     assert_eq!(r3, Some("third".to_string()));
 }
 
 #[tokio::test]
 async fn vector_cache_empty_search() {
     let cache = VectorCache::new(0.8, 300, 100);
-    let result = cache.search(&[1.0, 0.0, 0.0]).await;
+    let result = cache.search(&[1.0, 0.0, 0.0], None).await;
     assert_eq!(result, None);
 }
 
@@ -143,11 +149,13 @@ async fn vector_cache_empty_search() {
 async fn vector_cache_ttl_expiry() {
     // TTL of 1 second.
     let cache = VectorCache::new(0.8, 1, 100);
-    cache.insert(vec![1.0, 0.0, 0.0], "ephemeral".into()).await;
+    cache
+        .insert(vec![1.0, 0.0, 0.0], "ephemeral".into(), None)
+        .await;
 
     // Should be present immediately.
     assert_eq!(
-        cache.search(&[1.0, 0.0, 0.0]).await,
+        cache.search(&[1.0, 0.0, 0.0], None).await,
         Some("ephemeral".to_string())
     );
 
@@ -155,8 +163,28 @@ async fn vector_cache_ttl_expiry() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     assert_eq!(
-        cache.search(&[1.0, 0.0, 0.0]).await,
+        cache.search(&[1.0, 0.0, 0.0], None).await,
         None,
         "entry should have expired"
     );
+}
+
+#[tokio::test]
+async fn vector_cache_session_scope_prevents_cross_session_hits() {
+    let cache = VectorCache::new(0.8, 300, 100);
+    let embedding = vec![1.0_f32, 0.0, 0.0];
+    cache
+        .insert(
+            embedding.clone(),
+            "session result".into(),
+            Some("session-a".to_string()),
+        )
+        .await;
+
+    assert_eq!(
+        cache.search(&embedding, Some("session-a")).await,
+        Some("session result".to_string())
+    );
+    assert_eq!(cache.search(&embedding, Some("session-b")).await, None);
+    assert_eq!(cache.search(&embedding, None).await, None);
 }

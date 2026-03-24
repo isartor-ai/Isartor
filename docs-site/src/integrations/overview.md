@@ -15,6 +15,7 @@ Authenticated chat endpoints:
 | Endpoint | Protocol | Path |
 |----------|----------|------|
 | **Native Isartor** (recommended for direct use) | Native | `POST /api/chat` / `POST /api/v1/chat` |
+| **OpenAI Models** | OpenAI | `GET /v1/models` |
 | **OpenAI Chat Completions** | OpenAI | `POST /v1/chat/completions` |
 | **Anthropic Messages** | Anthropic | `POST /v1/messages` |
 | **Cache lookup / store** (used by MCP clients) | Native | `POST /api/v1/cache/lookup` / `POST /api/v1/cache/store` |
@@ -59,6 +60,20 @@ If gateway auth is enabled, also add:
 -H 'Authorization: Bearer your-secret-key'
 ```
 
+Many OpenAI-compatible SDKs and coding agents also call:
+
+```bash
+curl -sS http://localhost:8080/v1/models
+```
+
+OpenAI-compatible agent features supported by Isartor:
+
+- `GET /v1/models` for model discovery
+- `stream: true` on `/v1/chat/completions` with OpenAI-style SSE and `data: [DONE]`
+- `tools`, `tool_choice`, `functions`, and `function_call` passthrough
+- `tool_calls` preserved in provider responses
+- tool-aware exact cache keys, with semantic cache skipped for tool-use flows
+
 ## Example: Anthropic-compatible request
 
 ```bash
@@ -88,7 +103,8 @@ If gateway auth is enabled, also add:
 | Tool | Command | Mechanism |
 |------|---------|-----------|
 | [GitHub Copilot CLI](copilot.md) | `isartor connect copilot` | MCP server (cache-only) |
-| [GitHub Copilot in VS Code](copilot-vscode.md) | VS Code `settings.json` | Proxy URL override |
+| [GitHub Copilot in VS Code](copilot-vscode.md) | `isartor connect copilot-vscode` | Managed `settings.json` debug overrides |
+| [OpenCode](opencode.md) | `isartor connect opencode` | Global provider + auth config |
 | [Claude Code + GitHub Copilot](claude-copilot.md) | `isartor connect claude-copilot` | Claude base URL override + Copilot-backed L3 |
 | [Claude Code](claude-code.md) | `isartor connect claude` | Base URL override |
 | [Cursor IDE](cursor.md) | `isartor connect cursor` | Base URL override + MCP |

@@ -133,7 +133,14 @@ If you touch Claude Code or Anthropic compatibility, preserve this behavior unle
 - `extract_prompt()` — full stable prompt extraction used for exact cache keys
 - `extract_semantic_key()` — last-user-message extraction used for semantic matching
 
-For Anthropic traffic, exact caching still uses the full conversation shape. Semantic matching is not used on `/v1/messages`.
+`src/core/cache_scope.rs` adds optional session/thread-aware cache scoping:
+
+- cache keys stay namespaced by API surface (`native`, `openai`, `anthropic`)
+- if a request supplies `x-isartor-session-id`, `x-thread-id`, `x-session-id`, `x-conversation-id`, or body `session_id` / `thread_id` / `conversation_id` metadata, L1a/L1b are additionally scoped to that session
+- the session identifier is hashed before it is mixed into cache keys or stored in the semantic cache index
+- if no usable session identifier is present, caching keeps the old global behavior
+
+For Anthropic traffic, exact caching still uses the full conversation shape. Semantic matching is not used on `/v1/messages`, and this change does not re-enable L1b there.
 
 ### Response-shape separation
 

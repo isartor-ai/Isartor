@@ -56,7 +56,7 @@ async fn vector_cache_search_latency_under_50ms() {
     // Insert 100 random-ish vectors (dimension 64).
     for i in 0..100 {
         let v: Vec<f32> = (0..64).map(|j| ((i * 7 + j) as f32).sin()).collect();
-        cache.insert(v, format!("entry-{i}")).await;
+        cache.insert(v, format!("entry-{i}"), None).await;
     }
 
     let query: Vec<f32> = (0..64).map(|j| (j as f32 * 0.1).cos()).collect();
@@ -64,7 +64,7 @@ async fn vector_cache_search_latency_under_50ms() {
     let mut durations = Vec::with_capacity(100);
     for _ in 0..100 {
         let start = Instant::now();
-        let _ = cache.search(&query).await;
+        let _ = cache.search(&query, None).await;
         durations.push(start.elapsed());
     }
     durations.sort();

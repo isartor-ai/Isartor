@@ -64,6 +64,13 @@ client = openai.OpenAI(
 
 Works with the official SDKs, LangChain, LlamaIndex, AutoGen, GitHub Copilot CLI, and any other OpenAI-compatible tool.
 
+Recent OpenAI-compatible improvements for coding agents include:
+
+- `GET /v1/models` for model discovery
+- `stream: true` support on `/v1/chat/completions` with proper SSE chunks
+- `tools`, `tool_choice`, `functions`, and `function_call` passthrough
+- `tool_calls` preserved in upstream responses
+
 ### 3. Save
 
 Isartor deflects repetitive and simple prompts locally. You keep the same responses, pay for fewer tokens, and get lower latency — with zero code changes beyond the URL.

@@ -49,6 +49,8 @@ export ISARTOR__LAYER2__SIDECAR_URL="http://127.0.0.1:8081"
 | `ISARTOR__CACHE_TTL_SECS` | `u64` | `300` | Time-to-live for cached responses, in seconds |
 | `ISARTOR__CACHE_MAX_CAPACITY` | `u64` | `10000` | Maximum entries per cache (exact + semantic counted separately) |
 
+> **Session-aware cache keys:** When clients send `x-isartor-session-id`, `x-thread-id`, `x-session-id`, or `x-conversation-id`, Isartor folds a hashed session scope into the L1 cache key and semantic-cache filter. If no session identifier is present, the previous global cache behavior is preserved. Request bodies may also supply `session_id`, `thread_id`, or `conversation_id` at the top level or under `metadata`.
+
 > **Scalability note:** When running multiple gateway replicas (Level 3 / K8s), set `ISARTOR__CACHE_BACKEND=redis` so all pods share the same exact-match cache. With `memory` (the default), each pod maintains an independent cache, leading to lower hit rates and duplicated work.
 
 ### Layer 2 — Generation Sidecar (llama.cpp)

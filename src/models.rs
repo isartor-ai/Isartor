@@ -124,6 +124,25 @@ pub struct PromptStatsResponse {
     pub recent: Vec<PromptVisibilityEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AgentStatsEntry {
+    pub requests: u64,
+    pub cache_hits: u64,
+    pub cache_misses: u64,
+    pub l1a_hits: u64,
+    pub l1a_misses: u64,
+    pub l1b_hits: u64,
+    pub l1b_misses: u64,
+    pub average_latency_ms: f64,
+    pub retry_count: u64,
+    pub error_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct AgentStatsResponse {
+    pub agents: BTreeMap<String, AgentStatsEntry>,
+}
+
 // ── Legacy Ollama — Generation (v1 middleware compat) ─────────────────
 
 /// Request body for Ollama `/api/generate`.

@@ -25,8 +25,16 @@ isartor connect cursor
 1. `isartor connect cursor` writes a reference env file to `~/.isartor/env/cursor.sh`
 2. It also registers Isartor as an MCP server in `~/.cursor/mcp.json`
 3. In Cursor, override the OpenAI Base URL to point at Isartor's `/v1` endpoint
-4. All chat completions requests route through Isartor's L1/L2/L3 deflection stack
-5. Cursor's Ask and Plan modes are supported; Agent mode requires native keys
+4. Cursor can use Isartor's `GET /v1/models` endpoint to discover the configured model
+5. All chat completions requests route through Isartor's L1/L2/L3 deflection stack
+6. Isartor supports OpenAI streaming SSE, tool-call passthrough, and HTTP/SSE MCP at `http://localhost:8080/mcp/` for compatible Cursor workflows
+7. Cursor's Ask and Plan modes are supported; Agent mode requires native keys
+
+Cursor's generated MCP config points at:
+
+```json
+{"mcpServers":{"isartor":{"type":"http","url":"http://localhost:8080/mcp/"}}}
+```
 
 ## Disconnecting
 
@@ -39,3 +47,4 @@ isartor connect cursor --disconnect
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Cursor not routing through Isartor | Base URL override not set | Open Cursor Settings → Models → enable Override OpenAI Base URL |
+| Cursor model picker is empty | Cursor cannot reach model discovery | Verify `http://localhost:8080/v1/models` is reachable from Cursor |

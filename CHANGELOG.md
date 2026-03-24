@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.49] - 2026-03-24
+
+### Added
+- **Session-aware cache scoping for multi-turn agents**: Layer 1 exact-cache keys and Layer 1 semantic-cache lookups can now be scoped by `x-isartor-session-id`, `x-thread-id`, `x-session-id`, `x-conversation-id`, or matching body metadata so parallel agent conversations do not collide.
+- **OpenCode connector**: `isartor connect opencode` now writes managed OpenCode provider/auth config pointing at Isartor's OpenAI-compatible `/v1` gateway.
+- **GitHub Copilot in VS Code connector**: `isartor connect copilot-vscode` now auto-detects VS Code `settings.json`, backs it up, and writes the managed Copilot debug override settings for Isartor.
+- **HTTP/SSE MCP transport**: Isartor now exposes MCP tools over Streamable HTTP at `/mcp/` with `POST` JSON-RPC, `GET` SSE streaming, and `DELETE` session teardown, alongside the existing stdio MCP server.
+- **Per-agent observability endpoint**: `GET /debug/stats/agents` now returns programmatic per-tool request, cache, latency, retry, and error statistics.
+
+### Changed
+- **Cursor MCP registration now targets HTTP MCP**: `isartor connect cursor` now registers Isartor's `/mcp/` HTTP endpoint for compatible editor-side MCP flows.
+- **`isartor stats --by-tool` is now production-grade**: the CLI now shows richer per-agent metrics including requests, cache hits/misses, average latency, retry count, error count, and L1a/L1b hit-vs-miss safety.
+- **OTel metrics now carry tool labels more broadly**: retry, error, cache-event, and latency observability paths now include per-tool dimensions for multi-agent operations.
+
+### Fixed
+- **Cache visibility attribution for MCP traffic**: cache lookup/store activity from MCP clients now lands in the correct tool bucket for stats and debug views instead of falling back to stale expectations.
+
 ## [0.1.48] - 2026-03-23
 
 ### Added

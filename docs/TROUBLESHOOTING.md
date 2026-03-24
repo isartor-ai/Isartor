@@ -652,6 +652,7 @@ You can also clean up client-side configuration:
 ```bash
 isartor connect copilot --disconnect
 isartor connect claude --disconnect
+isartor connect opencode --disconnect
 isartor connect antigravity --disconnect
 ```
 

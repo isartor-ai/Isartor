@@ -300,6 +300,10 @@ async fn main() -> anyhow::Result<()> {
             "/debug/stats/prompts",
             get(isartor::visibility::prompt_stats_handler),
         )
+        .route(
+            "/debug/stats/agents",
+            get(isartor::visibility::agent_stats_handler),
+        )
         .layer(axum_mw::from_fn(middleware::auth::auth_middleware))
         .layer(axum_mw::from_fn(
             middleware::monitoring::root_monitoring_middleware,
@@ -335,6 +339,18 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/cache/store",
             axum::routing::post(handler::cache_store_handler),
+        )
+        .route(
+            "/mcp",
+            axum::routing::get(handler::mcp_http_get_handler)
+                .post(handler::mcp_http_post_handler)
+                .delete(handler::mcp_http_delete_handler),
+        )
+        .route(
+            "/mcp/",
+            axum::routing::get(handler::mcp_http_get_handler)
+                .post(handler::mcp_http_post_handler)
+                .delete(handler::mcp_http_delete_handler),
         )
         .layer(axum_mw::from_fn(
             move |mut req: axum::extract::Request, next: axum_mw::Next| {

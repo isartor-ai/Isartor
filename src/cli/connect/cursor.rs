@@ -103,7 +103,7 @@ fn install_cursor_mcp_config(
     let api_key = gateway_api_key.unwrap_or("isartor-local");
 
     let isartor_entry = serde_json::json!({
-        "url": format!("{base}/mcp"),
+        "url": format!("{base}/mcp/"),
         "type": "http",
         "headers": {
             "Authorization": format!("Bearer {api_key}")

@@ -234,10 +234,20 @@ curl -sS -w "\nHTTP %{http_code}" http://localhost:8080/v1/chat/completions \
 curl -sS -H "X-API-Key: $API_KEY" \
   "http://localhost:8080/debug/stats/prompts?limit=10" | jq .
 
+# Per-agent observability endpoint
+curl -sS -H "X-API-Key: $API_KEY" \
+  "http://localhost:8080/debug/stats/agents" | jq .
+
 # CLI command
 ./target/release/isartor stats \
   --gateway-url http://localhost:8080 \
   --gateway-api-key $API_KEY
+
+# CLI per-agent view
+./target/release/isartor stats \
+  --gateway-url http://localhost:8080 \
+  --gateway-api-key $API_KEY \
+  --by-tool
 ```
 
 Expected `isartor stats` output:

@@ -59,6 +59,12 @@ INFO  [cache] Layer 1a miss: quantum Hall effect prompt
 
 The first request is a cache miss — Layer 2 triages it and Layer 3 routes it to your configured cloud provider.
 
+OpenAI-compatible clients can also:
+
+- call `GET /v1/models` to discover the configured model
+- send `"stream": true` and receive OpenAI-style SSE responses
+- use tool/function calling fields such as `tools`, `tool_choice`, and `functions`
+
 You can also use the native API:
 
 ```bash
@@ -127,6 +133,12 @@ response = client.chat.completions.create(
     model="gpt-4",
     messages=[{"role": "user", "content": "Summarise this document."}],
 )
+```
+
+If your client probes models first, this also works:
+
+```bash
+curl -sS http://localhost:8080/v1/models
 ```
 
 For detailed setup guides for GitHub Copilot CLI, Claude Code, Cursor, and other tools, see the [Integrations](../integrations/overview.md) section.

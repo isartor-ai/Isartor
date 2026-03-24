@@ -6,6 +6,7 @@ struct CacheEntry {
     embedding: Vec<f32>,
     response: String,
     created_at: Instant,
+    session_cache_scope: Option<String>,
 }
 
 /// In-memory vector cache that uses cosine similarity to find semantically
@@ -35,7 +36,7 @@ impl VectorCache {
 
     /// Search for a cached response whose embedding is within the
     /// similarity threshold. Returns the best match if one exists.
-    pub async fn search(&self, query: &[f32]) -> Option<String> {
+    pub async fn search(&self, query: &[f32], session_cache_scope: Option<&str>) -> Option<String> {
         let span = tracing::info_span!(
             "l1b_semantic_cache_search",
             cache.entries_scanned = tracing::field::Empty,
@@ -55,6 +56,9 @@ impl VectorCache {
         for entry in entries.iter() {
             // Skip expired entries.
             if now.duration_since(entry.created_at) > self.ttl {
+                continue;
+            }
+            if entry.session_cache_scope.as_deref() != session_cache_scope {
                 continue;
             }
             scanned += 1;
@@ -79,7 +83,12 @@ impl VectorCache {
 
     /// Insert a new embedding + response pair into the cache.
     /// Evicts expired entries and enforces the capacity cap.
-    pub async fn insert(&self, embedding: Vec<f32>, response: String) {
+    pub async fn insert(
+        &self,
+        embedding: Vec<f32>,
+        response: String,
+        session_cache_scope: Option<String>,
+    ) {
         let span = tracing::debug_span!(
             "l1b_semantic_cache_insert",
             cache.evicted = tracing::field::Empty,
@@ -105,6 +114,7 @@ impl VectorCache {
             embedding,
             response,
             created_at: now,
+            session_cache_scope,
         });
 
         let size = entries.len();
@@ -210,18 +220,20 @@ mod tests {
     async fn vector_cache_insert_and_search_hit() {
         let cache = VectorCache::new(0.9, 300, 100);
         let embedding = vec![1.0f32, 0.0, 0.0];
-        cache.insert(embedding.clone(), "found it".into()).await;
-        let result = cache.search(&embedding).await;
+        cache
+            .insert(embedding.clone(), "found it".into(), None)
+            .await;
+        let result = cache.search(&embedding, None).await;
         assert_eq!(result, Some("found it".into()));
     }
 
     #[tokio::test]
     async fn vector_cache_search_miss_below_threshold() {
         let cache = VectorCache::new(0.99, 300, 100);
-        cache.insert(vec![1.0, 0.0, 0.0], "resp".into()).await;
+        cache.insert(vec![1.0, 0.0, 0.0], "resp".into(), None).await;
         // Orthogonal vector — similarity ~0.0
         let query = vec![0.0f32, 1.0, 0.0];
-        let result = cache.search(&query).await;
+        let result = cache.search(&query, None).await;
         assert_eq!(result, None);
     }
 
@@ -229,26 +241,26 @@ mod tests {
     async fn vector_cache_search_empty_cache() {
         let cache = VectorCache::new(0.5, 300, 100);
         let query = vec![1.0f32, 0.0];
-        let result = cache.search(&query).await;
+        let result = cache.search(&query, None).await;
         assert_eq!(result, None);
     }
 
     #[tokio::test]
     async fn vector_cache_ttl_expiry() {
         let cache = VectorCache::new(0.5, 0, 100); // TTL = 0
-        cache.insert(vec![1.0, 0.0], "cached".into()).await;
+        cache.insert(vec![1.0, 0.0], "cached".into(), None).await;
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let query = vec![1.0f32, 0.0];
-        let result = cache.search(&query).await;
+        let result = cache.search(&query, None).await;
         assert_eq!(result, None);
     }
 
     #[tokio::test]
     async fn vector_cache_capacity_eviction() {
         let cache = VectorCache::new(0.5, 300, 2);
-        cache.insert(vec![1.0, 0.0], "first".into()).await;
-        cache.insert(vec![0.0, 1.0], "second".into()).await;
-        cache.insert(vec![0.5, 0.5], "third".into()).await;
+        cache.insert(vec![1.0, 0.0], "first".into(), None).await;
+        cache.insert(vec![0.0, 1.0], "second".into(), None).await;
+        cache.insert(vec![0.5, 0.5], "third".into(), None).await;
 
         // First entry (index 0) should have been evicted.
         // The exact search for [1.0, 0.0] may still partially match
@@ -264,15 +276,31 @@ mod tests {
         let cache = VectorCache::new(0.5, 300, 100);
         // Insert two similar vectors.
         cache
-            .insert(vec![1.0, 0.0, 0.0], "less similar".into())
+            .insert(vec![1.0, 0.0, 0.0], "less similar".into(), None)
             .await;
         cache
-            .insert(vec![1.0, 0.1, 0.0], "more similar".into())
+            .insert(vec![1.0, 0.1, 0.0], "more similar".into(), None)
             .await;
 
         // Query is [1.0, 0.1, 0.0] — exact match for "more similar".
         let query = vec![1.0f32, 0.1, 0.0];
-        let result = cache.search(&query).await;
+        let result = cache.search(&query, None).await;
         assert_eq!(result, Some("more similar".into()));
+    }
+
+    #[tokio::test]
+    async fn vector_cache_isolated_by_session_scope() {
+        let cache = VectorCache::new(0.5, 300, 100);
+        let query = vec![1.0f32, 0.0];
+        cache
+            .insert(query.clone(), "scoped".into(), Some("scope-a".to_string()))
+            .await;
+
+        assert_eq!(
+            cache.search(&query, Some("scope-a")).await,
+            Some("scoped".into())
+        );
+        assert_eq!(cache.search(&query, Some("scope-b")).await, None);
+        assert_eq!(cache.search(&query, None).await, None);
     }
 }

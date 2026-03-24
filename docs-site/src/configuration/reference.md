@@ -40,6 +40,7 @@ isartor init
 | llm_provider             | ISARTOR__LLM_PROVIDER           | string   | openai                 | LLM provider (see below for full list)           |
 | external_llm_model       | ISARTOR__EXTERNAL_LLM_MODEL     | string   | gpt-4o-mini            | Model name to request from the provider          |
 | external_llm_api_key     | ISARTOR__EXTERNAL_LLM_API_KEY   | string   | (none)                 | API key for the configured LLM provider (not needed for ollama) |
+| l3_timeout_secs          | ISARTOR__L3_TIMEOUT_SECS        | u64      | 120                    | HTTP timeout applied to all Layer 3 provider requests |
 
 ---
 
@@ -58,6 +59,11 @@ isartor init
 
 - `semantic_cache.provider`: `candle` or `tei`
 - `semantic_cache.remote_url`: TEI endpoint
+- Requests that carry `x-isartor-session-id`, `x-thread-id`, `x-session-id`, or
+  `x-conversation-id` are isolated into a session-aware cache scope. The same
+  scope can also be provided in request bodies via `session_id`, `thread_id`,
+  `conversation_id`, or `metadata.*`. If no session identifier is present,
+  Isartor keeps the legacy global-cache behavior.
 
 ### Layer 2: SLM Router
 
@@ -76,6 +82,7 @@ isartor init
   - `copilot` (GitHub Copilot subscription-backed L3)
 - `external_llm_model`: Model name for the selected provider (e.g. `gpt-4o-mini`, `gemini-2.0-flash`, `mistral-small-latest`, `llama-3.1-8b-instant`, `deepseek-chat`, `command-r`, `sonar`, `moonshot-v1-128k`)
 - `external_llm_api_key`: API key for the configured provider (not needed for `ollama`)
+- `l3_timeout_secs`: Shared timeout, in seconds, for all Layer 3 provider HTTP calls
 
 ---
 

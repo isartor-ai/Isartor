@@ -55,9 +55,11 @@ pub async fn handle_status(args: StatusArgs) {
 
     let all_clients = [
         "copilot",
+        "copilot-vscode",
         "claude",
         "claude-copilot",
         "openclaw",
+        "opencode",
         "antigravity",
     ];
     for client in all_clients {
@@ -215,9 +217,11 @@ async fn check_proxy_recent(
 fn client_display_name(client: &str) -> String {
     match client {
         "copilot" => "GitHub Copilot CLI".to_string(),
+        "copilot-vscode" => "GitHub Copilot in VS Code".to_string(),
         "claude" => "Claude Code".to_string(),
         "claude-copilot" => "Claude Code + GitHub Copilot".to_string(),
         "openclaw" => "OpenClaw".to_string(),
+        "opencode" => "OpenCode".to_string(),
         "antigravity" => "Antigravity".to_string(),
         _ => client.to_string(),
     }
@@ -226,9 +230,11 @@ fn client_display_name(client: &str) -> String {
 fn integration_method(client: &str) -> &'static str {
     match client {
         "copilot" => "MCP server (isartor_chat tool)",
+        "copilot-vscode" => "VS Code settings.json debug overrides",
         "claude" => "base URL override (ANTHROPIC_BASE_URL)",
         "claude-copilot" => "base URL override + GitHub Copilot L3 provider",
         "openclaw" => "provider base URL (OpenAI-compatible)",
+        "opencode" => "OpenCode provider config (@ai-sdk/openai-compatible)",
         "antigravity" => "base URL override (OpenAI-compatible)",
         _ => "unknown",
     }

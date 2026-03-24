@@ -17,6 +17,13 @@ The generic connector works with any OpenAI-compatible tool, including:
 - **OpenClaw** (also available via `isartor connect openclaw`)
 - Any other tool that reads an `OPENAI_BASE_URL` or similar environment variable
 
+OpenAI-compatible features exposed by Isartor include:
+
+- `GET /v1/models` for model discovery
+- `POST /v1/chat/completions`
+- `stream: true` SSE responses
+- tool/function calling passthrough (`tools`, `tool_choice`, `functions`, `tool_calls`)
+
 ## Step-by-step setup
 
 ```bash
@@ -58,3 +65,4 @@ isartor connect generic \
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Tool not routing through Isartor | Env vars not loaded | Run `source ~/.isartor/env/<tool>.sh` in your shell |
+| Tool says no models are available | It expects OpenAI model discovery | Verify it can reach `http://localhost:8080/v1/models` |

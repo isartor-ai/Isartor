@@ -291,7 +291,7 @@ async fn seed_caches(state: &Arc<AppState>) -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("Embedding failed for seed prompt: {e}"))?;
         state
             .vector_cache
-            .insert(embedding, response.to_string())
+            .insert(embedding, response.to_string(), None)
             .await;
     }
 
@@ -315,7 +315,7 @@ async fn check_cache_layers(state: &Arc<AppState>, prompt: &str) -> DemoHitLayer
         Err(_) => return DemoHitLayer::Passthrough,
     };
 
-    if state.vector_cache.search(&embedding).await.is_some() {
+    if state.vector_cache.search(&embedding, None).await.is_some() {
         return DemoHitLayer::SemanticCache;
     }
 
