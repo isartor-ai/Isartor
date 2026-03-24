@@ -1,6 +1,31 @@
 {
-  "timestamp": "2026-03-24T10:17:35Z",
   "timestamp": "2026-03-24T10:39:12Z",
+  "isartor_version": "0.1.0",
+  "hardware": "12-core arm, unknown RAM, no GPU",
+  "pricing": {
+    "cloud_model": "gpt-4o",
+    "input_price_per_token_usd": 5e-06,
+    "output_price_per_token_usd": 1.5e-05
+  },
+  "assumptions": {
+    "token_estimation": [
+      "prompt_tokens = ceil(characters / 4.0)",
+      "output_tokens = ceil(response_characters / chars_per_token) when a response body is available; otherwise max(24, ceil(prompt_tokens \u00d7 0.60))"
+    ],
+    "baseline_model": [
+      "without-Isartor is estimated as an all-L3/cloud path using the same request corpus",
+      "cloud latency reuses observed L3 samples when available; otherwise it falls back to deterministic simulated cloud latencies"
+    ],
+    "reliability_proxy": [
+      "retry and interruption deltas use benchmark failures as a productivity proxy because the harness does not auto-retry"
+    ],
+    "pricing": [
+      "cloud model = gpt-4o",
+      "input price = $0.00000500/token, output price = $0.00001500/token",
+      "l2_sidecar_hourly_usd = not supplied"
+    ]
+  },
+  "report_template": "benchmarks/templates/roi_report.md.tmpl",
   "isartor_version": "0.1.0",
   "hardware": "4-core x86_64, 15 GB RAM, no GPU",
   "fixtures": {

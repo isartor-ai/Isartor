@@ -182,11 +182,14 @@ jobs:
 
       - name: Run Claude Code three-way benchmark in dry-run mode
         run: |
+          python3 benchmarks/vscode_copilot_todo/harness.py validate-spec
+          python3 -m unittest discover -s benchmarks/vscode_copilot_todo/tests -p 'test_*.py'
+
+      - name: Run Claude Code three-way benchmark in dry-run mode
+        run: |
           python3 benchmarks/claude_code_benchmark.py --dry-run \
             --output benchmarks/results/claude_code_benchmark.json \
             --report benchmarks/results/claude_code_benchmark_report.md
-      - name: Run Claude Code + Copilot benchmark in dry-run mode
-        run: python3 benchmarks/claude_code_benchmark.py --dry-run
 
       - name: Verify Claude Code benchmark output is valid JSON
         run: |
@@ -209,24 +212,10 @@ jobs:
           print(
               f"Claude Code three-way benchmark output valid. "
               f"Cold: {c['deflection_rate']*100:.1f}%, Warm: {w['deflection_rate']*100:.1f}%"
-          with open("benchmarks/results/claude_code_copilot.json") as f:
-              data = json.load(f)
-          assert data["benchmark"] == "claude_code_copilot", "unexpected benchmark name"
-          assert "case_a" in data, "missing case_a"
-          assert "case_b" in data, "missing case_b"
-          a, b = data["case_a"], data["case_b"]
-          assert a["total_requests"] > 0, "case_a: total_requests is 0"
-          assert b["total_requests"] > 0, "case_b: total_requests is 0"
-          assert a["deflection_rate"] == 0.0, "case_a: expected 0 deflection"
-          assert 0.0 < b["deflection_rate"] <= 1.0, "case_b: deflection_rate out of range"
-          assert b["l3_hits"] < b["total_requests"], "case_b: expected some deflection"
-          print(
-              f"Claude Code benchmark output valid. "
-              f"Case B deflection rate: {b['deflection_rate'] * 100:.1f}%"
           )
           PY
 
-      - name: Verify Markdown report was written
+      - name: Verify Claude Code Markdown report was written
         run: |
           test -f benchmarks/results/claude_code_benchmark_report.md \
             || (echo "Markdown report not found" && exit 1)
@@ -237,10 +226,3 @@ jobs:
           grep -q "Warm Cache" benchmarks/results/claude_code_benchmark_report.md \
             || (echo "Report missing Warm Cache section" && exit 1)
           echo "Markdown report present and contains all required sections."
-          test -f benchmarks/results/claude_code_copilot_report.md \
-            || (echo "Markdown report not found" && exit 1)
-          grep -q "Case A" benchmarks/results/claude_code_copilot_report.md \
-            || (echo "Report missing Case A section" && exit 1)
-          grep -q "Case B" benchmarks/results/claude_code_copilot_report.md \
-            || (echo "Report missing Case B section" && exit 1)
-          echo "Markdown report is present and contains expected sections."
