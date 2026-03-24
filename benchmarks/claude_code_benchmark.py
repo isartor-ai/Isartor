@@ -56,10 +56,14 @@ RESULTS_DIR = Path(__file__).parent / "results"
 FIXTURE_FILE = FIXTURES_DIR / "claude_code_todo_app.jsonl"
 
 # ── Cost constants ─────────────────────────────────────────────────────────────
-# Claude 3.5 Sonnet pricing (USD per token) — used for cloud-cost estimation.
+# Claude 3.5 Sonnet pricing (USD per token) — used for Anthropic/Copilot path.
 # These are conservative estimates for typical Claude Code code prompts.
 CLAUDE_INPUT_PRICE_PER_TOKEN = 0.000003    # $3.00 / 1M tokens
 CLAUDE_OUTPUT_PRICE_PER_TOKEN = 0.000015   # $15.00 / 1M tokens
+
+# GPT-4o-mini pricing (USD per token) — used for Azure OpenAI path.
+GPT4O_MINI_INPUT_PRICE_PER_TOKEN = 0.00000015   # $0.15 / 1M tokens
+GPT4O_MINI_OUTPUT_PRICE_PER_TOKEN = 0.0000006   # $0.60 / 1M tokens
 
 # Average token estimates for a typical Claude Code prompt in a coding workflow.
 # Code prompts include system context, so input is higher than FAQ-style traffic.
@@ -156,19 +160,28 @@ def run_case_a(
     dry_run: bool = False,
     direct_url: str = "",
     direct_api_key: str = "",
+    azure_url: str = "",
+    azure_api_key: str = "",
+    azure_deployment: str = "",
+    azure_api_version: str = "2024-08-01-preview",
     timeout: float = 120.0,
 ) -> dict:
     """
     Run Case A — without Isartor.
 
-    In live mode, sends each prompt directly to ``direct_url/v1/messages``
-    using the Anthropic Messages API format.  Every request is expected to
-    reach the cloud (L3) and no deflection header is returned.
+    In live mode, sends each prompt directly to the cloud LLM API.
+    Supports two backends:
+      - Azure OpenAI (when ``azure_url`` and ``azure_api_key`` are set)
+      - Anthropic Messages API (when ``direct_url`` and ``direct_api_key`` are set)
+    Every request is expected to reach the cloud (L3) and no deflection
+    header is returned.
 
     In dry-run mode, simulates realistic cloud-LLM latency without a server.
     """
     all_latencies: list[float] = []
     errors = 0
+
+    use_azure = bool(azure_url and azure_api_key and azure_deployment)
 
     for prompt in prompts:
         if dry_run:
@@ -176,21 +189,35 @@ def run_case_a(
             all_latencies.append(latency_ms)
             continue
 
-        # Live path: call the Anthropic (or Copilot-compatible) Messages API.
         start = time.perf_counter()
-        headers = {"Content-Type": "application/json", "anthropic-version": "2023-06-01"}
-        if direct_api_key:
-            headers["x-api-key"] = direct_api_key
-        body = json.dumps({
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": AVG_OUTPUT_TOKENS,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode()
-        req = urllib.request.Request(
-            f"{direct_url.rstrip('/')}/v1/messages",
-            data=body,
-            headers=headers,
-        )
+
+        if use_azure:
+            # Azure OpenAI chat completions format.
+            endpoint = (
+                f"{azure_url.rstrip('/')}/openai/deployments/{azure_deployment}"
+                f"/chat/completions?api-version={azure_api_version}"
+            )
+            headers = {
+                "Content-Type": "application/json",
+                "api-key": azure_api_key,
+            }
+            body = json.dumps({
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": AVG_OUTPUT_TOKENS,
+            }).encode()
+        else:
+            # Anthropic Messages API format.
+            endpoint = f"{direct_url.rstrip('/')}/v1/messages"
+            headers = {"Content-Type": "application/json", "anthropic-version": "2023-06-01"}
+            if direct_api_key:
+                headers["x-api-key"] = direct_api_key
+            body = json.dumps({
+                "model": "claude-3-5-sonnet-20241022",
+                "max_tokens": AVG_OUTPUT_TOKENS,
+                "messages": [{"role": "user", "content": prompt}],
+            }).encode()
+
+        req = urllib.request.Request(endpoint, data=body, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=timeout):
                 latency_ms = (time.perf_counter() - start) * 1000
@@ -215,17 +242,29 @@ def run_case_a(
     l3_hits = total - errors
     cloud_input_tokens = l3_hits * AVG_INPUT_TOKENS
     cloud_output_tokens = l3_hits * AVG_OUTPUT_TOKENS
-    total_cost_usd = (
-        cloud_input_tokens * CLAUDE_INPUT_PRICE_PER_TOKEN
-        + cloud_output_tokens * CLAUDE_OUTPUT_PRICE_PER_TOKEN
-    )
+
+    # Use the appropriate pricing model depending on the backend.
+    if use_azure:
+        in_price = GPT4O_MINI_INPUT_PRICE_PER_TOKEN
+        out_price = GPT4O_MINI_OUTPUT_PRICE_PER_TOKEN
+        backend_label = f"Azure OpenAI ({azure_deployment})"
+    else:
+        in_price = CLAUDE_INPUT_PRICE_PER_TOKEN
+        out_price = CLAUDE_OUTPUT_PRICE_PER_TOKEN
+        backend_label = "Anthropic (claude-3-5-sonnet)"
+
+    total_cost_usd = cloud_input_tokens * in_price + cloud_output_tokens * out_price
     cost_per_req = total_cost_usd / total if total else 0.0
 
-    _print_case_a_summary("Case A — without Isartor", total, l3_hits, errors, p50, p95, p99, total_cost_usd, cost_per_req)
+    _print_case_a_summary(
+        f"Case A — without Isartor [{backend_label}]",
+        total, l3_hits, errors, p50, p95, p99, total_cost_usd, cost_per_req,
+    )
 
     return {
         "case": "A",
         "label": "without_isartor",
+        "backend": backend_label,
         "total_requests": total,
         "l1a_hits": 0,
         "l1b_hits": 0,
@@ -238,8 +277,8 @@ def run_case_a(
         "p99_ms": round(p99, 2),
         "cloud_input_tokens": cloud_input_tokens,
         "cloud_output_tokens": cloud_output_tokens,
-        "total_cost_usd": round(total_cost_usd, 4),
-        "cost_per_req_usd": round(cost_per_req, 6),
+        "total_cost_usd": round(total_cost_usd, 6),
+        "cost_per_req_usd": round(cost_per_req, 8),
     }
 
 
@@ -249,6 +288,7 @@ def run_case_b(
     dry_run: bool = False,
     isartor_url: str = "http://localhost:8080",
     api_key: str = "changeme",
+    azure_l3: bool = False,
     timeout: float = 120.0,
 ) -> dict:
     """
@@ -272,18 +312,15 @@ def run_case_b(
             all_latencies.append(latency_ms)
             continue
 
-        # Live path: call Isartor's Anthropic-compatible /v1/messages endpoint.
+        # Live path: call Isartor's native /api/chat endpoint.
+        # The native endpoint reliably returns X-Isartor-Layer on every response.
         start = time.perf_counter()
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["X-API-Key"] = api_key
-        body = json.dumps({
-            "model": "claude-3-5-sonnet-20241022",
-            "max_tokens": AVG_OUTPUT_TOKENS,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode()
+        body = json.dumps({"prompt": prompt}).encode()
         req = urllib.request.Request(
-            f"{isartor_url.rstrip('/')}/v1/messages",
+            f"{isartor_url.rstrip('/')}/api/chat",
             data=body,
             headers=headers,
         )
@@ -334,10 +371,16 @@ def run_case_b(
     l3_hits = layer_counts["l3"]
     cloud_input_tokens = l3_hits * AVG_INPUT_TOKENS
     cloud_output_tokens = l3_hits * AVG_OUTPUT_TOKENS
-    total_cost_usd = (
-        cloud_input_tokens * CLAUDE_INPUT_PRICE_PER_TOKEN
-        + cloud_output_tokens * CLAUDE_OUTPUT_PRICE_PER_TOKEN
-    )
+
+    # Use Azure pricing if L3 backend is Azure OpenAI, otherwise Claude pricing.
+    if azure_l3:
+        in_price = GPT4O_MINI_INPUT_PRICE_PER_TOKEN
+        out_price = GPT4O_MINI_OUTPUT_PRICE_PER_TOKEN
+    else:
+        in_price = CLAUDE_INPUT_PRICE_PER_TOKEN
+        out_price = CLAUDE_OUTPUT_PRICE_PER_TOKEN
+
+    total_cost_usd = cloud_input_tokens * in_price + cloud_output_tokens * out_price
     cost_per_req = total_cost_usd / total if total else 0.0
 
     _print_case_b_summary(
@@ -684,6 +727,10 @@ def main() -> None:
     default_api_key = os.environ.get("ISARTOR_API_KEY", "changeme")
     default_direct_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
     default_direct_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    default_azure_url = os.environ.get("AZURE_OPENAI_URL", "")
+    default_azure_key = os.environ.get("AZURE_OPENAI_API_KEY", "")
+    default_azure_deploy = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+    default_azure_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
 
     parser.add_argument(
         "--case",
@@ -717,13 +764,37 @@ def main() -> None:
         "--direct-url",
         default=default_direct_url,
         dest="direct_url",
-        help="Direct API base URL for Case A (default: $ANTHROPIC_BASE_URL or https://api.anthropic.com)",
+        help="Direct Anthropic API base URL for Case A (default: $ANTHROPIC_BASE_URL)",
     )
     parser.add_argument(
         "--direct-api-key",
         default=default_direct_key,
         dest="direct_api_key",
-        help="API key for Case A direct calls (default: $ANTHROPIC_API_KEY)",
+        help="Anthropic API key for Case A (default: $ANTHROPIC_API_KEY)",
+    )
+    parser.add_argument(
+        "--azure-url",
+        default=default_azure_url,
+        dest="azure_url",
+        help="Azure OpenAI resource URL for Case A (default: $AZURE_OPENAI_URL)",
+    )
+    parser.add_argument(
+        "--azure-api-key",
+        default=default_azure_key,
+        dest="azure_api_key",
+        help="Azure OpenAI API key for Case A (default: $AZURE_OPENAI_API_KEY)",
+    )
+    parser.add_argument(
+        "--azure-deployment",
+        default=default_azure_deploy,
+        dest="azure_deployment",
+        help="Azure OpenAI deployment name (default: $AZURE_OPENAI_DEPLOYMENT or gpt-4o-mini)",
+    )
+    parser.add_argument(
+        "--azure-api-version",
+        default=default_azure_version,
+        dest="azure_api_version",
+        help="Azure OpenAI API version (default: 2024-08-01-preview)",
     )
     parser.add_argument(
         "--input",
@@ -788,6 +859,10 @@ def main() -> None:
             dry_run=args.dry_run,
             direct_url=args.direct_url,
             direct_api_key=args.direct_api_key,
+            azure_url=args.azure_url,
+            azure_api_key=args.azure_api_key,
+            azure_deployment=args.azure_deployment,
+            azure_api_version=args.azure_api_version,
             timeout=args.timeout,
         )
 
@@ -797,6 +872,7 @@ def main() -> None:
             dry_run=args.dry_run,
             isartor_url=args.isartor_url,
             api_key=args.api_key,
+            azure_l3=bool(args.azure_url and args.azure_api_key),
             timeout=args.timeout,
         )
 

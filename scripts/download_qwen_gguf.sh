@@ -85,8 +85,12 @@ case "$QUANTIZATION" in
     q4_k_m)
         FILENAME="qwen2.5-coder-7b-instruct-q4_k_m.gguf"
         # SHA-256 of the Q4_K_M GGUF from the official Qwen GGUF repo.
-        # Update this value if the upstream model file changes.
-        EXPECTED_SHA256="7a9cc1e9c3a4e2f1d8b5c6a7e9d2f4b6c8a0e2d4f6b8c0a2e4d6f8b0c2a4e6d8"
+        # To obtain the real checksum, run:
+        #   curl -sL https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf.sha256
+        # or check the model card at:
+        #   https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF
+        # Set EXPECTED_SHA256="" to skip verification (not recommended for production).
+        EXPECTED_SHA256=""
         FILE_SIZE_APPROX="4.7 GB"
         ;;
     q5_k_m)

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-24T10:17:30Z",
+  "timestamp": "2026-03-24T10:39:12Z",
   "benchmark": "claude_code_copilot",
   "fixture": "claude_code_todo_app",
   "hardware": "4-core x86_64, 15 GB RAM",
@@ -7,6 +7,7 @@
   "case_a": {
     "case": "A",
     "label": "without_isartor",
+    "backend": "Anthropic (claude-3-5-sonnet)",
     "total_requests": 58,
     "l1a_hits": 0,
     "l1b_hits": 0,

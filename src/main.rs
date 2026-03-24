@@ -208,13 +208,21 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize the in-process sentence embedder for Layer 1 semantic cache.
     // This blocks during startup (~2s) to load the candle BertModel into RAM (~90 MB).
-    let text_embedder = Arc::new(isartor::layer1::embeddings::TextEmbedder::new().map_err(
-        |e| {
-            anyhow::anyhow!(
-                "Failed to initialize candle TextEmbedder (all-MiniLM-L6-v2): {e:#}. Hint: set HF_HOME=/tmp/huggingface (or ISARTOR_HF_CACHE_DIR) to a writable path. In Docker: -e HF_HOME=/tmp/huggingface -v isartor-hf:/tmp/huggingface"
-            )
+    // When cache_mode=exact, semantic matching is not used so we skip the download.
+    let text_embedder = Arc::new(
+        if matches!(config.cache_mode, isartor::config::CacheMode::Exact) {
+            tracing::info!(
+                "cache_mode=exact — skipping semantic embedder download (L1b disabled)"
+            );
+            isartor::layer1::embeddings::TextEmbedder::new_noop()
+        } else {
+            isartor::layer1::embeddings::TextEmbedder::new().map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to initialize candle TextEmbedder (all-MiniLM-L6-v2): {e:#}. Hint: set HF_HOME=/tmp/huggingface (or ISARTOR_HF_CACHE_DIR) to a writable path. In Docker: -e HF_HOME=/tmp/huggingface -v isartor-hf:/tmp/huggingface"
+                )
+            })?
         },
-    )?);
+    );
 
     let app_state = Arc::new(isartor::state::AppState::new(config.clone(), text_embedder));
 
