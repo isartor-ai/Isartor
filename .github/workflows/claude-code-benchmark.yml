@@ -286,6 +286,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || '' }}
         run: |
+          set -euo pipefail
           EXTRA_ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             EXTRA_ARGS="--dry-run"
@@ -349,6 +350,7 @@ jobs:
         id: cold
         timeout-minutes: 90
         run: |
+          set -euo pipefail
           EXTRA_ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             EXTRA_ARGS="--dry-run"
@@ -418,6 +420,7 @@ jobs:
         id: warm
         timeout-minutes: 90
         run: |
+          set -euo pipefail
           EXTRA_ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             EXTRA_ARGS="--dry-run"
@@ -486,7 +489,10 @@ jobs:
       - name: Run three-way combined benchmark report
         id: three_way
         timeout-minutes: 10
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || '' }}
         run: |
+          set -euo pipefail
           EXTRA_ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             EXTRA_ARGS="--dry-run"
@@ -500,6 +506,7 @@ jobs:
             $EXTRA_ARGS \
             --isartor-url http://localhost:8080 \
             --api-key "${ISARTOR_API_KEY}" \
+            --direct-api-key "${ANTHROPIC_API_KEY}" \
             --output benchmarks/results/claude_code_benchmark.json \
             --report benchmarks/results/claude_code_benchmark_report.md \
             2>&1 | tee /tmp/three_way_output.txt
