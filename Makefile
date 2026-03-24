@@ -1,6 +1,9 @@
-.PHONY: benchmark benchmark-dry-run build test smoke-claude-copilot
+.PHONY: benchmark benchmark-dry-run \
+        benchmark-claude-code benchmark-claude-code-dry-run \
+        validate-todo-app \
+        build test smoke-claude-copilot
 
-# ── Benchmark targets ─────────────────────────────────────────────────────────
+# ── Benchmark targets (existing FAQ / diverse-tasks harness) ──────────────────
 
 ## Run the full benchmark suite against a live Isartor instance.
 ## Requires ISARTOR_URL to be set (default: http://localhost:8080).
@@ -17,6 +20,33 @@ benchmark:
 ## Usage: make benchmark-dry-run
 benchmark-dry-run:
 	python3 benchmarks/run.py --all --dry-run
+
+# ── Claude Code todo-app benchmark ───────────────────────────────────────────
+
+## Run the Claude Code TypeScript todo-app benchmark against a live Isartor
+## instance (all three scenarios: baseline, cold, warm).
+## Optionally post results to a GitHub issue:
+##   GH_TOKEN=ghp_xxx GH_REPO=isartor-ai/Isartor GH_ISSUE=42 make benchmark-claude-code
+benchmark-claude-code:
+	python3 benchmarks/claude_code_benchmark.py --all-scenarios \
+		--url "$${ISARTOR_URL:-http://localhost:8080}" \
+		--api-key "$${ISARTOR_API_KEY:-changeme}" \
+		$$([ -n "$${GH_TOKEN}" ] && echo "--gh-token $${GH_TOKEN}") \
+		$$([ -n "$${GH_REPO}" ] && echo "--repo $${GH_REPO}") \
+		$$([ -n "$${GH_ISSUE}" ] && echo "--issue $${GH_ISSUE}")
+
+## Run the Claude Code todo-app benchmark in dry-run mode (no server required).
+## Runs all three scenarios with simulated responses — useful for CI smoke tests.
+benchmark-claude-code-dry-run:
+	python3 benchmarks/claude_code_benchmark.py --all-scenarios --dry-run
+
+## Validate a generated TypeScript todo app (file presence + structural checks).
+## Usage: APP_DIR=./output/todo-app make validate-todo-app
+##        APP_DIR=./output/todo-app make validate-todo-app VALIDATE_ARGS="--compile --run-tests"
+validate-todo-app:
+	python3 benchmarks/validate_todo_app.py \
+		--app-dir "$${APP_DIR:-./output/todo-app}" \
+		$${VALIDATE_ARGS:-}
 
 # ── Build / test shortcuts ────────────────────────────────────────────────────
 
