@@ -504,10 +504,8 @@ python3 benchmarks/run.py \
 | `fixtures/faq_loop.jsonl` | 1,000 | Simulates a repetitive FAQ / agent-loop workload. Covers returns, shipping, billing, account management, and more — all with semantic rephrasings. Designed to stress L1a (exact cache) and L1b (semantic cache). |
 | `fixtures/diverse_tasks.jsonl` | 500 | Genuine variety: code generation, summarisation, Q&A, data extraction, and creative writing. Represents a realistic mixed-workload with lower deflection than the FAQ loop corpus. |
 | `fixtures/claude_code_todo_app.jsonl` | 58 | Deterministic TypeScript todo-app coding workload for the Claude Code three-way benchmark. Includes unique implementation prompts, semantic variants, and exact repeats. |
-| `fixtures/claude_code_tasks.jsonl` | 250 | Real-world Claude Code prompts: Rust async/await, error handling, trait implementations, Axum API patterns, and more. Includes intentional repetitions and semantically similar queries to stress the L1a (exact cache) and L1b (semantic cache) layers in a developer-assistant scenario. The first 100 unique prompts are repeated 2–3× to simulate how Claude Code re-asks the same questions during iterative development. |
 | `fixtures/claude_code_tasks.jsonl` | 388 | Realistic Claude Code / Copilot workload: coding questions, algorithm explanations, Rust/Go/Python/TypeScript patterns, DevOps tasks, and architecture concepts. Designed to stress Layer 2 (SLM) with a Qwen 2.5 Coder 7B sidecar. Run via `make benchmark-qwen`. |
 | `fixtures/claude_code_todo.jsonl` | 105 | Realistic Claude Code session prompts for building a React TypeScript todo application. Covers component scaffolding, custom hooks, tests, routing, and tooling. Designed to model the repetitive, cache-friendly patterns of an AI-assisted coding workflow. |
-| `fixtures/claude_code_todo_app.jsonl` | 58 | Deterministic TypeScript todo-app coding workload for the Claude Code + Copilot benchmark. Includes unique implementation prompts, semantic variants, and exact repeats. |
 
 Each file is in [JSONL](https://jsonlines.org/) format — one JSON object per line:
 
@@ -806,43 +804,6 @@ The report covers:
 - **Error / interruption resilience** — deflected requests are immune to cloud outages
 - **L2 SLM justification** — when the local SLM sidecar adds value vs falls through
 - **Methodology and assumptions** — all estimates clearly labelled
-## Claude Code + GitHub Copilot Benchmark
-
-A dedicated three-scenario benchmark measures Isartor's impact on a real-world
-Claude Code coding session.  It uses the `claude_code_todo.jsonl` fixture, which
-simulates a developer using Claude Code to build a React TypeScript todo app.
-
-### Scenarios
-
-| Scenario | Description |
-|----------|-------------|
-| `baseline` | Requests go directly to L3 (no Isartor) — establishes the no-proxy control. |
-| `cold` | First pass through Isartor with an empty cache — measures cold-start overhead. |
-| `warm` | Second pass of the same prompts — measures steady-state cache deflection. |
-
-### Quick Start
-
-```bash
-# 1. Start Isartor with the Qwen 2.5 Coder 7B sidecar (Layer 2)
-cd docker
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.qwen-sidecar.yml \
-  up -d
-
-# The Qwen model is ~4.4 GB and downloads on first start.
-# Wait for the health check to pass before continuing:
-docker compose -f docker-compose.qwen-sidecar.yml logs -f qwen-sidecar
-
-# 2. Run all three scenarios
-make benchmark-claude-code
-
-# Or without a running server (dry-run / CI validation):
-make benchmark-claude-code-dry-run
-
-# 3. Generate the ROI markdown report
-make benchmark-claude-code-report
----
 
 ## Claude Code + GitHub Copilot Benchmark
 
@@ -1000,23 +961,6 @@ Options:
   P50 latency    :  7.4 ms
   Est. cloud cost: $0.1242  ($0.002141/req)
 ```
-### CLI Reference
-
-```
-usage: claude_code_benchmark.py [-h] [--url URL] [--api-key KEY]
-                                 [--input INPUT] [--requests REQUESTS]
-                                 [--scenario {baseline,cold,warm,all}]
-                                 [--output OUTPUT] [--timeout TIMEOUT]
-                                 [--dry-run]
-
-options:
-  --url URL            Base URL of the running Isartor instance
-  --api-key KEY        X-API-Key header value
-  --input INPUT        Path to a JSONL fixture file
-  --requests REQUESTS  Limit prompts per scenario (0 = all)
-  --scenario           Which scenario(s) to run (default: all)
-  --dry-run            Simulate responses locally — no server required
-```
 
 ### Acceptance Criteria
 
@@ -1063,6 +1007,10 @@ Key assumptions (edit `roi_report.py` to match your environment):
 | Avg output tokens / response | 300 |
 | Monthly request volume | 50,000 |
 | Isartor self-hosting cost | $50 / month |
+
+### CLI Reference (Case A/B comparison)
+
+```
 usage: claude_code_benchmark.py [-h] [--case {A,B}] [--compare] [--dry-run]
                                  [--isartor-url URL] [--api-key KEY]
                                  [--direct-url URL] [--direct-api-key KEY]
@@ -1118,3 +1066,55 @@ Options:
 > the nearest defensible control. This is documented explicitly in the
 > benchmark report so comparisons are reproducible and transparent.
 
+## Scenario Runner (`scenario_runner.py`)
+
+The scenario runner replays `claude_code_todo_app.jsonl` prompts through two code-generation scenarios:
+- **Baseline**: Claude Code + Copilot (direct, no Isartor)
+- **Isartor**: Claude Code + Isartor + Copilot
+
+For each scenario, the runner:
+1. Creates a fresh git-initialized workspace
+2. Sends each fixture prompt to the target endpoint
+3. Extracts code from LLM responses and writes files into the workspace
+4. Commits generated code
+5. Runs `validate_todo_app.py` structural checks
+6. Produces output artifacts
+
+### Output Artifacts
+
+| File | Description |
+|------|-------------|
+| `tokens.json` | Per-prompt and aggregate token accounting with layer breakdown |
+| `code.diff` | Unified diff between baseline and Isartor workspaces |
+| `summary.md` | Markdown comparison report |
+| `full_results.json` | Complete JSON results for programmatic consumption |
+
+### Usage
+
+```bash
+# Dry-run (no API calls, simulated responses)
+make scenario-run-dry
+
+# Live run with Copilot baseline
+ISARTOR_API_KEY=changeme COPILOT_KEY=ghp_xxx make scenario-run
+
+# Direct invocation with options
+python3 benchmarks/scenario_runner.py \
+  --dry-run \
+  --requests 10 \
+  --output-dir benchmarks/results/my_run
+
+# Run only one scenario
+python3 benchmarks/scenario_runner.py --isartor-only --api-key changeme
+python3 benchmarks/scenario_runner.py --baseline-only --copilot-token ghp_xxx
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ISARTOR_URL` | Gateway URL (default: `http://localhost:8080`) |
+| `ISARTOR_API_KEY` | Gateway API key |
+| `COPILOT_KEY` | GitHub token for Copilot baseline |
+| `DIRECT_LLM_URL` | Alternative baseline URL (Anthropic-compatible) |
+| `DIRECT_LLM_API_KEY` | API key for alternative baseline |
