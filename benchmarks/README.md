@@ -3,7 +3,18 @@
 This directory contains the reproducible benchmark harness and fixtures for
 measuring Isartor's deflection rate and latency characteristics.
 
-## Quick Start
+Two benchmark tracks are available:
+
+| Track | Script | Use case |
+|-------|--------|----------|
+| **General harness** | `run.py` | FAQ / mixed-workload deflection rate via `/api/chat` |
+| **Claude Code + Copilot** | `claude_code_benchmark.py` | With-vs-without-Isartor comparison for Claude Code agent sessions via `/v1/messages` |
+
+---
+
+## General Benchmark (FAQ / Mixed Workload)
+
+### Quick Start
 
 ```bash
 # 1. Start the Isartor server (requires a running instance)
@@ -34,18 +45,20 @@ python3 benchmarks/run.py \
 make benchmark-qwen
 ```
 
-## Requirements
+### Requirements
 
 - Python 3.10+ (uses the built-in `urllib` module — no `pip install` needed)
 - A running Isartor instance (or use `--dry-run` for offline validation)
 
-## Fixture Files
+### Fixture Files
 
 | File | Prompts | Description |
 |------|---------|-------------|
 | `fixtures/faq_loop.jsonl` | 1,000 | Simulates a repetitive FAQ / agent-loop workload. Covers returns, shipping, billing, account management, and more — all with semantic rephrasings. Designed to stress L1a (exact cache) and L1b (semantic cache). |
 | `fixtures/diverse_tasks.jsonl` | 500 | Genuine variety: code generation, summarisation, Q&A, data extraction, and creative writing. Represents a realistic mixed-workload with lower deflection than the FAQ loop corpus. |
 | `fixtures/claude_code_tasks.jsonl` | 388 | Realistic Claude Code / Copilot workload: coding questions, algorithm explanations, Rust/Go/Python/TypeScript patterns, DevOps tasks, and architecture concepts. Designed to stress Layer 2 (SLM) with a Qwen 2.5 Coder 7B sidecar. Run via `make benchmark-qwen`. |
+| `fixtures/claude_code_todo.jsonl` | 105 | Realistic Claude Code session prompts for building a React TypeScript todo application. Covers component scaffolding, custom hooks, tests, routing, and tooling. Designed to model the repetitive, cache-friendly patterns of an AI-assisted coding workflow. |
+| `fixtures/claude_code_todo_app.jsonl` | 58 | Deterministic TypeScript todo-app coding workload for the Claude Code + Copilot benchmark. Includes unique implementation prompts, semantic variants, and exact repeats. |
 
 Each file is in [JSONL](https://jsonlines.org/) format — one JSON object per line:
 
@@ -277,3 +290,226 @@ Actions → New repository secret**):
 
 Without this secret the server cannot reach the Azure backend and L3 requests
 will return 502 errors. L1a/L1b cache-hit rows are unaffected.
+
+## Claude Code + GitHub Copilot Benchmark
+
+A dedicated three-scenario benchmark measures Isartor's impact on a real-world
+Claude Code coding session.  It uses the `claude_code_todo.jsonl` fixture, which
+simulates a developer using Claude Code to build a React TypeScript todo app.
+
+### Scenarios
+
+| Scenario | Description |
+|----------|-------------|
+| `baseline` | Requests go directly to L3 (no Isartor) — establishes the no-proxy control. |
+| `cold` | First pass through Isartor with an empty cache — measures cold-start overhead. |
+| `warm` | Second pass of the same prompts — measures steady-state cache deflection. |
+
+### Quick Start
+
+```bash
+# 1. Start Isartor with the Qwen 2.5 Coder 7B sidecar (Layer 2)
+cd docker
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.qwen-sidecar.yml \
+  up -d
+
+# The Qwen model is ~4.4 GB and downloads on first start.
+# Wait for the health check to pass before continuing:
+docker compose -f docker-compose.qwen-sidecar.yml logs -f qwen-sidecar
+
+# 2. Run all three scenarios
+make benchmark-claude-code
+
+# Or without a running server (dry-run / CI validation):
+make benchmark-claude-code-dry-run
+
+# 3. Generate the ROI markdown report
+make benchmark-claude-code-report
+---
+
+## Claude Code + GitHub Copilot Benchmark
+
+`benchmarks/claude_code_benchmark.py` runs a dedicated comparison benchmark that
+quantifies the ROI of routing Claude Code through Isartor compared to a direct
+cloud path.
+
+### What it measures
+
+- **Case A — without Isartor:** every prompt goes directly to the cloud LLM
+  provider (Anthropic API or GitHub Copilot-backed endpoint). All latency is
+  cloud-round-trip latency and all tokens consume cloud quota.
+- **Case B — with Isartor (Qwen 2.5 Coder 7B as L2):** prompts route through
+  the full Isartor deflection stack:
+  L1a exact cache → L1b semantic cache → L2 Qwen (llama.cpp) → L3 cloud.
+
+Reported metrics for each case:
+
+| Metric | Description |
+|--------|-------------|
+| L1a / L1b / L2 / L3 hits | Requests resolved at each layer |
+| Deflection rate | % of requests that avoided cloud |
+| P50 / P95 / P99 latency | Overall and per-layer latencies |
+| Est. cloud tokens avoided | Input + output tokens saved by deflection |
+| Est. cost saving | USD reduction using Claude 3.5 Sonnet pricing |
+
+### Quick Start
+
+```bash
+# Dry-run — no server needed, CI-safe, deterministic output:
+make benchmark-claude-copilot-dry-run
+
+# Case B only against a live Isartor instance:
+python3 benchmarks/claude_code_benchmark.py --case B \
+    --isartor-url http://localhost:8080
+
+# Full comparison with a real Anthropic API key (Case A) and live Isartor (Case B):
+ANTHROPIC_API_KEY=sk-ant-... \
+python3 benchmarks/claude_code_benchmark.py --compare \
+    --isartor-url http://localhost:8080 \
+    --api-key changeme
+
+# Full end-to-end orchestration (downloads model, starts sidecar + Isartor):
+GITHUB_TOKEN=ghp_... \
+./scripts/run_claude_code_benchmark.sh --compare \
+    --start-llama-server \
+    --start-isartor
+```
+
+### Model setup (Layer 2 — Qwen 2.5 Coder 7B)
+
+```bash
+# 1. Download the Qwen 2.5 Coder 7B GGUF (~4.7 GB):
+./scripts/download_qwen_gguf.sh
+
+# 2. Start llama-server:
+llama-server \
+  --model models/qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+  --host 127.0.0.1 --port 8090 \
+  --ctx-size 4096 --n-predict 512
+
+# 3. Start Isartor with Qwen as Layer 2:
+ISARTOR__ENABLE_SLM_ROUTER=true \
+ISARTOR__LAYER2__SIDECAR_URL=http://127.0.0.1:8090/v1 \
+./target/release/isartor up
+```
+
+### CLI Reference
+
+```
+usage: claude_code_benchmark.py [-h] [--url URL] [--api-key KEY]
+                                 [--input INPUT] [--requests REQUESTS]
+                                 [--scenario {baseline,cold,warm,all}]
+                                 [--output OUTPUT] [--timeout TIMEOUT]
+                                 [--dry-run]
+
+options:
+  --url URL            Base URL of the running Isartor instance
+  --api-key KEY        X-API-Key header value
+  --input INPUT        Path to a JSONL fixture file
+  --requests REQUESTS  Limit prompts per scenario (0 = all)
+  --scenario           Which scenario(s) to run (default: all)
+  --dry-run            Simulate responses locally — no server required
+```
+
+### Acceptance Criteria
+
+The harness enforces these criteria and exits non-zero if any fail:
+
+| Criterion | Threshold |
+|-----------|-----------|
+| Warm deflection rate | ≥ 60 % |
+| Cold deflection rate | ≥ 10 % |
+| Error rate (any scenario) | < 5 % |
+
+### Qwen 2.5 Coder 7B Sidecar
+
+`docker/docker-compose.qwen-sidecar.yml` defines the Layer 2 sidecar:
+
+- **Model**: `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF` (Q4\_K\_M, ~4.4 GB)
+- **Served by**: `ghcr.io/ggml-org/llama.cpp:server`
+- **Port**: 8081 (OpenAI-compatible `/v1/chat/completions`)
+- **Environment overrides**: `QWEN_CTX_SIZE`, `QWEN_N_GPU_LAYERS`, `QWEN_N_THREADS`, `QWEN_PORT`
+
+Smoke test:
+
+```bash
+curl http://localhost:8081/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen2.5-coder-7b","messages":[{"role":"user","content":"hi"}],"max_tokens":16}'
+```
+
+### ROI Report
+
+`benchmarks/roi_report.py` reads `benchmarks/results/claude_code_latest.json`
+and emits:
+
+- **`benchmarks/results/claude_code_roi_report.md`** — human-readable report
+- **`benchmarks/results/claude_code_roi_<timestamp>.json`** — machine-readable artifact
+
+Key assumptions (edit `roi_report.py` to match your environment):
+
+| Assumption | Default |
+|------------|---------|
+| gpt-4o input price | $0.000005 / token |
+| gpt-4o output price | $0.000015 / token |
+| Avg input tokens / request | 75 |
+| Avg output tokens / response | 300 |
+| Monthly request volume | 50,000 |
+| Isartor self-hosting cost | $50 / month |
+usage: claude_code_benchmark.py [-h] [--case {A,B}] [--compare] [--dry-run]
+                                 [--isartor-url URL] [--api-key KEY]
+                                 [--direct-url URL] [--direct-api-key KEY]
+                                 [--input FILE] [--requests N]
+                                 [--output FILE] [--report FILE]
+
+Options:
+  --case {A,B}       Run a single case: A (without Isartor) or B (with Isartor)
+  --compare          Run both cases and generate a comparison report
+  --dry-run          Simulate responses locally — no server needed (CI-safe)
+  --isartor-url URL  Isartor base URL (default: $ISARTOR_URL or http://localhost:8080)
+  --api-key KEY      Isartor X-API-Key (default: $ISARTOR_API_KEY or 'changeme')
+  --direct-url URL   Direct API URL for Case A (default: $ANTHROPIC_BASE_URL)
+  --direct-api-key KEY  API key for Case A (default: $ANTHROPIC_API_KEY)
+  --input FILE       JSONL fixture file (default: fixtures/claude_code_todo_app.jsonl)
+  --requests N       Limit number of prompts (0 = all)
+  --output FILE      JSON results file (default: results/claude_code_copilot.json)
+  --report FILE      Markdown report file (default: results/claude_code_copilot_report.md)
+```
+
+### Output files
+
+| File | Description |
+|------|-------------|
+| `results/claude_code_copilot.json` | Machine-readable results (both cases) |
+| `results/claude_code_copilot_report.md` | Human-readable Markdown comparison report |
+
+### Sample output (dry-run)
+
+```
+-- Case A — without Isartor --
+  Total requests : 58
+  L3  (cloud)    :    58  (100.0%)
+  Deflection rate: 0.0%  (no local deflection — every request hits cloud)
+  P50 latency    : 1408.5 ms
+  Est. cloud cost: $0.3132  ($0.005400/req)
+
+-- Case B — with Isartor (Qwen L2) --
+  Total requests : 58
+  L1a (exact)    :    20  (34.5%)
+  L1b (semantic) :    15  (25.9%)
+  L2  (Qwen)     :    11  (19.0%)
+  L3  (cloud)    :    12  (20.7%)
+  Deflection rate: 79.3%
+  P50 latency    : 5.9 ms
+  Est. cloud cost: $0.0648  ($0.001117/req)
+```
+
+> **Note on Case A control path:** Claude Code's native behavior routes requests
+> through GitHub Copilot's infrastructure, which does not expose per-request
+> layer or deflection metadata. The Case A baseline therefore uses a direct
+> Anthropic API call (or a simulated all-L3 distribution in dry-run mode) as
+> the nearest defensible control. This is documented explicitly in the
+> benchmark report so comparisons are reproducible and transparent.
+
