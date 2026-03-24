@@ -352,6 +352,52 @@ jobs:
               body,
             });
 
+      - name: Validate Copilot key before Isartor cache runs
+        if: env.DRY_RUN == 'false' && steps.baseline.outcome == 'success'
+        env:
+          COPILOT_KEY: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${COPILOT_KEY:-}" ]; then
+            echo "::error::Repository secret COPILOT_KEY or ISARTOR_COPILOT_TOKEN is required before cold/warm benchmark runs."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          req = urllib.request.Request(
+              "https://api.github.com/copilot_internal/v2/token",
+              headers={
+                  "Authorization": f"token {os.environ['COPILOT_KEY']}",
+                  "Accept": "application/json",
+                  "User-Agent": "GitHubCopilotChat/0.29.1",
+              },
+              method="GET",
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  payload = json.loads(resp.read().decode("utf-8"))
+          except urllib.error.HTTPError as exc:
+              raise SystemExit(
+                  f"Configured Copilot key failed pre-cold validation with HTTP {exc.code}. "
+                  "Stopping before cold/warm runs."
+              ) from exc
+
+          if not payload.get("token"):
+              raise SystemExit(
+                  "Configured Copilot key did not return a Copilot session token. "
+                  "Stopping before cold/warm runs."
+              )
+
+          print("Copilot key validated successfully; proceeding to cold/warm runs.")
+          PY
+
       # ── Run cold cache scenario ───────────────────────────────────────────
       - name: Run Isartor cold cache scenario
         id: cold
