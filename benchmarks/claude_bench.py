@@ -139,6 +139,13 @@ def start_isartor(
     env["ISARTOR__OFFLINE_MODE"] = "false"
     env["ISARTOR__L3_TIMEOUT_SECS"] = "300"  # 5 min for large Claude Code payloads
 
+    # Debug: show token info (without leaking it)
+    tok_len = len(copilot_token) if copilot_token else 0
+    tok_preview = (copilot_token[:4] + "..." + copilot_token[-4:]) if tok_len > 10 else "(empty/short)"
+    print(f"  Token: {tok_preview} ({tok_len} chars)", file=sys.stderr)
+    print(f"  Model: {model}, Provider: copilot", file=sys.stderr)
+    print(f"  Port: {port}, Mode: {mode}", file=sys.stderr)
+
     if mode == "passthrough":
         env["ISARTOR__ENABLE_SLM_ROUTER"] = "false"
         env["ISARTOR__CACHE_MAX_CAPACITY"] = "0"
@@ -192,7 +199,7 @@ def preflight_api_test(port: int) -> bool:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             body = json.loads(resp.read().decode())
             text = ""
             for block in body.get("content", []):
@@ -203,13 +210,34 @@ def preflight_api_test(port: int) -> bool:
                 return True
             print(f"  ⚠ Preflight: empty response body: {json.dumps(body)[:300]}", file=sys.stderr)
             return False
+    except urllib.error.HTTPError as e:
+        body_text = ""
+        try:
+            body_text = e.read().decode()[:1000]
+        except Exception:
+            pass
+        print(f"  ❌ Preflight HTTP {e.code}: {e.reason}", file=sys.stderr)
+        if body_text:
+            print(f"  Response body: {body_text}", file=sys.stderr)
+        _dump_isartor_log()
+        return False
     except Exception as e:
         print(f"  ❌ Preflight failed: {e}", file=sys.stderr)
-        # Dump Isartor log for debugging
-        isartor_log = Path.home() / ".isartor" / "isartor.log"
-        if isartor_log.exists():
-            print(f"  Isartor log tail:\n{isartor_log.read_text()[-1500:]}", file=sys.stderr)
+        _dump_isartor_log()
         return False
+
+
+def _dump_isartor_log() -> None:
+    """Print tail of Isartor log for debugging."""
+    for log_path in [
+        Path.home() / ".isartor" / "isartor.log",
+        Path("/tmp/isartor-bench.log"),
+    ]:
+        if log_path.exists():
+            log_tail = log_path.read_text()[-2000:]
+            print(f"  Isartor log ({log_path}, last 2000 chars):\n{log_tail}", file=sys.stderr)
+            return
+    print("  (no Isartor log found)", file=sys.stderr)
 
 
 # ── Claude CLI ─────────────────────────────────────────────────────────────

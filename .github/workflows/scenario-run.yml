@@ -121,9 +121,9 @@ jobs:
         env:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
 
-      # ── Copilot auth (live baseline only) ───────────────────────────────
+      # ── Copilot auth (any live mode needs Copilot token) ─────────────────
       - name: Prepare Copilot authentication
-        if: env.MODE == 'baseline_only' || env.MODE == 'both'
+        if: env.MODE != 'dry_run'
         id: copilot_auth_prepare
         env:
           COPILOT_KEY_SECRET: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
@@ -201,7 +201,7 @@ jobs:
 
       - name: Post device-flow login instructions
         if: |
-          (env.MODE == 'baseline_only' || env.MODE == 'both') &&
+          env.MODE != 'dry_run' &&
           steps.copilot_auth_prepare.outputs.auth_mode == 'device' &&
           inputs.issue_number
         uses: actions/github-script@v7
@@ -231,7 +231,7 @@ jobs:
             });
 
       - name: Resolve Copilot authentication
-        if: env.MODE == 'baseline_only' || env.MODE == 'both'
+        if: env.MODE != 'dry_run'
         id: copilot_auth
         env:
           COPILOT_KEY_SECRET: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
@@ -419,9 +419,9 @@ jobs:
             sleep 2
           done
 
-      # ── Start Isartor with Qwen L2 ─────────────────────────────────────
+      # ── Start Isartor with Qwen L2 (fixture runner only) ────────────────
       - name: Start Isartor gateway with Qwen L2
-        if: env.MODE == 'isartor_only' || env.MODE == 'both'
+        if: (env.MODE == 'isartor_only' || env.MODE == 'both') && env.RUNNER != 'claude_cli'
         env:
           ISARTOR__GATEWAY_API_KEY: benchmark-key
           ISARTOR__LLM_PROVIDER: copilot
