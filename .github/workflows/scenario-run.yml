@@ -47,7 +47,7 @@ jobs:
   scenario-run:
     name: Code Generation Scenario Run
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     env:
       MODE: ${{ inputs.mode }}
@@ -311,29 +311,119 @@ jobs:
         if: env.MODE == 'isartor_only' || env.MODE == 'both'
         run: cargo build --release
 
-      - name: Start Isartor gateway
+      # ── Download Qwen 2.5 Coder 7B ─────────────────────────────────────
+      - name: Download Qwen 2.5 Coder 7B GGUF
+        if: env.MODE == 'isartor_only' || env.MODE == 'both'
+        run: |
+          mkdir -p ./models
+          echo "Downloading Qwen 2.5 Coder 7B Q4_K_M GGUF (~4.7 GB)..."
+          curl -fL \
+            --retry 3 \
+            --retry-delay 10 \
+            --progress-bar \
+            -C - \
+            "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf" \
+            -o "./models/qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+          echo "Download complete ($(du -h ./models/qwen2.5-coder-7b-instruct-q4_k_m.gguf | cut -f1))."
+
+      # ── Install llama.cpp ───────────────────────────────────────────────
+      - name: Install llama.cpp
+        if: env.MODE == 'isartor_only' || env.MODE == 'both'
+        run: |
+          set -euo pipefail
+          LLAMA_API_JSON=$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/ggml-org/llama.cpp/releases/latest)
+          export LLAMA_API_JSON
+          read -r LLAMA_VERSION LLAMA_ASSET_URL <<< \
+            "$(python3 -c "
+          import json, os, sys
+          payload = json.loads(os.environ['LLAMA_API_JSON'])
+          tag = payload.get('tag_name', '')
+          assets = payload.get('assets', [])
+          for name in (f'llama-{tag}-bin-ubuntu-x64.tar.gz', f'llama-{tag}-bin-ubuntu-x64.zip'):
+              for a in assets:
+                  if a.get('name') == name:
+                      print(tag, a['browser_download_url']); sys.exit(0)
+          sys.exit('No Linux x64 asset found')
+          ")"
+          echo "Installing llama.cpp ${LLAMA_VERSION} from ${LLAMA_ASSET_URL}"
+          rm -rf /tmp/llama-cpp
+          mkdir -p /tmp/llama-cpp
+          case "$LLAMA_ASSET_URL" in
+            *.tar.gz) curl -fsSL "$LLAMA_ASSET_URL" | tar -xz -C /tmp/llama-cpp ;;
+            *.zip)    curl -fsSL "$LLAMA_ASSET_URL" -o /tmp/llama.zip && unzip -q /tmp/llama.zip -d /tmp/llama-cpp ;;
+          esac
+          LLAMA_SERVER_PATH=$(find /tmp/llama-cpp -type f -name llama-server | head -n 1)
+          if [ -z "$LLAMA_SERVER_PATH" ]; then
+            echo "::error::llama-server not found in archive"
+            find /tmp/llama-cpp -maxdepth 3 -type f | head -30
+            exit 1
+          fi
+          sudo mkdir -p /usr/local/llama-cpp
+          sudo cp -a /tmp/llama-cpp/. /usr/local/llama-cpp/
+          LLAMA_REL="${LLAMA_SERVER_PATH#/tmp/llama-cpp/}"
+          LLAMA_SERVER_CMD="/usr/local/llama-cpp/${LLAMA_REL}"
+          sudo ln -sf "$LLAMA_SERVER_CMD" /usr/local/bin/llama-server
+          LLAMA_LIB_PATHS=$(find /usr/local/llama-cpp -type f \( -name '*.so' -o -name '*.so.*' \) -exec dirname {} \; | sort -u | paste -sd: -)
+          echo "LLAMA_SERVER_CMD=${LLAMA_SERVER_CMD}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=${LLAMA_LIB_PATHS}" >> "$GITHUB_ENV"
+          LD_LIBRARY_PATH="${LLAMA_LIB_PATHS}" "$LLAMA_SERVER_CMD" --version
+
+      # ── Start llama-server (Qwen L2 sidecar) ───────────────────────────
+      - name: Start llama-server (Qwen L2)
+        if: env.MODE == 'isartor_only' || env.MODE == 'both'
+        run: |
+          LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" "${LLAMA_SERVER_CMD}" \
+            --model ./models/qwen2.5-coder-7b-instruct-q4_k_m.gguf \
+            --host 127.0.0.1 \
+            --port 8090 \
+            --ctx-size 4096 \
+            --n-predict 2048 \
+            >/tmp/llama-server.log 2>&1 &
+          echo "LLAMA_PID=$!" >> "$GITHUB_ENV"
+
+          echo "Waiting for llama-server to be ready..."
+          for i in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:8090/health > /dev/null 2>&1; then
+              echo "✅ llama-server ready after ${i}s"
+              break
+            fi
+            if [ "$i" -eq 120 ]; then
+              echo "❌ llama-server failed to start"
+              tail -30 /tmp/llama-server.log
+              exit 1
+            fi
+            sleep 2
+          done
+
+      # ── Start Isartor with Qwen L2 ─────────────────────────────────────
+      - name: Start Isartor gateway with Qwen L2
         if: env.MODE == 'isartor_only' || env.MODE == 'both'
         env:
-          ISARTOR__API_KEY: benchmark-key
+          ISARTOR__GATEWAY_API_KEY: benchmark-key
           ISARTOR__LLM_PROVIDER: copilot
           ISARTOR__COPILOT_TOKEN: ${{ env.COPILOT_WORKFLOW_KEY }}
-          ISARTOR__LAYER2__ENABLE_SLM_ROUTER: "false"
+          ISARTOR__ENABLE_SLM_ROUTER: "true"
+          ISARTOR__LAYER2__ENABLE_SLM_ROUTER: "true"
+          ISARTOR__LAYER2__SIDECAR_URL: "http://127.0.0.1:8090/v1"
+          ISARTOR__LAYER2__CLASSIFIER_MODE: "tiered"
+          ISARTOR__LAYER2__MAX_ANSWER_TOKENS: "2048"
           ISARTOR__OFFLINE_MODE: "false"
         run: |
           set -euo pipefail
 
-          # Write a minimal config so Isartor doesn't pick up repo defaults
-          mkdir -p ~/.isartor
-          printf 'llm_provider = "copilot"\noffline_mode = false\n[layer2]\nenable_slm_router = false\n' > isartor.toml
+          # Write minimal config to override repo defaults
+          printf 'llm_provider = "copilot"\noffline_mode = false\n\n[layer2]\nenable_slm_router = true\nsidecar_url = "http://127.0.0.1:8090/v1"\nclassifier_mode = "tiered"\nmax_answer_tokens = 2048\n' > isartor.toml
 
-          # Debug: confirm env is set
-          echo "LLM_PROVIDER=${ISARTOR__LLM_PROVIDER}"
-          echo "SLM_ROUTER=${ISARTOR__LAYER2__ENABLE_SLM_ROUTER}"
-          echo "COPILOT_TOKEN is $([ -n "${ISARTOR__COPILOT_TOKEN}" ] && echo 'set' || echo 'EMPTY')"
+          echo "SLM_ROUTER=true, SIDECAR_URL=http://127.0.0.1:8090/v1"
+          echo "CLASSIFIER_MODE=tiered, MAX_ANSWER_TOKENS=2048"
+          echo "COPILOT_TOKEN is $([ -n "${ISARTOR__COPILOT_TOKEN:-}" ] && echo 'set' || echo 'EMPTY')"
 
-          ./target/release/isartor up --detach 2>&1 || true
+          ISARTOR__EXTERNAL_LLM_API_KEY="${ISARTOR__COPILOT_TOKEN:-}" \
+            ./target/release/isartor up --detach 2>&1 || true
 
-          # Wait for health with log dump on failure
+          # Wait for health
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
               echo "✅ Isartor healthy after ${i}s"
