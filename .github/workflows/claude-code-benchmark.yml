@@ -284,9 +284,14 @@ jobs:
         id: baseline
         timeout-minutes: 60
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || '' }}
+          DIRECT_LLM_URL: https://api.githubcopilot.com/chat/completions
+          DIRECT_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${DIRECT_LLM_API_KEY:-}" ]; then
+            echo "::error::Repository secret ISARTOR_COPILOT_TOKEN is required for the direct Copilot baseline benchmark."
+            exit 1
+          fi
           EXTRA_ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             EXTRA_ARGS="--dry-run"
@@ -298,7 +303,8 @@ jobs:
           python3 benchmarks/claude_code_benchmark.py \
             --scenario baseline \
             $EXTRA_ARGS \
-            --direct-api-key "${ANTHROPIC_API_KEY}" \
+            --direct-url "${DIRECT_LLM_URL}" \
+            --direct-api-key "${DIRECT_LLM_API_KEY}" \
             --output benchmarks/results/claude_code_benchmark.json \
             --report benchmarks/results/claude_code_benchmark_report.md \
             2>&1 | tee /tmp/baseline_output.txt
@@ -490,9 +496,14 @@ jobs:
         id: three_way
         timeout-minutes: 10
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || '' }}
+          DIRECT_LLM_URL: https://api.githubcopilot.com/chat/completions
+          DIRECT_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${DIRECT_LLM_API_KEY:-}" ]; then
+            echo "::error::Repository secret ISARTOR_COPILOT_TOKEN is required for the direct Copilot baseline benchmark."
+            exit 1
+          fi
           EXTRA_ARGS=""
           if [ "$DRY_RUN" = "true" ]; then
             EXTRA_ARGS="--dry-run"
@@ -506,7 +517,8 @@ jobs:
             $EXTRA_ARGS \
             --isartor-url http://localhost:8080 \
             --api-key "${ISARTOR_API_KEY}" \
-            --direct-api-key "${ANTHROPIC_API_KEY}" \
+            --direct-url "${DIRECT_LLM_URL}" \
+            --direct-api-key "${DIRECT_LLM_API_KEY}" \
             --output benchmarks/results/claude_code_benchmark.json \
             --report benchmarks/results/claude_code_benchmark_report.md \
             2>&1 | tee /tmp/three_way_output.txt

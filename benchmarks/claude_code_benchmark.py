@@ -26,6 +26,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,10 @@ AVG_OUTPUT_TOKENS = 200
 RETRYABLE_HTTP_STATUSES = {429, 502, 503, 504}
 MAX_HTTP_ATTEMPTS = 3
 HTTP_RETRY_BACKOFF_SECS = 1.5
+COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
+COPILOT_COMPLETIONS_URL = "https://api.githubcopilot.com/chat/completions"
+COPILOT_USER_AGENT = "GitHubCopilotChat/0.29.1"
+COPILOT_EDITOR_VERSION = "vscode/1.99.0"
 
 SCENARIO_TO_KEY = {
     "baseline": "baseline",
@@ -158,10 +163,72 @@ def anthropic_request(
             time.sleep(sleep_secs)
 
 
+def exchange_copilot_session_token(github_token: str, timeout: float) -> str:
+    req = urllib.request.Request(
+        COPILOT_TOKEN_URL,
+        headers={
+            "Authorization": f"token {github_token}",
+            "Accept": "application/json",
+            "User-Agent": COPILOT_USER_AGENT,
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    token = payload.get("token")
+    if not token:
+        raise RuntimeError(f"Copilot session token response missing token: {payload}")
+    return str(token)
+
+
+def copilot_request(prompt: str, github_token: str, timeout: float) -> tuple[int, dict[str, str]]:
+    session_token = exchange_copilot_session_token(github_token, timeout)
+    body = json.dumps(
+        {
+            "model": "gpt-4o-mini",
+            "max_tokens": AVG_OUTPUT_TOKENS,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        COPILOT_COMPLETIONS_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {session_token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": COPILOT_USER_AGENT,
+            "Editor-Version": COPILOT_EDITOR_VERSION,
+            "Editor-Plugin-Version": "copilot-chat/0.29.1",
+            "Copilot-Integration-Id": "vscode-chat",
+            "X-GitHub-Api-Version": "2025-04-01",
+        },
+        method="POST",
+    )
+
+    for attempt in range(1, MAX_HTTP_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                status = getattr(resp, "status", 200)
+                headers_out = {k.lower(): v for k, v in resp.headers.items()}
+                resp.read()
+                return status, headers_out
+        except urllib.error.HTTPError as exc:
+            if attempt >= MAX_HTTP_ATTEMPTS or exc.code not in RETRYABLE_HTTP_STATUSES:
+                raise
+            sleep_secs = HTTP_RETRY_BACKOFF_SECS * attempt
+            print(
+                f"[retry] HTTP {exc.code} from direct Copilot on attempt {attempt}/{MAX_HTTP_ATTEMPTS}; "
+                f"retrying in {sleep_secs:.1f}s",
+                file=sys.stderr,
+            )
+            time.sleep(sleep_secs)
+
+
 def run_scenario(name: str, entries: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
     if not args.dry_run:
         if name == "baseline" and not args.direct_api_key:
-            raise SystemExit("baseline live mode requires --direct-api-key or ANTHROPIC_API_KEY")
+            raise SystemExit("baseline live mode requires --direct-api-key or a direct provider token")
         if name in {"cold", "warm"} and not args.api_key:
             raise SystemExit("Isartor live mode requires --api-key or ISARTOR_API_KEY")
 
@@ -175,8 +242,12 @@ def run_scenario(name: str, entries: list[dict[str, Any]], args: argparse.Namesp
             if args.dry_run:
                 layer, latency_ms = simulate_layer(prompt, name)
             elif name == "baseline":
-                url = args.direct_url.rstrip("/") + "/v1/messages"
-                anthropic_request(url, args.direct_api_key, prompt, args.timeout)
+                parsed_direct_url = urlparse(args.direct_url)
+                if "api.githubcopilot.com" in parsed_direct_url.netloc:
+                    copilot_request(prompt, args.direct_api_key, args.timeout)
+                else:
+                    url = args.direct_url.rstrip("/") + "/v1/messages"
+                    anthropic_request(url, args.direct_api_key, prompt, args.timeout)
                 layer = "l3"
                 latency_ms = (time.perf_counter() - start) * 1000.0
             else:
@@ -310,8 +381,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scenario", choices=("baseline", "cold", "warm"), help="Run one scenario")
     parser.add_argument("--isartor-url", "--url", dest="isartor_url", default=os.environ.get("ISARTOR_URL", "http://localhost:8080"))
     parser.add_argument("--api-key", default=os.environ.get("ISARTOR_API_KEY", ""))
-    parser.add_argument("--direct-url", default=os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com"))
-    parser.add_argument("--direct-api-key", default=os.environ.get("ANTHROPIC_API_KEY", ""))
+    parser.add_argument("--direct-url", default=os.environ.get("DIRECT_LLM_URL", os.environ.get("ANTHROPIC_BASE_URL", COPILOT_COMPLETIONS_URL)))
+    parser.add_argument("--direct-api-key", default=os.environ.get("DIRECT_LLM_API_KEY", os.environ.get("ANTHROPIC_API_KEY", os.environ.get("ISARTOR_COPILOT_TOKEN", ""))))
     parser.add_argument("--input", default=str(DEFAULT_FIXTURE))
     parser.add_argument("--requests", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=float(os.environ.get("ISARTOR_TIMEOUT", "120")))
