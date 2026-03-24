@@ -256,14 +256,14 @@ jobs:
         env:
           ISARTOR__GATEWAY_API_KEY: ${{ env.ISARTOR_API_KEY }}
           ISARTOR__LLM_PROVIDER: copilot
-          # ISARTOR_COPILOT_TOKEN: a GitHub token (ghp_... / gho_...) with Copilot access.
+          # Prefer COPILOT_KEY for live benchmark auth; fall back to ISARTOR_COPILOT_TOKEN.
           # This workflow is intended to execute a real Copilot-backed L3 path.
-          ISARTOR__EXTERNAL_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN }}
+          ISARTOR__EXTERNAL_LLM_API_KEY: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
           ISARTOR__ENABLE_SLM_ROUTER: "true"
           ISARTOR__LAYER2__SIDECAR_URL: "http://127.0.0.1:8090/v1"
         run: |
           if [ -z "${ISARTOR__EXTERNAL_LLM_API_KEY:-}" ]; then
-            echo "::error::Repository secret ISARTOR_COPILOT_TOKEN is required for the live Claude benchmark workflow."
+            echo "::error::Repository secret COPILOT_KEY or ISARTOR_COPILOT_TOKEN is required for the live Claude benchmark workflow."
             exit 1
           fi
           ./target/release/isartor up >/tmp/isartor.log 2>&1 &
@@ -285,11 +285,12 @@ jobs:
         timeout-minutes: 60
         env:
           DIRECT_LLM_URL: https://api.githubcopilot.com/chat/completions
-          DIRECT_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN }}
+          COPILOT_KEY: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
+          DIRECT_LLM_API_KEY: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${DIRECT_LLM_API_KEY:-}" ]; then
-            echo "::error::Repository secret ISARTOR_COPILOT_TOKEN is required for the direct Copilot baseline benchmark."
+          if [ -z "${COPILOT_KEY:-${DIRECT_LLM_API_KEY:-}}" ]; then
+            echo "::error::Repository secret COPILOT_KEY or ISARTOR_COPILOT_TOKEN is required for the direct Copilot baseline benchmark."
             exit 1
           fi
           EXTRA_ARGS=""
@@ -304,7 +305,7 @@ jobs:
             --scenario baseline \
             $EXTRA_ARGS \
             --direct-url "${DIRECT_LLM_URL}" \
-            --direct-api-key "${DIRECT_LLM_API_KEY}" \
+            --direct-api-key "${COPILOT_KEY:-${DIRECT_LLM_API_KEY}}" \
             --output benchmarks/results/claude_code_benchmark.json \
             --report benchmarks/results/claude_code_benchmark_report.md \
             2>&1 | tee /tmp/baseline_output.txt
@@ -497,11 +498,12 @@ jobs:
         timeout-minutes: 10
         env:
           DIRECT_LLM_URL: https://api.githubcopilot.com/chat/completions
-          DIRECT_LLM_API_KEY: ${{ secrets.ISARTOR_COPILOT_TOKEN }}
+          COPILOT_KEY: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
+          DIRECT_LLM_API_KEY: ${{ secrets.COPILOT_KEY || secrets.ISARTOR_COPILOT_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${DIRECT_LLM_API_KEY:-}" ]; then
-            echo "::error::Repository secret ISARTOR_COPILOT_TOKEN is required for the direct Copilot baseline benchmark."
+          if [ -z "${COPILOT_KEY:-${DIRECT_LLM_API_KEY:-}}" ]; then
+            echo "::error::Repository secret COPILOT_KEY or ISARTOR_COPILOT_TOKEN is required for the direct Copilot baseline benchmark."
             exit 1
           fi
           EXTRA_ARGS=""
@@ -518,7 +520,7 @@ jobs:
             --isartor-url http://localhost:8080 \
             --api-key "${ISARTOR_API_KEY}" \
             --direct-url "${DIRECT_LLM_URL}" \
-            --direct-api-key "${DIRECT_LLM_API_KEY}" \
+            --direct-api-key "${COPILOT_KEY:-${DIRECT_LLM_API_KEY}}" \
             --output benchmarks/results/claude_code_benchmark.json \
             --report benchmarks/results/claude_code_benchmark_report.md \
             2>&1 | tee /tmp/three_way_output.txt

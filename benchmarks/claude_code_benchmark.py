@@ -173,12 +173,23 @@ def exchange_copilot_session_token(github_token: str, timeout: float) -> str:
         },
         method="GET",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            raise RuntimeError("direct Copilot token rejected: no active GitHub Copilot subscription found for the supplied token") from exc
+        if exc.code == 401:
+            raise RuntimeError("direct Copilot token rejected: invalid GitHub token") from exc
+        raise RuntimeError(f"direct Copilot session token request returned HTTP {exc.code}") from exc
     token = payload.get("token")
     if not token:
         raise RuntimeError(f"Copilot session token response missing token: {payload}")
     return str(token)
+
+
+def is_direct_copilot_url(url: str) -> bool:
+    return "api.githubcopilot.com" in urlparse(url).netloc
 
 
 def copilot_request(prompt: str, github_token: str, timeout: float) -> tuple[int, dict[str, str]]:
@@ -242,8 +253,7 @@ def run_scenario(name: str, entries: list[dict[str, Any]], args: argparse.Namesp
             if args.dry_run:
                 layer, latency_ms = simulate_layer(prompt, name)
             elif name == "baseline":
-                parsed_direct_url = urlparse(args.direct_url)
-                if "api.githubcopilot.com" in parsed_direct_url.netloc:
+                if is_direct_copilot_url(args.direct_url):
                     copilot_request(prompt, args.direct_api_key, args.timeout)
                 else:
                     url = args.direct_url.rstrip("/") + "/v1/messages"
@@ -264,9 +274,13 @@ def run_scenario(name: str, entries: list[dict[str, Any]], args: argparse.Namesp
                 latency_ms = (time.perf_counter() - start) * 1000.0
             layer_latencies[layer].append(latency_ms)
         except urllib.error.HTTPError as exc:
+            if name == "baseline":
+                raise SystemExit(f"baseline direct provider returned HTTP {exc.code}: {exc}") from exc
             errors += 1
             print(f"[warn] {name} HTTP {exc.code}: {exc}", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001
+            if name == "baseline":
+                raise SystemExit(f"baseline direct provider request failed: {exc}") from exc
             errors += 1
             print(f"[warn] {name} request failed: {exc}", file=sys.stderr)
 
@@ -382,7 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--isartor-url", "--url", dest="isartor_url", default=os.environ.get("ISARTOR_URL", "http://localhost:8080"))
     parser.add_argument("--api-key", default=os.environ.get("ISARTOR_API_KEY", ""))
     parser.add_argument("--direct-url", default=os.environ.get("DIRECT_LLM_URL", os.environ.get("ANTHROPIC_BASE_URL", COPILOT_COMPLETIONS_URL)))
-    parser.add_argument("--direct-api-key", default=os.environ.get("DIRECT_LLM_API_KEY", os.environ.get("ANTHROPIC_API_KEY", os.environ.get("ISARTOR_COPILOT_TOKEN", ""))))
+    parser.add_argument("--direct-api-key", default=os.environ.get("COPILOT_KEY", os.environ.get("copilot_key", os.environ.get("DIRECT_LLM_API_KEY", os.environ.get("ANTHROPIC_API_KEY", os.environ.get("ISARTOR_COPILOT_TOKEN", ""))))))
     parser.add_argument("--input", default=str(DEFAULT_FIXTURE))
     parser.add_argument("--requests", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=float(os.environ.get("ISARTOR_TIMEOUT", "120")))
