@@ -137,6 +137,7 @@ def start_isartor(
     env["ISARTOR__EXTERNAL_LLM_URL"] = "https://api.githubcopilot.com/chat/completions"
     env["ISARTOR__GATEWAY_API_KEY"] = "benchmark-key"
     env["ISARTOR__OFFLINE_MODE"] = "false"
+    env["ISARTOR__L3_TIMEOUT_SECS"] = "300"  # 5 min for large Claude Code payloads
 
     if mode == "passthrough":
         env["ISARTOR__ENABLE_SLM_ROUTER"] = "false"
@@ -425,7 +426,15 @@ def run_scenario(
     if exit_code != 0:
         print(f"  ⚠ claude exited with code {exit_code}", file=sys.stderr)
         if stderr:
-            print(f"  stderr: {stderr[:500]}", file=sys.stderr)
+            print(f"  stderr (last 1000 chars):\n{stderr[-1000:]}", file=sys.stderr)
+        if stdout:
+            # Show tail of stdout for clues (may contain error JSON)
+            print(f"  stdout (last 500 chars):\n{stdout[-500:]}", file=sys.stderr)
+        # Dump Isartor logs for debugging
+        isartor_log = Path.home() / ".isartor" / "isartor.log"
+        if isartor_log.exists():
+            log_tail = isartor_log.read_text()[-2000:]
+            print(f"  Isartor log (last 2000 chars):\n{log_tail}", file=sys.stderr)
 
     # Parse Claude JSON output
     parsed = parse_claude_json(stdout)
