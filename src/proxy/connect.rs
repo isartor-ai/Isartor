@@ -25,6 +25,7 @@ use tokio_rustls::TlsAcceptor;
 use crate::config::CacheMode;
 use crate::core::prompt::{extract_cache_key, extract_prompt, has_tooling};
 use crate::metrics;
+use crate::middleware::slm_triage::answer_quality_ok;
 use crate::models::{
     FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage, PromptVisibilityEntry,
     ProxyRecentResponse, ProxyRouteDecision,
@@ -578,20 +579,31 @@ async fn try_proxy_slm_resolution(
         #[cfg(feature = "embedded-inference")]
         {
             if let Some(classifier) = &state.embedded_classifier {
+                let use_tiered =
+                    state.config.layer2.classifier_mode == crate::config::ClassifierMode::Tiered;
                 match classifier.classify(prompt).await {
-                    Ok((label, _)) if label == "SIMPLE" => match classifier.execute(prompt).await {
-                        Ok(answer) => {
-                            let model = "embedded(gemma-2)".to_string();
-                            return Some(match path {
-                                "/v1/messages" => build_anthropic_proxy_response(answer, model),
-                                _ => build_openai_proxy_response(answer, model),
-                            });
+                    Ok((label, _))
+                        if label == "SIMPLE"
+                            || (use_tiered && (label == "TEMPLATE" || label == "SNIPPET")) =>
+                    {
+                        match classifier.execute(prompt).await {
+                            Ok(answer) if answer_quality_ok(&answer) => {
+                                let model = "embedded(gemma-2)".to_string();
+                                return Some(match path {
+                                    "/v1/messages" => build_anthropic_proxy_response(answer, model),
+                                    _ => build_openai_proxy_response(answer, model),
+                                });
+                            }
+                            Ok(_) => {
+                                tracing::info!("Proxy L2: answer quality guard rejected output");
+                                return None;
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Proxy L2: embedded answer generation failed");
+                                return None;
+                            }
                         }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "Proxy L2: embedded answer generation failed");
-                            return None;
-                        }
-                    },
+                    }
                     Ok(_) => return None,
                     Err(e) => {
                         tracing::warn!(error = %e, "Proxy L2: embedded classification failed");
@@ -608,14 +620,22 @@ async fn try_proxy_slm_resolution(
         }
     }
 
-    match state.slm_client.classify_simple_or_complex(prompt).await {
+    match state
+        .slm_client
+        .classify_deflectable(prompt, &state.config.layer2.classifier_mode)
+        .await
+    {
         Ok(true) => match state.slm_client.answer_prompt(prompt).await {
-            Ok(answer) => {
+            Ok(answer) if answer_quality_ok(&answer) => {
                 let model = state.config.layer2.model_name.clone();
                 Some(match path {
                     "/v1/messages" => build_anthropic_proxy_response(answer, model),
                     _ => build_openai_proxy_response(answer, model),
                 })
+            }
+            Ok(_) => {
+                tracing::info!("Proxy L2: sidecar answer quality guard rejected output");
+                None
             }
             Err(e) => {
                 tracing::warn!(error = %e, "Proxy L2: sidecar answer generation failed");
@@ -977,6 +997,8 @@ mod tests {
                 sidecar_url: sidecar_url.into(),
                 model_name: "phi-3-mini".into(),
                 timeout_seconds: 5,
+                classifier_mode: crate::config::ClassifierMode::Tiered,
+                max_answer_tokens: 2048,
             },
             local_slm_url: "http://localhost:11434/api/generate".into(),
             local_slm_model: "llama3".into(),
@@ -1086,12 +1108,13 @@ mod tests {
     async fn proxy_resolution_can_resolve_at_l2_via_sidecar() {
         let server = MockServer::start().await;
 
+        // Tiered classifier prompt matcher
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
-            .and(body_string_contains("Reply with EXACTLY one word: SIMPLE or COMPLEX."))
+            .and(body_string_contains("coding task classifier"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"SIMPLE"},"index":0,"finish_reason":"stop"}]})),
+                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"TEMPLATE"},"index":0,"finish_reason":"stop"}]})),
             )
             .expect(1)
             .mount(&server)
@@ -1160,10 +1183,10 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
-            .and(body_string_contains("Reply with EXACTLY one word: SIMPLE or COMPLEX."))
+            .and(body_string_contains("coding task classifier"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"SIMPLE"},"index":0,"finish_reason":"stop"}]})),
+                    .set_body_json(serde_json::json!({"choices":[{"message":{"role":"assistant","content":"SNIPPET"},"index":0,"finish_reason":"stop"}]})),
             )
             .expect(1)
             .mount(&server)

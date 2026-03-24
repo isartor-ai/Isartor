@@ -27,10 +27,10 @@ use isartor::config::CacheMode;
 async fn simple_classification_short_circuits_at_layer_2() {
     let mock_server = MockServer::start().await;
 
-    // First call: classification → SIMPLE
+    // First call: classification → TEMPLATE (tiered mode default)
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("SIMPLE")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("TEMPLATE")))
         .up_to_n_times(1)
         .expect(1)
         .mount(&mock_server)

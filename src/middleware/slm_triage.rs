@@ -25,6 +25,25 @@ basic knowledge) or COMPLEX (requires deep reasoning, code generation, \
 creative writing, or multi-step analysis).\n\n\
 Reply with EXACTLY one word: SIMPLE or COMPLEX.";
 
+/// Tiered classifier prompt that recognises code-adjacent tasks a small
+/// model can handle locally (config files, type definitions, short
+/// snippets) without routing everything labelled "code" to the cloud.
+pub const CLASSIFY_TIERED_SYSTEM_PROMPT: &str = "\
+You are a coding task classifier for a local small language model.\n\
+Classify the prompt into exactly one category:\n\n\
+TEMPLATE — The task produces a configuration file (tsconfig, package.json, \
+Dockerfile, docker-compose, jest.config, .gitignore, .env, ESLint config), \
+a TypeScript/JavaScript type or interface definition, or documentation \
+(README, JSDoc, code comments). Output is predictable and template-like.\n\n\
+SNIPPET — The task produces a single short code file or function (under 50 lines), \
+such as a server entry point, a simple validation function, a basic middleware, \
+or a data type with minimal logic. Does NOT reference or import multiple \
+project-specific modules.\n\n\
+COMPLEX — The task requires generating substantial code (over 50 lines), implements \
+full CRUD endpoints, writes test suites, builds frontend pages, imports from \
+multiple project files, or requires understanding project-wide architecture.\n\n\
+Reply with EXACTLY one word: TEMPLATE, SNIPPET, or COMPLEX.";
+
 // ── OpenAI-compatible request/response types for the sidecar ─────────
 
 #[derive(serde::Serialize)]
@@ -59,14 +78,40 @@ struct ChatCompletionResponse {
     choices: Vec<ChatChoice>,
 }
 
+/// Answer quality guard — rejects SLM answers that are likely too poor to
+/// serve.  Falls through to L3 when the answer looks empty, uncertain, or
+/// suspiciously short.
+pub(crate) fn answer_quality_ok(answer: &str) -> bool {
+    let trimmed = answer.trim();
+    if trimmed.len() < 10 {
+        return false;
+    }
+    let lower = trimmed.to_lowercase();
+    let uncertainty = [
+        "i don't know",
+        "i'm not sure",
+        "i cannot",
+        "i can't",
+        "as an ai",
+        "i am unable",
+    ];
+    if uncertainty.iter().any(|u| lower.starts_with(u)) {
+        return false;
+    }
+    true
+}
+
 /// Layer 2 — SLM triage middleware.
 ///
 /// 1. Sends the user's prompt to the local llama.cpp sidecar for intent
 ///    classification via the OpenAI-compatible `/v1/chat/completions` endpoint.
-/// 2. If the SLM classifies the task as **SIMPLE**, a second call asks
-///    the SLM to generate the answer directly (short-circuit).
-/// 3. If the task is **COMPLEX** or the SLM is unreachable, the request
-///    continues to Layer 3 (external LLM fallback).
+/// 2. In **tiered** mode the classifier labels the prompt as TEMPLATE,
+///    SNIPPET, or COMPLEX.  TEMPLATE and SNIPPET are deflected to L2.
+///    In **binary** mode (legacy) the labels are SIMPLE / COMPLEX.
+/// 3. If the task is deflectable, a second call asks the SLM to generate
+///    the answer directly (short-circuit).
+/// 4. If the task is COMPLEX, the SLM is unreachable, or the answer
+///    fails the quality guard, the request continues to Layer 3.
 pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
     fn slm_response_for_path(
         path: &str,
@@ -175,20 +220,30 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
 
     // ------------------------------------------------------------------
     // 2. Classify the prompt via the selected Inference Engine.
+    //    `is_deflectable` is true when the SLM can answer locally.
+    //    In tiered mode: TEMPLATE or SNIPPET → deflectable.
+    //    In binary mode: SIMPLE → deflectable.
     // ------------------------------------------------------------------
-    let is_simple = {
+    let use_tiered = state.config.layer2.classifier_mode
+        == crate::config::ClassifierMode::Tiered;
+
+    let is_deflectable = {
         if state.config.inference_engine == crate::config::InferenceEngineMode::Embedded {
         #[cfg(feature = "embedded-inference")]
         {
             if let Some(classifier) = &state.embedded_classifier {
                 match classifier.classify(&prompt).await {
                     Ok((label, _conf)) => {
-                        let is_simp = label == "SIMPLE";
+                        let deflect = if use_tiered {
+                            label == "TEMPLATE" || label == "SNIPPET" || label == "SIMPLE"
+                        } else {
+                            label == "SIMPLE"
+                        };
                         tracing::Span::current().record(
                             "slm.complexity_score",
-                            if is_simp { "SIMPLE" } else { "COMPLEX" },
+                            &label as &str,
                         );
-                        is_simp
+                        deflect
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Layer 2: Embedded classification failed – falling through");
@@ -205,7 +260,6 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         #[cfg(not(feature = "embedded-inference"))]
         {
             tracing::warn!("Layer 2: Embedded engine requested but binary was not compiled with `embedded-inference` feature. Falling back to sidecar logic.");
-            // NOTE: Ideally this fall-through uses sidecar URL but let's just fall to Layer 3 for safety.
             false
         }
     } else {
@@ -214,12 +268,18 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
             state.config.layer2.sidecar_url.trim_end_matches('/')
         );
 
+        let system_prompt = if use_tiered {
+            CLASSIFY_TIERED_SYSTEM_PROMPT
+        } else {
+            CLASSIFY_SYSTEM_PROMPT
+        };
+
         let classify_req = ChatCompletionRequest {
             model: state.config.layer2.model_name.clone(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: CLASSIFY_SYSTEM_PROMPT.to_string(),
+                    content: system_prompt.to_string(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -250,13 +310,17 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                         .to_uppercase();
                     tracing::info!(classification = %answer, "Layer 2: SLM classification result");
 
-                    let is_simp = answer.contains("SIMPLE");
+                    let deflect = if use_tiered {
+                        answer.contains("TEMPLATE") || answer.contains("SNIPPET")
+                    } else {
+                        answer.contains("SIMPLE")
+                    };
                     tracing::Span::current().record(
                         "slm.complexity_score",
-                        if is_simp { "SIMPLE" } else { "COMPLEX" },
+                        answer.as_str(),
                     );
 
-                    is_simp
+                    deflect
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "Layer 2: Failed to parse SLM response – falling through");
@@ -278,8 +342,8 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
     // ------------------------------------------------------------------
     // 3. Branch: short-circuit or continue.
     // ------------------------------------------------------------------
-    if is_simple {
-        tracing::info!("Layer 2: Simple task – generating answer via selected engine");
+    if is_deflectable {
+        tracing::info!("Layer 2: Deflectable task – generating answer via selected engine");
 
         if state.config.inference_engine == crate::config::InferenceEngineMode::Embedded {
             #[cfg(feature = "embedded-inference")]
@@ -287,20 +351,25 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 if let Some(classifier) = &state.embedded_classifier {
                     match classifier.execute(&prompt).await {
                         Ok(answer) => {
-                            crate::metrics::record_layer_duration_with_tool(
-                                "L2_SLM",
-                                layer_start.elapsed(),
-                                tool,
-                            );
-                            let model = "embedded(gemma-2)".to_string();
-                            let mut response = slm_response_for_path(
-                                &request_path,
-                                StatusCode::OK,
-                                answer,
-                                model,
-                            );
-                            response.extensions_mut().insert(FinalLayer::Slm);
-                            return response;
+                            // Answer quality guard
+                            if answer_quality_ok(&answer) {
+                                crate::metrics::record_layer_duration_with_tool(
+                                    "L2_SLM",
+                                    layer_start.elapsed(),
+                                    tool,
+                                );
+                                let model = "embedded(gemma-2)".to_string();
+                                let mut response = slm_response_for_path(
+                                    &request_path,
+                                    StatusCode::OK,
+                                    answer,
+                                    model,
+                                );
+                                response.extensions_mut().insert(FinalLayer::Slm);
+                                return response;
+                            } else {
+                                tracing::info!("Layer 2: Answer quality guard rejected SLM output – falling through to L3");
+                            }
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "Layer 2: Embedded answer generation failed – falling through");
@@ -315,6 +384,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 "{}/v1/chat/completions",
                 state.config.layer2.sidecar_url.trim_end_matches('/')
             );
+            let max_tokens = state.config.layer2.max_answer_tokens;
             // Second call: ask the sidecar to actually answer the prompt.
             let answer_req = ChatCompletionRequest {
                 model: state.config.layer2.model_name.clone(),
@@ -326,7 +396,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 ],
                 stream: false,
                 temperature: None,
-                max_tokens: None,
+                max_tokens: Some(max_tokens),
             };
 
             match state
@@ -344,20 +414,25 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                             .next()
                             .map(|c| c.message.content)
                             .unwrap_or_default();
-                        crate::metrics::record_layer_duration_with_tool(
-                            "L2_SLM",
-                            layer_start.elapsed(),
-                            tool,
-                        );
-                        let model = state.config.layer2.model_name.clone();
-                        let mut response = slm_response_for_path(
-                            &request_path,
-                            StatusCode::OK,
-                            answer,
-                            model,
-                        );
-                        response.extensions_mut().insert(FinalLayer::Slm);
-                        return response;
+                        // Answer quality guard
+                        if answer_quality_ok(&answer) {
+                            crate::metrics::record_layer_duration_with_tool(
+                                "L2_SLM",
+                                layer_start.elapsed(),
+                                tool,
+                            );
+                            let model = state.config.layer2.model_name.clone();
+                            let mut response = slm_response_for_path(
+                                &request_path,
+                                StatusCode::OK,
+                                answer,
+                                model,
+                            );
+                            response.extensions_mut().insert(FinalLayer::Slm);
+                            return response;
+                        } else {
+                            tracing::info!("Layer 2: Answer quality guard rejected SLM output – falling through to L3");
+                        }
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Layer 2: Sidecar answer parse failed – falling through");
@@ -432,6 +507,8 @@ mod tests {
                 sidecar_url: sidecar_url.into(),
                 model_name: "phi-3-mini".into(),
                 timeout_seconds: 5,
+                classifier_mode: crate::config::ClassifierMode::Tiered,
+                max_answer_tokens: 2048,
             },
             local_slm_url: "http://localhost:11434/api/generate".into(),
             local_slm_model: "llama3".into(),
@@ -507,12 +584,114 @@ mod tests {
         })
     }
 
+    #[test]
+    fn answer_quality_guard_accepts_valid_answers() {
+        assert!(answer_quality_ok(
+            "The answer is 42, because 6 times 7 equals 42."
+        ));
+        assert!(answer_quality_ok("function hello() { return 42; }"));
+        assert!(answer_quality_ok(
+            "{ \"compilerOptions\": { \"strict\": true } }"
+        ));
+    }
+
+    #[test]
+    fn answer_quality_guard_rejects_poor_answers() {
+        assert!(!answer_quality_ok(""));
+        assert!(!answer_quality_ok("   "));
+        assert!(!answer_quality_ok("short"));
+        assert!(!answer_quality_ok("I don't know how to do that."));
+        assert!(!answer_quality_ok("I'm not sure about that."));
+        assert!(!answer_quality_ok("I cannot help with that."));
+        assert!(!answer_quality_ok("As an AI language model, I cannot..."));
+    }
+
     #[tokio::test]
     async fn simple_classification_short_circuits() {
         let mock_server = MockServer::start().await;
 
-        // First call: classification returns SIMPLE
+        // First call: classification returns TEMPLATE (tiered mode default)
         // Second call: SLM generates the answer
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(chat_completion_json("TEMPLATE")),
+            )
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(chat_completion_json("The answer is 42")),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let state = test_state(&mock_server.uri());
+        let app = triage_app(state);
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(json_body("what is 6*7?"))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["layer"], 2);
+        assert_eq!(json["message"], "The answer is 42");
+    }
+
+    #[tokio::test]
+    async fn snippet_classification_short_circuits() {
+        let mock_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("SNIPPET")))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(chat_completion_json("function hello() { return 42; }")),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        let state = test_state(&mock_server.uri());
+        let app = triage_app(state);
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(json_body("write a hello function"))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["layer"], 2);
+    }
+
+    #[tokio::test]
+    async fn binary_mode_still_uses_simple_complex() {
+        let mock_server = MockServer::start().await;
+
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
             .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("SIMPLE")))
@@ -530,7 +709,60 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let state = test_state(&mock_server.uri());
+        // Build state with binary classifier mode
+        let config = Arc::new(AppConfig {
+            host_port: "127.0.0.1:0".into(),
+            inference_engine: crate::config::InferenceEngineMode::Sidecar,
+            gateway_api_key: "test".into(),
+            cache_mode: CacheMode::Exact,
+            cache_backend: crate::config::CacheBackend::Memory,
+            redis_url: "redis://127.0.0.1:6379".into(),
+            router_backend: crate::config::RouterBackend::Embedded,
+            vllm_url: "http://127.0.0.1:8000".into(),
+            vllm_model: "gemma-2-2b-it".into(),
+            embedding_model: "all-minilm".into(),
+            similarity_threshold: 0.85,
+            cache_ttl_secs: 300,
+            cache_max_capacity: 100,
+            layer2: Layer2Settings {
+                sidecar_url: mock_server.uri(),
+                model_name: "phi-3-mini".into(),
+                timeout_seconds: 5,
+                classifier_mode: crate::config::ClassifierMode::Binary,
+                max_answer_tokens: 2048,
+            },
+            local_slm_url: "http://localhost:11434/api/generate".into(),
+            local_slm_model: "llama3".into(),
+            embedding_sidecar: EmbeddingSidecarSettings {
+                sidecar_url: "http://127.0.0.1:8082".into(),
+                model_name: "test".into(),
+                timeout_seconds: 5,
+            },
+            llm_provider: "openai".into(),
+            external_llm_url: "http://localhost".into(),
+            external_llm_model: "test".into(),
+            external_llm_api_key: "".into(),
+            l3_timeout_secs: 120,
+            azure_deployment_id: "".into(),
+            azure_api_version: "".into(),
+            enable_monitoring: false,
+            enable_slm_router: true,
+            otel_exporter_endpoint: "http://localhost:4317".into(),
+            offline_mode: false,
+            proxy_port: "0.0.0.0:8081".into(),
+        });
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
+            vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            llm_agent: Arc::new(MockAgent),
+            slm_client: Arc::new(SlmClient::new(&config.layer2)),
+            text_embedder: shared_test_embedder(),
+            config,
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+
         let app = triage_app(state);
 
         let req = axum::extract::Request::builder()
@@ -652,6 +884,8 @@ mod tests {
                 sidecar_url: "http://127.0.0.1:1".into(),
                 model_name: "phi-3-mini".into(),
                 timeout_seconds: 1,
+                classifier_mode: crate::config::ClassifierMode::Tiered,
+                max_answer_tokens: 2048,
             },
             local_slm_url: "http://localhost:11434/api/generate".into(),
             local_slm_model: "llama3".into(),

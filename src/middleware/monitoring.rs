@@ -254,6 +254,8 @@ mod tests {
                 sidecar_url: "http://127.0.0.1:8081".into(),
                 model_name: "test".into(),
                 timeout_seconds: 5,
+                classifier_mode: crate::config::ClassifierMode::Tiered,
+                max_answer_tokens: 2048,
             },
             local_slm_url: "http://localhost:11434/api/generate".into(),
             local_slm_model: "llama3".into(),

@@ -247,8 +247,8 @@ async fn body_survives_all_middleware() {
 
     use isartor::clients::slm::SlmClient;
     use isartor::config::{
-        AppConfig, CacheBackend, CacheMode, EmbeddingSidecarSettings, InferenceEngineMode,
-        Layer2Settings, RouterBackend,
+        AppConfig, CacheBackend, CacheMode, ClassifierMode, EmbeddingSidecarSettings,
+        InferenceEngineMode, Layer2Settings, RouterBackend,
     };
     use isartor::handler::chat_handler;
     use isartor::layer1::embeddings::TextEmbedder;
@@ -293,6 +293,8 @@ async fn body_survives_all_middleware() {
             sidecar_url: "http://127.0.0.1:1".into(),
             model_name: "phi-3-mini".into(),
             timeout_seconds: 1,
+            classifier_mode: ClassifierMode::Tiered,
+            max_answer_tokens: 2048,
         },
         local_slm_url: "http://localhost:11434/api/generate".into(),
         local_slm_model: "llama3".into(),

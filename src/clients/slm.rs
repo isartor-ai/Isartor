@@ -277,6 +277,69 @@ impl SlmClient {
         Ok(content.contains("SIMPLE"))
     }
 
+    /// Classifier-mode-aware deflection check.
+    ///
+    /// In **tiered** mode, sends the tiered system prompt and returns
+    /// `true` when the SLM replies TEMPLATE or SNIPPET.
+    /// In **binary** mode, delegates to `classify_simple_or_complex`.
+    pub async fn classify_deflectable(
+        &self,
+        user_prompt: &str,
+        mode: &crate::config::ClassifierMode,
+    ) -> anyhow::Result<bool> {
+        if *mode == crate::config::ClassifierMode::Binary {
+            return self.classify_simple_or_complex(user_prompt).await;
+        }
+
+        let system_prompt = crate::middleware::slm_triage::CLASSIFY_TIERED_SYSTEM_PROMPT;
+        let request_body = ChatCompletionRequest {
+            model: self.model_name.clone(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: user_prompt.to_string(),
+                },
+            ],
+            temperature: Some(0.0),
+            max_tokens: Some(10),
+            stream: Some(false),
+        };
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+        let resp = self
+            .http_client
+            .post(&url)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("SlmClient: tiered classify request failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("SlmClient: tiered classify returned {status}: {body}");
+        }
+
+        let completion: ChatCompletionResponse = resp.json().await.map_err(|e| {
+            anyhow::anyhow!("SlmClient: failed to parse tiered classify response: {e}")
+        })?;
+
+        let content = completion
+            .choices
+            .into_iter()
+            .next()
+            .map(|c| c.message.content)
+            .unwrap_or_default()
+            .trim()
+            .to_uppercase();
+
+        Ok(content.contains("TEMPLATE") || content.contains("SNIPPET"))
+    }
+
     pub async fn answer_prompt(&self, user_prompt: &str) -> anyhow::Result<String> {
         self.chat_completion(
             vec![ChatMessage {
@@ -317,6 +380,8 @@ mod tests {
             sidecar_url: url.to_string(),
             model_name: "test-model".to_string(),
             timeout_seconds: 5,
+            classifier_mode: crate::config::ClassifierMode::Tiered,
+            max_answer_tokens: 2048,
         }
     }
 

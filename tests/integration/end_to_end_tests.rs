@@ -17,16 +17,16 @@ use crate::common;
 use crate::common::*;
 use isartor::config::CacheMode;
 
-/// End-to-end: SIMPLE prompt → SLM short-circuit → response cached
+/// End-to-end: TEMPLATE prompt → SLM short-circuit → response cached
 /// → second request hits cache at Layer 1.
 #[tokio::test]
 async fn e2e_simple_prompt_cached_after_slm() {
     let mock_server = MockServer::start().await;
 
-    // Classification: SIMPLE
+    // Classification: TEMPLATE (tiered mode)
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("SIMPLE")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("TEMPLATE")))
         .up_to_n_times(1)
         .mount(&mock_server)
         .await;

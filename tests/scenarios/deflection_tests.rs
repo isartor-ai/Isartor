@@ -45,11 +45,16 @@ fn simple_prompts() -> Vec<&'static str> {
 async fn deflection_rate_at_least_60_percent() {
     let mock_server = MockServer::start().await;
 
-    // SLM always classifies as SIMPLE and returns a short answer.
+    // SLM always classifies as TEMPLATE and returns a short answer.
+    // Use up_to_n_times so the first 5 calls (unique prompt classifications)
+    // hit the TEMPLATE mock, then subsequent answer calls get a real response.
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(chat_completion_json("SIMPLE")))
-        // First call for each unique prompt is classification.
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(chat_completion_json(
+                "TEMPLATE — here is the answer to your question.",
+            )),
+        )
         .mount(&mock_server)
         .await;
 

@@ -409,6 +409,8 @@ mod tests {
                 sidecar_url: "http://localhost:8081".into(),
                 model_name: "test-model".into(),
                 timeout_seconds: 30,
+                classifier_mode: crate::config::ClassifierMode::Tiered,
+                max_answer_tokens: 2048,
             },
             embedding_sidecar: crate::config::EmbeddingSidecarSettings {
                 sidecar_url: "http://localhost:8082".into(),

@@ -151,6 +151,22 @@ pub enum RouterBackend {
     Vllm,
 }
 
+/// Classifier mode for the Layer 2 SLM triage.
+///
+/// Set via `ISARTOR__LAYER2__CLASSIFIER_MODE` env var.
+///
+/// * `"binary"` — Original SIMPLE/COMPLEX binary classification.
+/// * `"tiered"` — Three-tier TEMPLATE/SNIPPET/COMPLEX classification
+///   that deflects config files, type definitions, documentation, and
+///   short single-function code to L2. Default.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClassifierMode {
+    Binary,
+    #[default]
+    Tiered,
+}
+
 // ═════════════════════════════════════════════════════════════════════
 // Layer 2 Settings — Lightweight Sidecar (llama.cpp)
 // ═════════════════════════════════════════════════════════════════════
@@ -174,6 +190,21 @@ pub struct Layer2Settings {
 
     /// HTTP request timeout for sidecar calls, in seconds.
     pub timeout_seconds: u64,
+
+    /// Classifier mode: `"binary"` (SIMPLE/COMPLEX) or `"tiered"`
+    /// (TEMPLATE/SNIPPET/COMPLEX). Default is `"tiered"`.
+    #[serde(default)]
+    pub classifier_mode: ClassifierMode,
+
+    /// Maximum tokens the SLM may generate for an L2 answer.
+    /// If the SLM exceeds this, the answer is still returned but a
+    /// warning is logged. Default is 2048.
+    #[serde(default = "default_max_answer_tokens")]
+    pub max_answer_tokens: u32,
+}
+
+fn default_max_answer_tokens() -> u32 {
+    2048
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -382,6 +413,8 @@ impl AppConfig {
             .set_default("layer2.sidecar_url", "http://127.0.0.1:8081")?
             .set_default("layer2.model_name", "phi-3-mini")?
             .set_default("layer2.timeout_seconds", 30_i64)?
+            .set_default("layer2.classifier_mode", "tiered")?
+            .set_default("layer2.max_answer_tokens", 2048_i64)?
             // Legacy Layer 2 (v1 middleware — Ollama compat)
             .set_default("local_slm_url", "http://localhost:11434/api/generate")?
             .set_default("local_slm_model", "llama3")?
@@ -582,6 +615,16 @@ mod tests {
         assert_eq!(settings.sidecar_url, "http://localhost:8081");
         assert_eq!(settings.model_name, "phi-3");
         assert_eq!(settings.timeout_seconds, 30);
+        assert_eq!(settings.classifier_mode, ClassifierMode::Tiered);
+        assert_eq!(settings.max_answer_tokens, 2048);
+    }
+
+    #[test]
+    fn layer2_settings_deserialize_binary_mode() {
+        let json = r#"{"sidecar_url":"http://localhost:8081","model_name":"phi-3","timeout_seconds":30,"classifier_mode":"binary","max_answer_tokens":512}"#;
+        let settings: Layer2Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.classifier_mode, ClassifierMode::Binary);
+        assert_eq!(settings.max_answer_tokens, 512);
     }
 
     #[test]
@@ -627,6 +670,10 @@ mod tests {
             .set_default("layer2.model_name", "phi-3-mini")
             .unwrap()
             .set_default("layer2.timeout_seconds", 30_i64)
+            .unwrap()
+            .set_default("layer2.classifier_mode", "tiered")
+            .unwrap()
+            .set_default("layer2.max_answer_tokens", 2048_i64)
             .unwrap()
             .set_default("local_slm_url", "http://localhost:11434/api/generate")
             .unwrap()
@@ -686,6 +733,8 @@ mod tests {
         assert_eq!(config.layer2.sidecar_url, "http://127.0.0.1:8081");
         assert_eq!(config.layer2.model_name, "phi-3-mini");
         assert_eq!(config.layer2.timeout_seconds, 30);
+        assert_eq!(config.layer2.classifier_mode, ClassifierMode::Tiered);
+        assert_eq!(config.layer2.max_answer_tokens, 2048);
         assert_eq!(
             config.embedding_sidecar.sidecar_url,
             "http://127.0.0.1:8082"
@@ -733,6 +782,10 @@ mod tests {
             .set_default("layer2.model_name", "phi-3-mini")
             .unwrap()
             .set_default("layer2.timeout_seconds", 30_i64)
+            .unwrap()
+            .set_default("layer2.classifier_mode", "tiered")
+            .unwrap()
+            .set_default("layer2.max_answer_tokens", 2048_i64)
             .unwrap()
             .set_default("local_slm_url", "http://localhost:11434/api/generate")
             .unwrap()
@@ -831,6 +884,10 @@ mod tests {
             .set_default("layer2.model_name", "phi-3-mini")
             .unwrap()
             .set_default("layer2.timeout_seconds", 30_i64)
+            .unwrap()
+            .set_default("layer2.classifier_mode", "tiered")
+            .unwrap()
+            .set_default("layer2.max_answer_tokens", 2048_i64)
             .unwrap()
             .set_default("local_slm_url", "http://localhost:11434/api/generate")
             .unwrap()
@@ -934,6 +991,10 @@ mod tests {
             .set_default("layer2.model_name", "phi-3-mini")
             .unwrap()
             .set_default("layer2.timeout_seconds", 30_i64)
+            .unwrap()
+            .set_default("layer2.classifier_mode", "tiered")
+            .unwrap()
+            .set_default("layer2.max_answer_tokens", 2048_i64)
             .unwrap()
             .set_default("local_slm_url", "http://localhost:11434/api/generate")
             .unwrap()
