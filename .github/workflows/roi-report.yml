@@ -1,0 +1,169 @@
+name: ROI Report
+
+# Generates the with/without-Isartor ROI report and posts it to the
+# GitHub issue tracking this benchmark work.
+#
+# Triggers:
+#   - Manually via workflow_dispatch (with optional issue number)
+#   - On every push to main (updates the standing issue comment)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "benchmarks/**"
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "GitHub issue number to post the report to (leave blank to skip comment)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Use dry-run simulation instead of a live benchmark run"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  roi-report:
+    name: Generate ROI Report
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Optional: run a fresh dry-run benchmark to feed the report ────────
+      - name: Run dry-run benchmark (if requested or no results file)
+        if: ${{ github.event.inputs.dry_run != 'false' }}
+        run: python3 benchmarks/run.py --all --dry-run
+
+      # ── Generate ROI report ───────────────────────────────────────────────
+      - name: Generate ROI report (from latest results)
+        if: ${{ github.event.inputs.dry_run == 'false' }}
+        run: python3 benchmarks/report.py
+
+      - name: Generate ROI report (dry-run)
+        if: ${{ github.event.inputs.dry_run != 'false' }}
+        run: python3 benchmarks/report.py --dry-run
+
+      # ── Validate artifacts ────────────────────────────────────────────────
+      - name: Validate JSON artifact
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          with open("benchmarks/results/roi_report.json") as f:
+              data = json.load(f)
+          assert data.get("schema_version") == "1", "missing or wrong schema_version"
+          assert data.get("report_type") == "roi_comparison", "wrong report_type"
+          assert "fixtures" in data, "missing fixtures key"
+          assert "aggregate" in data, "missing aggregate key"
+          agg = data["aggregate"]
+          assert agg["total_requests"] > 0, "total_requests is 0"
+          assert 0 <= agg["overall_deflection_rate"] <= 1, "deflection_rate out of range"
+          assert agg["total_cost_saved_usd"] >= 0, "cost_saved is negative"
+          print(f"ROI report is valid. Deflection: {agg['overall_deflection_rate']*100:.1f}%, "
+                f"cost saved: ${agg['total_cost_saved_usd']:.4f}")
+          PY
+
+      - name: Validate Markdown report
+        run: |
+          test -s benchmarks/results/roi_report.md || { echo "roi_report.md is empty"; exit 1; }
+          grep -q "Executive summary" benchmarks/results/roi_report.md
+          grep -q "With vs without Isartor" benchmarks/results/roi_report.md
+          grep -q "L2 SLM sidecar justification" benchmarks/results/roi_report.md
+          grep -q "Assumptions and methodology" benchmarks/results/roi_report.md
+          echo "Markdown report structure verified."
+
+      # ── Upload artifacts ──────────────────────────────────────────────────
+      - name: Upload ROI report artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roi-report
+          path: |
+            benchmarks/results/roi_report.json
+            benchmarks/results/roi_report.md
+
+      # ── Post to GitHub issue ──────────────────────────────────────────────
+      - name: Post ROI report to GitHub issue
+        if: >-
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.issue_number != '') ||
+          github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Determine the issue number
+            let issueNumber = parseInt(context.payload.inputs?.issue_number || '0', 10);
+            if (!issueNumber) {
+              console.log('No issue number provided — skipping comment.');
+              return;
+            }
+
+            // Read the Markdown report
+            const md = fs.readFileSync('benchmarks/results/roi_report.md', 'utf8');
+
+            // Read the JSON summary for the header
+            const roi = JSON.parse(
+              fs.readFileSync('benchmarks/results/roi_report.json', 'utf8')
+            );
+            const agg = roi.aggregate;
+
+            const dryRunNote = roi.is_dry_run
+              ? '\n> ⚠️  **Dry-run data** — responses simulated locally.\n'
+              : '';
+
+            const header = [
+              '## 📊 Isartor ROI Report — Claude Code + Copilot',
+              '',
+              dryRunNote,
+              `**Commit:** \`${context.sha.slice(0, 8)}\`  `,
+              `**Hardware:** ${roi.hardware}  `,
+              `**Total requests:** ${agg.total_requests.toLocaleString()}  `,
+              `**Deflection rate:** ${(agg.overall_deflection_rate * 100).toFixed(1)}%  `,
+              `**Estimated cost saved:** $${agg.total_cost_saved_usd.toFixed(4)} ` +
+                `(${((1 - agg.total_cost_with_usd / agg.total_cost_without_usd) * 100).toFixed(1)}% reduction)`,
+              '',
+              '---',
+              '',
+              md,
+              '',
+              `---`,
+              `_Generated by the [ROI Report workflow](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})_`,
+            ].join('\n');
+
+            const marker = '## 📊 Isartor ROI Report — Claude Code + Copilot';
+
+            // Update existing comment or create new one
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+            });
+            const existing = comments.data.find(
+              c => c.user.login === 'github-actions[bot]' && c.body.startsWith(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: header,
+              });
+              console.log(`Updated existing comment #${existing.id} on issue #${issueNumber}`);
+            } else {
+              const created = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: header,
+              });
+              console.log(`Created new comment #${created.data.id} on issue #${issueNumber}`);
+            }

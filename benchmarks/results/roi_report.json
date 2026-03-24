@@ -1,0 +1,110 @@
+{
+  "schema_version": "1",
+  "report_type": "roi_comparison",
+  "generated_at": "2026-03-24T10:33:03Z",
+  "source_data": "/home/runner/work/Isartor/Isartor/benchmarks/results/latest.json",
+  "hardware": "2-core x86_64, 7 GB RAM, no GPU",
+  "is_dry_run": false,
+  "assumptions": {
+    "avg_input_tokens": 150,
+    "avg_output_tokens": 300,
+    "input_price_per_token_usd": 5e-06,
+    "output_price_per_token_usd": 1.5e-05,
+    "baseline_model": "all requests reach L3 (cloud)"
+  },
+  "fixtures": {
+    "faq_loop": {
+      "fixture": "faq_loop",
+      "total_requests": 1000,
+      "l1a_hits": 431,
+      "l1b_hits": 229,
+      "l2_hits": 73,
+      "l3_hits": 267,
+      "l1a_rate": 0.431,
+      "l1b_rate": 0.229,
+      "l2_rate": 0.073,
+      "l3_rate": 0.267,
+      "deflection_rate": 0.733,
+      "error_count": 0,
+      "p50_ms_with": 2.35,
+      "p95_ms_with": 1064.81,
+      "p99_ms_with": 1160.12,
+      "l1a_p50_ms": 0.37,
+      "l1b_p50_ms": 3.13,
+      "l2_p50_ms": 138.55,
+      "l3_p50_ms": 859.93,
+      "p50_ms_without": 859.93,
+      "latency_delta_p50_ms": 857.58,
+      "without_isartor": {
+        "input_tokens": 150000,
+        "output_tokens": 300000,
+        "total_cost_usd": 5.25,
+        "cost_per_req_usd": 0.00525
+      },
+      "with_isartor": {
+        "cloud_input_tokens": 51000,
+        "cloud_output_tokens": 80100,
+        "total_cost_usd": 1.4565,
+        "cost_per_req_usd": 0.0014565,
+        "l3_input_tokens": 40050,
+        "l3_output_tokens": 80100,
+        "l2_input_tokens": 10950
+      },
+      "tokens_saved_input": 99000,
+      "tokens_saved_output": 219900,
+      "cost_saved_usd": 3.7935,
+      "cost_saved_pct": 0.7226
+    },
+    "diverse_tasks": {
+      "fixture": "diverse_tasks",
+      "total_requests": 500,
+      "l1a_hits": 200,
+      "l1b_hits": 132,
+      "l2_hits": 28,
+      "l3_hits": 140,
+      "l1a_rate": 0.4,
+      "l1b_rate": 0.264,
+      "l2_rate": 0.056,
+      "l3_rate": 0.28,
+      "deflection_rate": 0.72,
+      "error_count": 0,
+      "p50_ms_with": 2.71,
+      "p95_ms_with": 1050.36,
+      "p99_ms_with": 1152.4,
+      "l1a_p50_ms": 0.35,
+      "l1b_p50_ms": 3.18,
+      "l2_p50_ms": 133.44,
+      "l3_p50_ms": 761.09,
+      "p50_ms_without": 761.09,
+      "latency_delta_p50_ms": 758.38,
+      "without_isartor": {
+        "input_tokens": 75000,
+        "output_tokens": 150000,
+        "total_cost_usd": 2.625,
+        "cost_per_req_usd": 0.00525
+      },
+      "with_isartor": {
+        "cloud_input_tokens": 25200,
+        "cloud_output_tokens": 42000,
+        "total_cost_usd": 0.756,
+        "cost_per_req_usd": 0.001512,
+        "l3_input_tokens": 21000,
+        "l3_output_tokens": 42000,
+        "l2_input_tokens": 4200
+      },
+      "tokens_saved_input": 49800,
+      "tokens_saved_output": 108000,
+      "cost_saved_usd": 1.869,
+      "cost_saved_pct": 0.712
+    }
+  },
+  "aggregate": {
+    "total_requests": 1500,
+    "overall_deflection_rate": 0.7287,
+    "total_tokens_saved_input": 148800,
+    "total_tokens_saved_output": 327900,
+    "total_cost_without_usd": 7.875,
+    "total_cost_with_usd": 2.2125,
+    "total_cost_saved_usd": 5.6625
+  }
+}

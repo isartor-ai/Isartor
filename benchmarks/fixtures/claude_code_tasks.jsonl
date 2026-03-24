@@ -1,0 +1,640 @@
+{"prompt": "Write a Rust function that parses a TOML config file and returns a struct."}
+{"prompt": "How do I implement async/await in Rust with tokio?"}
+{"prompt": "Write a Python function that checks if a number is prime."}
+{"prompt": "What is the difference between Arc and Rc in Rust?"}
+{"prompt": "Implement a binary search algorithm in Rust."}
+{"prompt": "Write a Rust function that reads a file line by line."}
+{"prompt": "How do I handle errors in Rust with the ? operator?"}
+{"prompt": "Create a REST API in Rust using Axum."}
+{"prompt": "Write a Rust macro that generates getters for a struct."}
+{"prompt": "How do I use lifetimes in Rust functions?"}
+{"prompt": "Write a Python script to parse JSON and extract nested fields."}
+{"prompt": "Implement a stack in Rust using a Vec."}
+{"prompt": "How do I set up a Cargo workspace with multiple crates?"}
+{"prompt": "Write a Rust function that computes the SHA-256 hash of a string."}
+{"prompt": "How do I implement the Display trait in Rust?"}
+{"prompt": "Write a Rust async function that makes an HTTP GET request."}
+{"prompt": "How do I use serde to serialize and deserialize JSON in Rust?"}
+{"prompt": "Write a Rust function that merges two sorted vectors."}
+{"prompt": "How do I write unit tests in Rust?"}
+{"prompt": "Create a Dockerfile for a Rust application."}
+{"prompt": "How do I implement a builder pattern in Rust?"}
+{"prompt": "Write a Rust function that counts words in a string."}
+{"prompt": "What is the ownership model in Rust?"}
+{"prompt": "Write a Rust closure that filters even numbers from a vector."}
+{"prompt": "How do I use channels for inter-thread communication in Rust?"}
+{"prompt": "Write a Rust function that converts a CSV row to a struct."}
+{"prompt": "Implement a simple rate limiter in Rust."}
+{"prompt": "How do I handle panics and recoverable errors in Rust?"}
+{"prompt": "Write a Rust function that validates an email address."}
+{"prompt": "How do I use the tracing crate for structured logging in Rust?"}
+{"prompt": "Write a Python decorator that measures function execution time."}
+{"prompt": "Implement a LRU cache in Rust."}
+{"prompt": "How do I write integration tests in Rust?"}
+{"prompt": "Write a Rust function that sorts a HashMap by value."}
+{"prompt": "How do I use feature flags in a Rust crate?"}
+{"prompt": "Write a Rust function that converts a hex string to bytes."}
+{"prompt": "How do I implement Clone and Copy traits in Rust?"}
+{"prompt": "Write a Rust struct with generic type parameters."}
+{"prompt": "How do I use environment variables in a Rust application?"}
+{"prompt": "Write a Rust function that computes Fibonacci numbers iteratively."}
+{"prompt": "How do I parse command-line arguments in Rust with clap?"}
+{"prompt": "Write a Rust function that finds the longest common prefix."}
+{"prompt": "How do I implement a state machine in Rust?"}
+{"prompt": "Write a Rust function that checks if a string is a palindrome."}
+{"prompt": "How do I use the tokio runtime in Rust?"}
+{"prompt": "Write a Rust function that flattens a nested vector."}
+{"prompt": "How do I implement a custom iterator in Rust?"}
+{"prompt": "Write a Rust function that parses a date from a string."}
+{"prompt": "How do I use Arc<Mutex<T>> for shared mutable state in Rust?"}
+{"prompt": "Write a Rust function that converts between different number bases."}
+{"prompt": "How do I set up CI/CD for a Rust project?"}
+{"prompt": "Write a Rust function that debounces a stream of events."}
+{"prompt": "How do I use the reqwest crate to make HTTP requests in Rust?"}
+{"prompt": "Write a Rust function that computes the edit distance between two strings."}
+{"prompt": "How do I use async streams in Rust with tokio?"}
+{"prompt": "Write a Rust function that generates a random UUID."}
+{"prompt": "How do I implement a retry mechanism in Rust?"}
+{"prompt": "Write a Rust function that compresses data using gzip."}
+{"prompt": "How do I use the diesel ORM with PostgreSQL in Rust?"}
+{"prompt": "Write a Rust function that implements a simple key-value store."}
+{"prompt": "How do I benchmark Rust code with criterion?"}
+{"prompt": "Write a Rust function that tokenizes a string."}
+{"prompt": "How do I use the rayon crate for parallel iteration in Rust?"}
+{"prompt": "Write a Rust function that implements base64 encoding."}
+{"prompt": "How do I use Rust's pattern matching with structs?"}
+{"prompt": "Write a Rust function that computes the median of a list."}
+{"prompt": "How do I add middleware to an Axum server in Rust?"}
+{"prompt": "Write a Rust function that validates a JSON schema."}
+{"prompt": "How do I implement caching with Redis in Rust?"}
+{"prompt": "Write a Rust function that streams a large file without loading it fully."}
+{"prompt": "How do I use WebSockets in Rust with tokio-tungstenite?"}
+{"prompt": "Write a Rust struct that implements the Default trait."}
+{"prompt": "How do I implement rate limiting in an Axum API?"}
+{"prompt": "Write a Rust function that extracts URLs from an HTML document."}
+{"prompt": "How do I use Rust's type system to encode state machines?"}
+{"prompt": "Write a Rust function that batches a vector into chunks."}
+{"prompt": "How do I use tower middleware in Rust?"}
+{"prompt": "Write a Rust function that formats a duration as a human-readable string."}
+{"prompt": "How do I deploy a Rust application to AWS Lambda?"}
+{"prompt": "Write a Rust function that reads a YAML configuration file."}
+{"prompt": "How do I implement distributed tracing in Rust?"}
+{"prompt": "Write a Rust function that validates an IPv4 address."}
+{"prompt": "How do I use sqlx for async database queries in Rust?"}
+{"prompt": "Write a Rust function that parses TOML configuration."}
+{"prompt": "How do I implement graceful shutdown for a Tokio server in Rust?"}
+{"prompt": "Write a Rust function that implements a sliding window algorithm."}
+{"prompt": "How do I use proc macros in Rust?"}
+{"prompt": "Write a Rust function that batches database writes."}
+{"prompt": "How do I implement authentication in an Axum API?"}
+{"prompt": "Write a Rust function that converts a struct to a HashMap."}
+{"prompt": "How do I use OpenTelemetry with Rust?"}
+{"prompt": "Write a Rust function that implements a prefix tree (trie)."}
+{"prompt": "How do I handle concurrent writes in Rust with tokio?"}
+{"prompt": "Write a Rust function that implements consistent hashing."}
+{"prompt": "How do I use the bytes crate in Rust?"}
+{"prompt": "Write a Rust function that implements a bloom filter."}
+{"prompt": "How do I set up a gRPC server in Rust with tonic?"}
+{"prompt": "Write a Rust function that parses a TOML config file and returns a struct."}
+{"prompt": "How do I implement async/await in Rust with tokio?"}
+{"prompt": "Write a Python function that checks if a number is prime."}
+{"prompt": "What is the difference between Arc and Rc in Rust?"}
+{"prompt": "Implement a binary search algorithm in Rust."}
+{"prompt": "Write a Rust function that reads a file line by line."}
+{"prompt": "How do I handle errors in Rust with the ? operator?"}
+{"prompt": "Create a REST API in Rust using Axum."}
+{"prompt": "Write a Rust macro that generates getters for a struct."}
+{"prompt": "How do I use lifetimes in Rust functions?"}
+{"prompt": "Write a Python script to parse JSON and extract nested fields."}
+{"prompt": "Implement a stack in Rust using a Vec."}
+{"prompt": "How do I set up a Cargo workspace with multiple crates?"}
+{"prompt": "Write a Rust function that computes the SHA-256 hash of a string."}
+{"prompt": "How do I implement the Display trait in Rust?"}
+{"prompt": "Write a Rust async function that makes an HTTP GET request."}
+{"prompt": "How do I use serde to serialize and deserialize JSON in Rust?"}
+{"prompt": "Write a Rust function that merges two sorted vectors."}
+{"prompt": "How do I write unit tests in Rust?"}
+{"prompt": "Create a Dockerfile for a Rust application."}
+{"prompt": "How do I implement a builder pattern in Rust?"}
+{"prompt": "Write a Rust function that counts words in a string."}
+{"prompt": "What is the ownership model in Rust?"}
+{"prompt": "Write a Rust closure that filters even numbers from a vector."}
+{"prompt": "How do I use channels for inter-thread communication in Rust?"}
+{"prompt": "Write a Rust function that converts a CSV row to a struct."}
+{"prompt": "Implement a simple rate limiter in Rust."}
+{"prompt": "How do I handle panics and recoverable errors in Rust?"}
+{"prompt": "Write a Rust function that validates an email address."}
+{"prompt": "How do I use the tracing crate for structured logging in Rust?"}
+{"prompt": "Write a Python decorator that measures function execution time."}
+{"prompt": "Implement a LRU cache in Rust."}
+{"prompt": "How do I write integration tests in Rust?"}
+{"prompt": "Write a Rust function that sorts a HashMap by value."}
+{"prompt": "How do I use feature flags in a Rust crate?"}
+{"prompt": "Write a Rust function that converts a hex string to bytes."}
+{"prompt": "How do I implement Clone and Copy traits in Rust?"}
+{"prompt": "Write a Rust struct with generic type parameters."}
+{"prompt": "How do I use environment variables in a Rust application?"}
+{"prompt": "Write a Rust function that computes Fibonacci numbers iteratively."}
+{"prompt": "How do I parse command-line arguments in Rust with clap?"}
+{"prompt": "Write a Rust function that finds the longest common prefix."}
+{"prompt": "How do I implement a state machine in Rust?"}
+{"prompt": "Write a Rust function that checks if a string is a palindrome."}
+{"prompt": "How do I use the tokio runtime in Rust?"}
+{"prompt": "Write a Rust function that flattens a nested vector."}
+{"prompt": "How do I implement a custom iterator in Rust?"}
+{"prompt": "Write a Rust function that parses a date from a string."}
+{"prompt": "How do I use Arc<Mutex<T>> for shared mutable state in Rust?"}
+{"prompt": "Write a Rust function that converts between different number bases."}
+{"prompt": "How do I set up CI/CD for a Rust project?"}
+{"prompt": "Write a Rust function that debounces a stream of events."}
+{"prompt": "How do I use the reqwest crate to make HTTP requests in Rust?"}
+{"prompt": "Write a Rust function that computes the edit distance between two strings."}
+{"prompt": "How do I use async streams in Rust with tokio?"}
+{"prompt": "Write a Rust function that generates a random UUID."}
+{"prompt": "How do I implement a retry mechanism in Rust?"}
+{"prompt": "Write a Rust function that compresses data using gzip."}
+{"prompt": "How do I use the diesel ORM with PostgreSQL in Rust?"}
+{"prompt": "Write a Rust function that implements a simple key-value store."}
+{"prompt": "How do I benchmark Rust code with criterion?"}
+{"prompt": "Write a Rust function that tokenizes a string."}
+{"prompt": "How do I use the rayon crate for parallel iteration in Rust?"}
+{"prompt": "Write a Rust function that implements base64 encoding."}
+{"prompt": "How do I use Rust's pattern matching with structs?"}
+{"prompt": "Write a Rust function that computes the median of a list."}
+{"prompt": "How do I add middleware to an Axum server in Rust?"}
+{"prompt": "Write a Rust function that validates a JSON schema."}
+{"prompt": "How do I implement caching with Redis in Rust?"}
+{"prompt": "Write a Rust function that streams a large file without loading it fully."}
+{"prompt": "How do I use WebSockets in Rust with tokio-tungstenite?"}
+{"prompt": "Write a Rust struct that implements the Default trait."}
+{"prompt": "How do I implement rate limiting in an Axum API?"}
+{"prompt": "Write a Rust function that extracts URLs from an HTML document."}
+{"prompt": "How do I use Rust's type system to encode state machines?"}
+{"prompt": "Write a Rust function that batches a vector into chunks."}
+{"prompt": "How do I use tower middleware in Rust?"}
+{"prompt": "Write a Rust function that formats a duration as a human-readable string."}
+{"prompt": "How do I deploy a Rust application to AWS Lambda?"}
+{"prompt": "Write a Rust function that reads a YAML configuration file."}
+{"prompt": "How do I implement distributed tracing in Rust?"}
+{"prompt": "Write a Rust function that validates an IPv4 address."}
+{"prompt": "How do I use sqlx for async database queries in Rust?"}
+{"prompt": "Write a Rust function that parses TOML configuration."}
+{"prompt": "How do I implement graceful shutdown for a Tokio server in Rust?"}
+{"prompt": "Write a Rust function that implements a sliding window algorithm."}
+{"prompt": "How do I use proc macros in Rust?"}
+{"prompt": "Write a Rust function that batches database writes."}
+{"prompt": "How do I implement authentication in an Axum API?"}
+{"prompt": "Write a Rust function that converts a struct to a HashMap."}
+{"prompt": "How do I use OpenTelemetry with Rust?"}
+{"prompt": "Write a Rust function that implements a prefix tree (trie)."}
+{"prompt": "How do I handle concurrent writes in Rust with tokio?"}
+{"prompt": "Write a Rust function that implements consistent hashing."}
+{"prompt": "How do I use the bytes crate in Rust?"}
+{"prompt": "Write a Rust function that implements a bloom filter."}
+{"prompt": "How do I set up a gRPC server in Rust with tonic?"}
+{"prompt": "Write a Rust function that parses a TOML config file and returns a struct."}
+{"prompt": "How do I implement async/await in Rust with tokio?"}
+{"prompt": "Implement a binary search algorithm in Rust."}
+{"prompt": "Write a Rust function that reads a file line by line."}
+{"prompt": "How do I handle errors in Rust with the ? operator?"}
+{"prompt": "Create a REST API in Rust using Axum."}
+{"prompt": "How do I use lifetimes in Rust functions?"}
+{"prompt": "Implement a stack in Rust using a Vec."}
+{"prompt": "Write a Rust function that computes the SHA-256 hash of a string."}
+{"prompt": "How do I implement the Display trait in Rust?"}
+{"prompt": "Write a Rust async function that makes an HTTP GET request."}
+{"prompt": "How do I use serde to serialize and deserialize JSON in Rust?"}
+{"prompt": "Write a Rust function that merges two sorted vectors."}
+{"prompt": "How do I write unit tests in Rust?"}
+{"prompt": "How do I implement a builder pattern in Rust?"}
+{"prompt": "Write a Rust function that counts words in a string."}
+{"prompt": "What is the ownership model in Rust?"}
+{"prompt": "How do I use channels for inter-thread communication in Rust?"}
+{"prompt": "Implement a simple rate limiter in Rust."}
+{"prompt": "How do I handle panics and recoverable errors in Rust?"}
+{"prompt": "Write a Rust function that validates an email address."}
+{"prompt": "Implement a LRU cache in Rust."}
+{"prompt": "How do I write integration tests in Rust?"}
+{"prompt": "Write a Rust function that sorts a HashMap by value."}
+{"prompt": "How do I use feature flags in a Rust crate?"}
+{"prompt": "Write a Rust struct with generic type parameters."}
+{"prompt": "Write a Rust function that computes Fibonacci numbers iteratively."}
+{"prompt": "How do I parse command-line arguments in Rust with clap?"}
+{"prompt": "How do I implement a state machine in Rust?"}
+{"prompt": "Write a Rust function that checks if a string is a palindrome."}
+{"prompt": "How do I use the tokio runtime in Rust?"}
+{"prompt": "How do I implement a custom iterator in Rust?"}
+{"prompt": "Write a Rust function that parses a date from a string."}
+{"prompt": "How do I set up CI/CD for a Rust project?"}
+{"prompt": "How do I use the reqwest crate to make HTTP requests in Rust?"}
+{"prompt": "How do I use async streams in Rust with tokio?"}
+{"prompt": "Write a Rust function that generates a random UUID."}
+{"prompt": "How do I implement a retry mechanism in Rust?"}
+{"prompt": "How do I use the diesel ORM with PostgreSQL in Rust?"}
+{"prompt": "Write a Rust function that implements a simple key-value store."}
+{"prompt": "Write a Rust function that tokenizes a string."}
+{"prompt": "Write a Rust function that implements base64 encoding."}
+{"prompt": "How do I use Rust's pattern matching with structs?"}
+{"prompt": "How do I add middleware to an Axum server in Rust?"}
+{"prompt": "How do I implement caching with Redis in Rust?"}
+{"prompt": "Write a Rust struct that implements the Default trait."}
+{"prompt": "How do I implement rate limiting in an Axum API?"}
+{"prompt": "How do I use Rust's type system to encode state machines?"}
+{"prompt": "How do I use tower middleware in Rust?"}
+{"prompt": "How do I deploy a Rust application to AWS Lambda?"}
+{"prompt": "How do I implement distributed tracing in Rust?"}
+{"prompt": "How do I use sqlx for async database queries in Rust?"}
+{"prompt": "How do I implement graceful shutdown for a Tokio server in Rust?"}
+{"prompt": "How do I use proc macros in Rust?"}
+{"prompt": "How do I implement authentication in an Axum API?"}
+{"prompt": "How do I use OpenTelemetry with Rust?"}
+{"prompt": "How do I handle concurrent writes in Rust with tokio?"}
+{"prompt": "How do I set up a gRPC server in Rust with tonic?"}
+{"prompt": "Write a Python function that reverses a linked list in place."}
+{"prompt": "Explain what a closure is in JavaScript with a short example."}
+{"prompt": "Write a Rust function that reads lines from stdin and counts word frequency."}
+{"prompt": "What does the `async`/`await` syntax do in Python?"}
+{"prompt": "Show me a minimal Dockerfile for a Go HTTP server."}
+{"prompt": "Write a TypeScript generic that makes all fields of an interface optional."}
+{"prompt": "How do I handle a 404 in an Axum web handler?"}
+{"prompt": "Write a SQL query that finds duplicate rows in a table by email."}
+{"prompt": "What is the difference between `Arc` and `Rc` in Rust?"}
+{"prompt": "Write a Python decorator that measures function execution time."}
+{"prompt": "Implement a simple LRU cache in Python using a dictionary and deque."}
+{"prompt": "What does `cargo clippy` check that `cargo build` does not?"}
+{"prompt": "Write a bash function that retries a command up to N times with backoff."}
+{"prompt": "Show a minimal React hook that fetches data and handles loading/error state."}
+{"prompt": "How does the borrow checker prevent data races in Rust?"}
+{"prompt": "Write a Go function that fans out work across a fixed number of goroutines."}
+{"prompt": "What is a semaphore and when would you use one?"}
+{"prompt": "Write a Python context manager that temporarily changes the working directory."}
+{"prompt": "Explain the difference between `map`, `filter`, and `reduce` in JavaScript."}
+{"prompt": "How do I add a custom header to every request in an Axum middleware?"}
+{"prompt": "Write a SQL window function that ranks employees by salary within each department."}
+{"prompt": "What is tail-call optimisation and does Rust support it?"}
+{"prompt": "Show a minimal GitHub Actions workflow that runs `cargo test` on push."}
+{"prompt": "Write a TypeScript utility type that extracts all string keys from an object type."}
+{"prompt": "How do I mock an HTTP call in a Rust unit test without hitting the network?"}
+{"prompt": "Write a Python script that reads a CSV and outputs basic summary statistics."}
+{"prompt": "What is the difference between `process.nextTick` and `setImmediate` in Node.js?"}
+{"prompt": "Implement a debounce function in TypeScript with cancellation support."}
+{"prompt": "How does Rust's `std::sync::Mutex` differ from `tokio::sync::Mutex`?"}
+{"prompt": "Write a Makefile target that builds, tests, and lints a Rust project in one command."}
+{"prompt": "What is an index scan vs a sequential scan in PostgreSQL?"}
+{"prompt": "Write a Python class that implements the observer pattern."}
+{"prompt": "How do I propagate errors with the `?` operator across different error types in Rust?"}
+{"prompt": "Show a minimal Express.js route that validates a JSON body with Zod."}
+{"prompt": "What is the difference between `INNER JOIN` and `LEFT JOIN` in SQL?"}
+{"prompt": "Write a Go HTTP middleware that adds a request ID to the context."}
+{"prompt": "Explain copy-on-write semantics with a short code example."}
+{"prompt": "How do I write a parameterised test in Rust?"}
+{"prompt": "Write a Python async function that runs multiple coroutines concurrently."}
+{"prompt": "What is the purpose of `serde`'s `#[serde(rename_all = \"camelCase\")]` attribute?"}
+{"prompt": "Write a bash one-liner that finds the 10 largest files in a directory tree."}
+{"prompt": "How does garbage collection work in Go?"}
+{"prompt": "Write a minimal WebSocket server in Node.js using the `ws` package."}
+{"prompt": "What is a phantom type and when is it useful?"}
+{"prompt": "Write a React component that uses `useReducer` to manage a shopping cart."}
+{"prompt": "How do I configure a Rust project to produce a shared library (`.so` / `.dll`)?"}
+{"prompt": "Write a Python function that parses a JSON stream line by line."}
+{"prompt": "What does `EXPLAIN ANALYZE` show in a PostgreSQL query plan?"}
+{"prompt": "Show a Kubernetes Deployment YAML with liveness and readiness probes."}
+{"prompt": "What is the difference between concurrency and parallelism?"}
+{"prompt": "Write a Rust macro that implements `Display` for an enum with string variants."}
+{"prompt": "How do I rate-limit an API endpoint in FastAPI?"}
+{"prompt": "Write a minimal Terraform resource block for an AWS Lambda function."}
+{"prompt": "What is `git rebase --onto` and when would you use it?"}
+{"prompt": "Write a Go function that deep-copies a struct using `encoding/json`."}
+{"prompt": "How does the event loop work in Node.js?"}
+{"prompt": "Write a Python script that tails a log file and alerts on ERROR lines."}
+{"prompt": "What is a bloom filter and what are its trade-offs?"}
+{"prompt": "Write a TypeScript function that retries an async call with exponential backoff."}
+{"prompt": "How do I add a Prometheus counter metric to an Axum handler in Rust?"}
+{"prompt": "Write a SQL query that pivots rows to columns for monthly revenue by product."}
+{"prompt": "What is the difference between `Arc::clone` and `Clone::clone` in Rust?"}
+{"prompt": "Show a minimal OpenTelemetry span in a Go HTTP handler."}
+{"prompt": "Write a Python class that lazily evaluates an expensive property."}
+{"prompt": "How do I handle backpressure in a Tokio async stream?"}
+{"prompt": "Write a React hook that syncs state with `localStorage`."}
+{"prompt": "What is the CAP theorem and how does it affect database choice?"}
+{"prompt": "Write a Rust function that walks a directory tree and collects file paths."}
+{"prompt": "How do I sign and verify a JWT in Python without a library?"}
+{"prompt": "Write a Go test that uses table-driven subtests."}
+{"prompt": "What is the difference between a process and a thread?"}
+{"prompt": "Write a Python generator that yields batches from a large iterable."}
+{"prompt": "How do I avoid N+1 queries in a GraphQL resolver?"}
+{"prompt": "Write a minimal `tokio::select!` example with a timeout arm."}
+{"prompt": "What is consistent hashing and where is it used?"}
+{"prompt": "Write a TypeScript function that flattens a deeply nested array."}
+{"prompt": "How do I profile memory usage in a Rust binary?"}
+{"prompt": "Write a Python script that diffs two JSON files and reports added/removed keys."}
+{"prompt": "What is the purpose of `cargo deny`?"}
+{"prompt": "Show a minimal NGINX config that reverse-proxies to a local service."}
+{"prompt": "Write a Go struct that satisfies the `io.Writer` interface."}
+{"prompt": "How does content-addressable storage work?"}
+{"prompt": "Write a Python function that converts a nested dict to a flat dot-notation dict."}
+{"prompt": "What is the difference between `async fn` and returning `impl Future` in Rust?"}
+{"prompt": "Write a SQL CTE that computes a running total per user."}
+{"prompt": "How do I add structured logging to a Python application with `structlog`?"}
+{"prompt": "Write a minimal gRPC server in Go using `google.golang.org/grpc`."}
+{"prompt": "What is a skip list and how does it compare to a balanced BST?"}
+{"prompt": "Write a React component that renders a virtualized list of 100 000 items."}
+{"prompt": "How do I enforce a maximum payload size in an Axum handler?"}
+{"prompt": "Write a Python function that validates an IP address without using `ipaddress`."}
+{"prompt": "What is the difference between optimistic and pessimistic locking?"}
+{"prompt": "Write a Rust enum that models a simple expression tree and evaluate it."}
+{"prompt": "How do I set up hot-reload for a Rust web server in development?"}
+{"prompt": "Write a minimal Docker Compose file for a Postgres + pgAdmin setup."}
+{"prompt": "What is the purpose of `feature flags` in Cargo.toml?"}
+{"prompt": "Write a Go function that streams a large file to an HTTP response."}
+{"prompt": "How do I implement pagination with cursor-based navigation in a REST API?"}
+{"prompt": "Write a Python script that resizes images in a directory using Pillow."}
+{"prompt": "What is a memory barrier and why does it matter for multi-threaded code?"}
+{"prompt": "Write a TypeScript type guard that narrows a union to a specific variant."}
+{"prompt": "How does Rust's lifetime system prevent dangling references?"}
+{"prompt": "Write a minimal Kafka consumer in Python using `confluent-kafka`."}
+{"prompt": "What is the difference between `Box<dyn Trait>` and `impl Trait` in Rust?"}
+{"prompt": "Write a Go function that parses a `multipart/form-data` file upload."}
+{"prompt": "How do I add retry logic to a `reqwest` HTTP client in Rust?"}
+{"prompt": "Write a Python function that topologically sorts a dependency graph."}
+{"prompt": "What is a lock-free data structure and when should you use one?"}
+{"prompt": "Write a minimal SSE (Server-Sent Events) endpoint in Axum."}
+{"prompt": "How do I prevent SQL injection in a raw query using SQLx in Rust?"}
+{"prompt": "Write a React custom hook that detects when the user is offline."}
+{"prompt": "What is the difference between `HashMap` and `BTreeMap` in Rust?"}
+{"prompt": "Write a Python dataclass with `__post_init__` validation."}
+{"prompt": "How do I configure structured JSON logging in a Go application?"}
+{"prompt": "Write a minimal distributed lock using Redis in Python."}
+{"prompt": "What is eventual consistency and how do you test for it?"}
+{"prompt": "Write a Rust integration test that spins up a real HTTP server."}
+{"prompt": "How do I handle timezone conversions correctly in Python?"}
+{"prompt": "Write a TypeScript utility that deep-merges two objects."}
+{"prompt": "What is the difference between `SIGTERM` and `SIGKILL` in Linux?"}
+{"prompt": "Write a Go function that converts a struct to a `map[string]interface{}`."}
+{"prompt": "How do I write a custom Serde deserializer for a non-standard date format?"}
+{"prompt": "Write a Python script that generates a self-signed TLS certificate."}
+{"prompt": "What is a connection pool and why is it important for database access?"}
+{"prompt": "Write a minimal Axum router with versioned API routes `/v1` and `/v2`."}
+{"prompt": "How do I profile CPU usage in a Python application?"}
+{"prompt": "Write a Go HTTP client that streams a large response body without buffering it."}
+{"prompt": "What is the actor model of concurrency?"}
+{"prompt": "Write a Python function that implements a simple tokeniser for arithmetic expressions."}
+{"prompt": "How do I add CORS headers to every response in an Axum application?"}
+{"prompt": "Write a SQL query that detects gaps in a numeric sequence column."}
+{"prompt": "What is the difference between horizontal and vertical scaling?"}
+{"prompt": "Write a Rust function that converts a `Vec<Result<T, E>>` to `Result<Vec<T>, E>`."}
+{"prompt": "How do I create a custom error type in Python that carries extra context?"}
+{"prompt": "Write a minimal WebSocket handler in Axum that echoes messages."}
+{"prompt": "What is the `SOLID` acronym and which principle is hardest to apply?"}
+{"prompt": "Write a Go function that retries a database operation on transient errors."}
+{"prompt": "How does `tokio::spawn` differ from `std::thread::spawn`?"}
+{"prompt": "Write a Python function that calculates the Levenshtein distance between two strings."}
+{"prompt": "What is a merkle tree and where is it used?"}
+{"prompt": "Write a TypeScript class that wraps `fetch` with automatic JSON parsing and error handling."}
+{"prompt": "How do I configure Rust's `log` crate to write JSON to stdout?"}
+{"prompt": "Write a minimal Prometheus `/metrics` endpoint in Go using `promhttp`."}
+{"prompt": "What is the difference between eager and lazy evaluation?"}
+{"prompt": "Write a Python function that retries a failing HTTP request with jitter."}
+{"prompt": "How do I gracefully shut down an Axum server on `SIGTERM`?"}
+{"prompt": "Write a SQL trigger that updates an `updated_at` timestamp on every row change."}
+{"prompt": "What is `epoll` and why is it used in async I/O runtimes?"}
+{"prompt": "Write a Go benchmark using the `testing.B` framework."}
+{"prompt": "How do I implement a circuit breaker pattern in Rust?"}
+{"prompt": "Write a React component that animates a counter from 0 to a target value."}
+{"prompt": "What is the difference between `Box::leak` and `Arc` for static lifetime data?"}
+{"prompt": "Write a Python script that monitors a Kubernetes pod's logs in real time."}
+{"prompt": "How do I add health check endpoints to a FastAPI application?"}
+{"prompt": "Write a Rust procedural macro that auto-implements a `Builder` pattern."}
+{"prompt": "What is a dag (directed acyclic graph) and how is it used in CI pipelines?"}
+{"prompt": "Write a Go function that parses and validates a semantic version string."}
+{"prompt": "How does `select {}` in Go create a goroutine that blocks forever?"}
+{"prompt": "Write a Python function that converts a flat list of nodes with parent IDs into a tree."}
+{"prompt": "What is the `two generals problem` in distributed systems?"}
+{"prompt": "Write a TypeScript function that groups an array of objects by a key."}
+{"prompt": "How do I use `criterion` to benchmark a Rust function?"}
+{"prompt": "Write a minimal Redis pub/sub subscriber in Python using `redis-py`."}
+{"prompt": "What is a write-ahead log (WAL) in databases?"}
+{"prompt": "Write a Go function that implements exponential backoff with jitter."}
+{"prompt": "How do I test a Rust async function that uses `tokio::time::sleep`?"}
+{"prompt": "Write a Python script that uploads a file to an S3 bucket using `boto3`."}
+{"prompt": "What is the difference between a mutex and a spinlock?"}
+{"prompt": "Write a TypeScript `Result<T, E>` type and a `match` function for it."}
+{"prompt": "How do I stream a large file download in Axum without loading it into memory?"}
+{"prompt": "Write a SQL query that returns the second-highest salary from an employees table."}
+{"prompt": "What is idempotency and how do you design an idempotent REST endpoint?"}
+{"prompt": "Write a Rust function that parses a TOML configuration file using `toml`."}
+{"prompt": "How do I add tracing instrumentation to a Go HTTP handler with OpenTelemetry?"}
+{"prompt": "Write a Python function that chunks a list into N equal-sized pieces."}
+{"prompt": "What is the difference between `Mutex<T>` and `RwLock<T>` in Rust?"}
+{"prompt": "Write a Go function that gracefully drains in-flight requests before shutdown."}
+{"prompt": "How does server-side rendering (SSR) differ from client-side rendering (CSR)?"}
+{"prompt": "Write a minimal Protobuf schema and Go code to marshal/unmarshal a message."}
+{"prompt": "What is a headless CMS and when would you choose it over a traditional CMS?"}
+{"prompt": "Write a Python script that validates YAML files against a JSON Schema."}
+{"prompt": "How do I implement pagination with `LIMIT`/`OFFSET` vs keyset pagination?"}
+{"prompt": "Write a Rust function that converts between different unit systems (metric/imperial)."}
+{"prompt": "What is the difference between a monad and a functor?"}
+{"prompt": "Write a TypeScript function that memoises an async function call."}
+{"prompt": "How do I add feature flags to a Rust library using Cargo features?"}
+{"prompt": "Write a Python class that behaves like a dict but is case-insensitive for keys."}
+{"prompt": "What is a zero-copy deserialisation and why does Rust support it well?"}
+{"prompt": "Write a Go HTTP server that serves static files and handles SPA routing."}
+{"prompt": "How do I use `tokio::sync::watch` to broadcast config changes to multiple tasks?"}
+{"prompt": "Write a SQL query that computes the median salary per department."}
+{"prompt": "What is the difference between `clone` and `copy` semantics in Rust?"}
+{"prompt": "Write a Python script that creates a Git commit using `GitPython`."}
+{"prompt": "How do I add authentication to a GraphQL API built with `async-graphql`?"}
+{"prompt": "Write a minimal Dockerfile that uses multi-stage builds to produce a tiny final image."}
+{"prompt": "What is a trie data structure and when should you use one?"}
+{"prompt": "Write a TypeScript function that parses a URL query string into a typed object."}
+{"prompt": "How do I safely share mutable state between Axum handlers?"}
+{"prompt": "Write a Go function that converts JSON to YAML."}
+{"prompt": "What is the difference between `&&` and `&` in Rust?"}
+{"prompt": "Write a Python function that converts a recursive directory tree to JSON."}
+{"prompt": "How do I emit custom metrics from a Rust application to Prometheus?"}
+{"prompt": "Write a SQL query that finds customers who have not placed an order in 90 days."}
+{"prompt": "What is the reader-writer problem and how does `RwLock` solve it?"}
+{"prompt": "Write a minimal Helm chart `values.yaml` for a web application."}
+{"prompt": "How does `cargo workspace` help manage a multi-crate project?"}
+{"prompt": "Write a Python script that parses structured log lines into a `pandas` DataFrame."}
+{"prompt": "What is the difference between an abstract class and an interface in Java?"}
+{"prompt": "Write a Go function that recursively walks an AST and pretty-prints it."}
+{"prompt": "How do I implement a plugin system in Rust using trait objects?"}
+{"prompt": "Write a TypeScript function that validates a credit card number using the Luhn algorithm."}
+{"prompt": "What is `strace` and how do you use it to debug a slow system call?"}
+{"prompt": "Write a Python function that renders a Jinja2 template from a dict."}
+{"prompt": "How do I add request body compression to an Axum server?"}
+{"prompt": "Write a minimal Ansible playbook that installs Docker on Ubuntu."}
+{"prompt": "What is the difference between a hard link and a symbolic link?"}
+{"prompt": "Write a Rust function that interleaves two iterators element-by-element."}
+{"prompt": "How do I implement a FIFO queue using two stacks?"}
+{"prompt": "Write a Go function that watches a directory for file changes using `fsnotify`."}
+{"prompt": "What is the difference between `TCP` and `UDP` and when would you choose UDP?"}
+{"prompt": "Write a Python script that queries a SQLite database and exports results to CSV."}
+{"prompt": "How do I keep a Docker image small when building a Node.js application?"}
+{"prompt": "Write a Rust function that deduplicates a `Vec<T>` while preserving order."}
+{"prompt": "What is the difference between `Promise.all` and `Promise.allSettled`?"}
+{"prompt": "Write a SQL query that recursively lists all descendants of a given category node."}
+{"prompt": "How do I hot-reload Nginx configuration without downtime?"}
+{"prompt": "Write a Python function that validates a JSON Web Token (JWT) signature."}
+{"prompt": "What is `copy elision` (RVO/NRVO) in C++?"}
+{"prompt": "Write a Go function that safely parses a JSON field that might be null or missing."}
+{"prompt": "How do I implement a priority queue in Rust using `BinaryHeap`?"}
+{"prompt": "Write a TypeScript function that converts a list of objects to a CSV string."}
+{"prompt": "What is the difference between `cargo test` and `cargo nextest`?"}
+{"prompt": "Write a Python function that compresses and decompresses data with `zstd`."}
+{"prompt": "How do I add structured error responses to an Axum API?"}
+{"prompt": "Write a minimal Redis RESP client in Python from scratch."}
+{"prompt": "What is `eBPF` and how can it be used for observability?"}
+{"prompt": "Write a Go function that validates an email address without a regex."}
+{"prompt": "How do I test that a Rust function panics with `should_panic`?"}
+{"prompt": "Write a Python script that reads environment variables with defaults and validates types."}
+{"prompt": "What is the difference between `Arc<Mutex<T>>` and `Arc<RwLock<T>>`?"}
+{"prompt": "Write a minimal gRPC streaming endpoint in Go."}
+{"prompt": "How do I use GitHub Actions to publish a Rust crate to crates.io?"}
+{"prompt": "Write a Python class that implements a thread-safe singleton."}
+{"prompt": "What is the difference between `FROM` and `JOIN` subqueries in SQL?"}
+{"prompt": "Write a Rust function that parses command-line arguments without a library."}
+{"prompt": "How do I implement a token bucket rate limiter in Go?"}
+{"prompt": "Write a TypeScript function that creates a deep readonly version of an object."}
+{"prompt": "What is the difference between `vm.overcommit_memory` settings in Linux?"}
+{"prompt": "Write a Python function that finds all cycles in a directed graph using DFS."}
+{"prompt": "How do I add TLS termination to an Axum server with `rustls`?"}
+{"prompt": "Write a SQL query that identifies the longest streak of consecutive login days per user."}
+{"prompt": "What is `HATEOAS` and is it practical to implement?"}
+{"prompt": "Write a Go function that converts an integer to its Roman numeral representation."}
+{"prompt": "How does `Pin<T>` work in Rust and when do you need it?"}
+{"prompt": "Write a Python script that measures the latency of a list of URLs concurrently."}
+{"prompt": "What is the difference between a daemon process and a regular process?"}
+{"prompt": "Write a TypeScript decorator that logs method calls with arguments and return values."}
+{"prompt": "How do I use `cargo-audit` to check for known vulnerabilities in dependencies?"}
+{"prompt": "Write a minimal `docker-compose.yml` for a Redis Sentinel high-availability setup."}
+{"prompt": "What is the difference between `VACUUM` and `ANALYZE` in PostgreSQL?"}
+{"prompt": "Write a Python function that generates all permutations of a string without recursion."}
+{"prompt": "How do I implement server-sent events (SSE) in Go using `net/http`?"}
+{"prompt": "Write a Rust function that splits a slice into chunks of a given size."}
+{"prompt": "What is the difference between `git fetch` and `git pull`?"}
+{"prompt": "Write a Go function that retries a flaky HTTP request using a backoff library."}
+{"prompt": "How do I validate request headers in an Axum middleware?"}
+{"prompt": "Write a Python function that builds a URL query string from a nested dict."}
+{"prompt": "What is `ACID` compliance and which databases guarantee it?"}
+{"prompt": "Write a TypeScript function that batches async calls to avoid rate limiting."}
+{"prompt": "How do I add a custom allocator to a Rust binary?"}
+{"prompt": "Write a SQL query that calculates month-over-month growth in orders."}
+{"prompt": "What is the difference between `eprintln!` and `println!` in Rust?"}
+{"prompt": "Write a Go function that computes a consistent hash ring for a set of nodes."}
+{"prompt": "How do I use `tokio::task::spawn_blocking` and when is it necessary?"}
+{"prompt": "Write a Python script that generates a flame graph from `cProfile` output."}
+{"prompt": "What is the difference between a goroutine and a coroutine?"}
+{"prompt": "Write a TypeScript function that deep-equals two values without `JSON.stringify`."}
+{"prompt": "How do I handle optional fields in a `serde` JSON deserialiser?"}
+{"prompt": "Write a minimal Pulumi program in TypeScript that creates an S3 bucket."}
+{"prompt": "What is the difference between `O_DIRECT` and normal file I/O?"}
+{"prompt": "Write a Python function that implements a simple token bucket for rate limiting."}
+{"prompt": "How do I add request ID propagation across microservices using OpenTelemetry?"}
+{"prompt": "Write a Rust function that implements a simple state machine for a TCP connection."}
+{"prompt": "What is the difference between a full-text index and a regular B-tree index in Postgres?"}
+{"prompt": "Write a Go function that serialises a struct to a canonical JSON byte slice."}
+{"prompt": "How do I use `axum::extract::State` vs `Extension` for shared state?"}
+{"prompt": "Write a Python script that diffs two CSV files and highlights changed rows."}
+{"prompt": "What is the `thundering herd` problem and how do you mitigate it?"}
+{"prompt": "Write a TypeScript function that converts a camelCase string to kebab-case."}
+{"prompt": "How do I add end-to-end encryption to a REST API using public/private keys?"}
+{"prompt": "Write a SQL stored procedure that archives rows older than 90 days to a history table."}
+{"prompt": "What is `mmap` and when is it better than `read`/`write`?"}
+{"prompt": "Write a Rust async function that processes items from a bounded channel concurrently."}
+{"prompt": "How do I build a CLI tool in Python with `click` that reads config from a file?"}
+{"prompt": "Write a Go function that generates a cryptographically secure random token."}
+{"prompt": "What is the difference between `nohup` and `tmux` for running background processes?"}
+{"prompt": "Write a Python function that parses a `requirements.txt` and checks for updates on PyPI."}
+{"prompt": "How do I use `criterion` groups to compare multiple implementations in Rust?"}
+{"prompt": "Write a minimal Zsh completion script for a custom CLI tool."}
+{"prompt": "What is the difference between `row-level security` and application-level auth in Postgres?"}
+{"prompt": "Write a Go function that validates a struct using reflection and struct tags."}
+{"prompt": "How do I implement a fan-in pattern with `tokio::sync::mpsc` channels?"}
+{"prompt": "Write a Python async generator that lazily reads a large file line by line."}
+{"prompt": "What is the `two-phase commit` protocol and why is it controversial?"}
+{"prompt": "Write a TypeScript utility that picks nested keys from a deeply typed object."}
+{"prompt": "How do I add structured tracing to a Rust library with `tracing` crates?"}
+{"prompt": "Write a SQL query that returns sessions where the user visited more than 5 pages."}
+{"prompt": "What is the difference between `O(log n)` and `O(n log n)` complexity?"}
+{"prompt": "Write a Go function that gracefully handles `context.Canceled` in a long operation."}
+{"prompt": "How do I implement a read-through cache in Rust using `moka`?"}
+{"prompt": "Write a Python function that converts a Markdown table to a list of dicts."}
+{"prompt": "What is the `thundering herd` mitigation strategy called `probabilistic early expiration`?"}
+{"prompt": "Write a TypeScript function that validates ISO 8601 timestamps."}
+{"prompt": "How do I configure `sentry-sdk` in a Python FastAPI application?"}
+{"prompt": "Write a Rust macro that builds a `HashMap` from key-value pairs inline."}
+{"prompt": "What is the difference between `LGTM` and a formal code review?"}
+{"prompt": "Write a Go function that implements a simple pub/sub broker in memory."}
+{"prompt": "How do I use `git bisect` to find the commit that introduced a bug?"}
+{"prompt": "Write a Python script that monitors Redis memory usage and alerts on thresholds."}
+{"prompt": "What is the difference between `tokio::select!` and `futures::select!`?"}
+{"prompt": "Write a TypeScript function that parses a semver string and compares two versions."}
+{"prompt": "How do I add role-based access control (RBAC) to an Axum application?"}
+{"prompt": "Write a SQL query that calculates a 7-day rolling average of daily active users."}
+{"prompt": "What is the difference between a `struct` and a `tuple struct` in Rust?"}
+{"prompt": "Write a Go HTTP handler that streams newline-delimited JSON to the client."}
+{"prompt": "How do I implement a health check that verifies database connectivity in Rust?"}
+{"prompt": "Write a Python script that generates test data using `faker` and inserts it into Postgres."}
+{"prompt": "What is `write amplification` in SSD storage?"}
+{"prompt": "Write a TypeScript function that converts a tree structure to a flat array with depth info."}
+{"prompt": "How do I use `docker buildx` to build multi-platform images?"}
+{"prompt": "Write a Rust function that safely parses a `u64` from an environment variable."}
+{"prompt": "What is the difference between `HashMap::entry` and `HashMap::insert` in Rust?"}
+{"prompt": "Write a Go function that watches a Kubernetes ConfigMap for changes."}
+{"prompt": "How do I add SQL migration support to a Rust project with `sqlx migrate`?"}
+{"prompt": "Write a Python script that extracts all URLs from an HTML page using `lxml`."}
+{"prompt": "What is the difference between a `Box<[T]>` and a `Vec<T>` in Rust?"}
+{"prompt": "Write a TypeScript function that schedules tasks with priorities using a heap."}
+{"prompt": "How do I use `perf stat` to profile a Rust binary?"}
+{"prompt": "Write a Go function that encodes/decodes a struct to a compact binary format."}
+{"prompt": "What is the `thundering herd` and how does `singleflight` solve it in Go?"}
+{"prompt": "Write a Python function that converts between different time zones using `zoneinfo`."}
+{"prompt": "How do I enforce content-type validation in an Axum handler?"}
+{"prompt": "Write a SQL query that computes the percentile rank of each order value."}
+{"prompt": "What is the difference between `HEAD` and `GET` in HTTP?"}
+{"prompt": "Write a Rust function that implements a simple Bloom filter."}
+{"prompt": "How do I configure structured logging with `tracing-subscriber` in a Rust service?"}
+{"prompt": "Write a Go function that parses a `.env` file and populates `os.Getenv`."}
+{"prompt": "What is `raft` consensus and how does leader election work?"}
+{"prompt": "Write a Python script that summarises Terraform plan output from JSON."}
+{"prompt": "How do I implement a long-polling endpoint in Axum?"}
+{"prompt": "Write a TypeScript function that checks if a string is a palindrome."}
+{"prompt": "What is the difference between `cargo run` and `cargo build && ./target/debug/bin`?"}
+{"prompt": "Write a Go function that compresses a byte slice with gzip and returns it as base64."}
+{"prompt": "How do I add HMAC-SHA256 request signing to an Axum middleware?"}
+{"prompt": "Write a SQL query that finds the most recent login for each user using a lateral join."}
+{"prompt": "What is the difference between `Cow<str>` and `&str` in Rust?"}
+{"prompt": "Write a Python function that implements a simple event bus with callbacks."}
+{"prompt": "How do I deploy a Rust binary as a systemd service?"}
+{"prompt": "Write a TypeScript function that retries a promise-returning function with a timeout."}
+{"prompt": "What is `io_uring` and how does it differ from `epoll`?"}
+{"prompt": "Write a Go function that parses and validates a CIDR network address."}
+{"prompt": "How do I add request coalescing to a cache layer in Rust?"}
+{"prompt": "Write a Python script that automates semantic versioning based on git commit messages."}
+{"prompt": "What is the difference between a forward proxy and a reverse proxy?"}
+{"prompt": "Write a Rust function that implements a simple command parser with subcommands."}
+{"prompt": "How do I use `docker stats` to monitor container resource usage?"}
+{"prompt": "Write a SQL query that calculates the average time between consecutive orders per user."}
+{"prompt": "What is the difference between `lazy_static` and `once_cell` in Rust?"}
+{"prompt": "Write a Go function that reads a structured YAML config file into a struct."}
+{"prompt": "How do I implement a middleware pipeline pattern in Rust without a web framework?"}
+{"prompt": "Write a Python function that generates a QR code from a string using `qrcode`."}
+{"prompt": "What is the `Byzantine generals` problem?"}
+{"prompt": "Write a TypeScript function that implements observable state with subscribers."}
+{"prompt": "How do I add a grace period before forcefully killing an Axum server?"}
+{"prompt": "Write a SQL stored procedure that splits a comma-separated string into rows."}
+{"prompt": "What is the difference between `futures::stream::StreamExt` and `tokio_stream::StreamExt`?"}
+{"prompt": "Write a Go function that implements a retry-safe idempotency key store in Redis."}
+{"prompt": "How do I use `flamegraph-rs` to visualise a Rust async application's CPU usage?"}
+{"prompt": "Write a Python script that generates a changelog from git log output."}
+{"prompt": "What is the difference between `docker exec` and `docker attach`?"}
+{"prompt": "Write a Rust function that extracts all capture groups from a regex match."}
+{"prompt": "How do I add distributed tracing to a Python service with `opentelemetry-sdk`?"}
+{"prompt": "Write a TypeScript function that generates a unique slug from a title string."}
+{"prompt": "What is the difference between `COPY` and `ADD` in a Dockerfile?"}
+{"prompt": "Write a Go function that safely unmarshals YAML with unknown fields using strict mode."}
+{"prompt": "How do I implement request deduplication using a shared `DashMap` in Rust?"}
+{"prompt": "Write a Python function that reads chunks of binary data from a socket."}
+{"prompt": "What is the difference between `P50`, `P95`, and `P99` latency percentiles?"}

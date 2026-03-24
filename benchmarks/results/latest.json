@@ -1,7 +1,8 @@
 {
-  "timestamp": "2026-03-15T15:50:34Z",
+  "timestamp": "2026-03-24T10:17:35Z",
+  "timestamp": "2026-03-24T10:39:12Z",
   "isartor_version": "0.1.0",
-  "hardware": "2-core x86_64, 7 GB RAM, no GPU",
+  "hardware": "4-core x86_64, 15 GB RAM, no GPU",
   "fixtures": {
     "faq_loop": {
       "total_requests": 1000,

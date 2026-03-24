@@ -6,19 +6,24 @@ use hf_hub::api::sync::ApiBuilder;
 use std::sync::Mutex;
 use tokenizers::Tokenizer;
 
+/// Inner state for a fully initialised TextEmbedder.
+struct TextEmbedderInner {
+    model: Mutex<BertModel>,
+    tokenizer: Tokenizer,
+    device: Device,
+}
+
 /// Pure-Rust sentence embedder powered by candle + all-MiniLM-L6-v2.
 ///
 /// Loads model weights from Hugging Face Hub on first use and runs BERT
 /// inference entirely in-process — zero C/C++ dependencies, seamless
 /// cross-compilation to any `rustc` target.
 ///
-/// The inner `Mutex` is required because `BertModel::forward()` borrows
-/// `&mut self` for the KV cache. We use `std::sync::Mutex` (not tokio)
-/// because inference is CPU-bound and always called from `spawn_blocking`.
+/// When created via [`TextEmbedder::new_noop`] (e.g. when `cache_mode=exact`
+/// and the embedding model is not needed), [`generate_embedding`] returns an
+/// error which the cache middleware already handles gracefully by skipping L1b.
 pub struct TextEmbedder {
-    model: Mutex<BertModel>,
-    tokenizer: Tokenizer,
-    device: Device,
+    inner: Option<TextEmbedderInner>,
 }
 
 impl TextEmbedder {
@@ -74,17 +79,36 @@ impl TextEmbedder {
             .context("Failed to load BertModel from safetensors weights")?;
 
         Ok(Self {
-            model: Mutex::new(model),
-            tokenizer,
-            device,
+            inner: Some(TextEmbedderInner {
+                model: Mutex::new(model),
+                tokenizer,
+                device,
+            }),
         })
+    }
+
+    /// Creates a no-op `TextEmbedder` that does not download any model files.
+    ///
+    /// [`generate_embedding`] always returns an error, which the L1b cache
+    /// middleware handles gracefully by skipping semantic matching.  Use this
+    /// when `cache_mode = exact` so that Isartor starts up without requiring
+    /// network access to the Hugging Face Hub.
+    pub fn new_noop() -> Self {
+        Self { inner: None }
     }
 
     /// Generates a 384-dimensional embedding vector for a single prompt string.
     ///
     /// Pipeline: tokenize → BERT forward pass → mean pooling (with attention mask) → L2 normalise.
+    ///
+    /// Returns `Err` if the embedder was created with [`new_noop`] (no model loaded).
     pub fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
-        let encoding = self
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("TextEmbedder is a no-op (semantic cache disabled)"))?;
+
+        let encoding = inner
             .tokenizer
             .encode(text, true)
             .map_err(|e| anyhow::anyhow!("Tokenisation failed: {e}"))?;
@@ -95,12 +119,12 @@ impl TextEmbedder {
         let seq_len = input_ids.len();
 
         // Build tensors [1, seq_len]
-        let input_ids_t = Tensor::new(input_ids, &self.device)?.unsqueeze(0)?;
-        let attention_mask_t = Tensor::new(attention_mask, &self.device)?.unsqueeze(0)?;
-        let token_type_ids_t = Tensor::new(token_type_ids, &self.device)?.unsqueeze(0)?;
+        let input_ids_t = Tensor::new(input_ids, &inner.device)?.unsqueeze(0)?;
+        let attention_mask_t = Tensor::new(attention_mask, &inner.device)?.unsqueeze(0)?;
+        let token_type_ids_t = Tensor::new(token_type_ids, &inner.device)?.unsqueeze(0)?;
 
         // Forward pass through BERT
-        let model = self
+        let model = inner
             .model
             .lock()
             .map_err(|e| anyhow::anyhow!("embedder lock poisoned: {e}"))?;
@@ -114,7 +138,7 @@ impl TextEmbedder {
             .broadcast_as(output.shape())?;
         let masked = (output * mask)?;
         let summed = masked.sum(1)?; // [1, hidden_size]
-        let count = Tensor::new(&[seq_len as f32], &self.device)?
+        let count = Tensor::new(&[seq_len as f32], &inner.device)?
             .unsqueeze(0)?
             .broadcast_as(summed.shape())?;
         let mean_pooled = (summed / count)?; // [1, hidden_size]

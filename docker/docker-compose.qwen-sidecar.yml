@@ -1,0 +1,108 @@
+# =============================================================================
+# Isartor — Qwen 2.5 Coder 7B Sidecar (Layer 2 / L2)
+#
+# Replaces the default Phi-3-mini sidecar with Qwen 2.5 Coder 7B Q4_K_M for
+# code-focused benchmarks.  Use this compose file when running the Claude Code
+# benchmark to satisfy the real-model requirement documented in the runbook.
+#
+# Model:
+#   Qwen/Qwen2.5-Coder-7B-Instruct-GGUF  (Q4_K_M, ~4.4 GB)
+#   Exposes an OpenAI-compatible API at /v1/chat/completions on port 8081.
+#
+# Quantization selection rationale:
+#   Q4_K_M offers the best quality-per-GB trade-off on CPU-only hardware.
+#   On machines with an NVIDIA GPU, set --n-gpu-layers 99 (already the
+#   default here) to offload all layers and cut inference time significantly.
+#
+# Usage (standalone — no observability stack):
+#   cd docker
+#   docker compose -f docker-compose.qwen-sidecar.yml up
+#
+# Usage (combined with the gateway):
+#   cd docker
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.qwen-sidecar.yml \
+#     up
+#
+# To use the Qwen sidecar with the full observability stack:
+#   docker compose \
+#     -f docker-compose.full.yml \
+#     -f docker-compose.qwen-sidecar.yml \
+#     up
+#
+# Smoke test (once healthy):
+#   curl http://localhost:8081/v1/chat/completions \
+#     -H "Content-Type: application/json" \
+#     -d '{"model":"qwen2.5-coder-7b","messages":[{"role":"user","content":"hi"}],"max_tokens":16}'
+#
+# Environment variables honoured by this compose file:
+#   QWEN_CTX_SIZE      — context window tokens  (default: 8192)
+#   QWEN_N_GPU_LAYERS  — GPU layers to offload   (default: 99)
+#   QWEN_N_THREADS     — CPU threads             (default: 4)
+#   QWEN_PORT          — host port to expose     (default: 8081)
+#
+# Tear down:
+#   docker compose -f docker-compose.qwen-sidecar.yml down -v
+# =============================================================================
+
+services:
+
+  # ── Qwen 2.5 Coder 7B Instruct — Q4_K_M ──────────────────────────────────
+  # Served by the official llama.cpp server image.
+  # The model is downloaded from HuggingFace on first start and cached in the
+  # `qwen_models` named volume so subsequent restarts are instant.
+  qwen-sidecar:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: isartor-qwen-sidecar
+    ports:
+      - "${QWEN_PORT:-8081}:8081"
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8081"
+      # Download Qwen 2.5 Coder 7B Instruct GGUF directly from HuggingFace.
+      # The Q4_K_M file is ~4.4 GB.  Requires outbound HTTPS on first start.
+      - "--hf-repo"
+      - "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
+      - "--hf-file"
+      - "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+      # Context window — 8 k tokens covers typical Claude Code requests.
+      - "--ctx-size"
+      - "${QWEN_CTX_SIZE:-8192}"
+      # GPU offload (set to 0 for pure-CPU environments).
+      - "--n-gpu-layers"
+      - "${QWEN_N_GPU_LAYERS:-99}"
+      # Number of CPU threads used when GPU layers < total.
+      - "--threads"
+      - "${QWEN_N_THREADS:-4}"
+      # Continuous batching improves throughput under concurrent load.
+      - "--cont-batching"
+      # Emit the OpenAI-compatible API at /v1/chat/completions.
+      # (llama.cpp server does this by default; flag included for clarity.)
+    volumes:
+      - qwen_models:/root/.cache
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "curl -sf http://localhost:8081/health || exit 1"
+      # The model download can take several minutes on the first run.
+      # The generous start_period avoids premature health-check failures.
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # Memory breakdown: model weights ~4.4 GB (Q4_K_M) +
+          # KV cache ~1.0 GB (8192 ctx × 28 layers × 2 × bf16) +
+          # runtime overhead ~0.6 GB = ~6 GB total.
+          # Increase to 8G for larger context windows or heavy batching.
+          memory: 6G
+
+volumes:
+  qwen_models:
+    name: isartor-qwen-models

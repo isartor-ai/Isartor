@@ -1,5 +1,11 @@
 .PHONY: benchmark benchmark-dry-run \
         benchmark-claude-code benchmark-claude-code-dry-run \
+.PHONY: benchmark benchmark-dry-run report report-dry-run build test smoke-claude-copilot
+.PHONY: benchmark benchmark-dry-run benchmark-qwen build test smoke-claude-copilot
+.PHONY: benchmark benchmark-dry-run build test smoke-claude-copilot \
+        benchmark-claude-code benchmark-claude-code-dry-run benchmark-claude-code-report
+.PHONY: benchmark benchmark-dry-run \
+        benchmark-claude-copilot benchmark-claude-copilot-dry-run \
         build test smoke-claude-copilot
 
 # ── Benchmark targets ─────────────────────────────────────────────────────────
@@ -35,6 +41,70 @@ benchmark-claude-code:
 ## Usage: make benchmark-claude-code-dry-run
 benchmark-claude-code-dry-run:
 	./scripts/run_claude_code_benchmark.sh --dry-run
+## Generate the with/without-Isartor ROI report from existing benchmark results.
+## Requires a live benchmark to have been run first (make benchmark).
+## Writes benchmarks/results/roi_report.json and benchmarks/results/roi_report.md.
+## Usage: make report
+report:
+	python3 benchmarks/report.py
+
+## Generate the ROI report using simulated (dry-run) data — no server required.
+## Useful for CI and offline validation.
+## Writes benchmarks/results/roi_report.json and benchmarks/results/roi_report.md.
+## Usage: make report-dry-run
+report-dry-run:
+	python3 benchmarks/report.py --dry-run
+## Run the Claude Code / Qwen 2.5 Coder benchmark against a live Isartor instance
+## wired to the real Qwen 2.5 Coder 7B sidecar.
+## Prerequisites: start the stack first →
+##   cd docker && docker compose -f docker-compose.qwen-benchmark.yml up --build
+## Usage: make benchmark-qwen
+##        ISARTOR_URL=http://localhost:8080 ISARTOR_API_KEY=changeme make benchmark-qwen
+benchmark-qwen:
+	python3 benchmarks/run.py \
+		--url "$${ISARTOR_URL:-http://localhost:8080}" \
+		--api-key "$${ISARTOR_API_KEY:-changeme}" \
+		--input benchmarks/fixtures/claude_code_tasks.jsonl \
+		--timeout 180
+## Run the Claude Code + GitHub Copilot three-scenario benchmark
+## (baseline / cold cache / warm cache) against a live Isartor instance.
+## Requires Isartor running with the Qwen 2.5 Coder 7B sidecar.
+## Usage: make benchmark-claude-code
+##        ISARTOR_URL=http://localhost:8080 ISARTOR_API_KEY=changeme make benchmark-claude-code
+benchmark-claude-code:
+	python3 benchmarks/claude_code_benchmark.py \
+		--url "$${ISARTOR_URL:-http://localhost:8080}" \
+		--api-key "$${ISARTOR_API_KEY:-changeme}"
+
+## Run the Claude Code benchmark in dry-run mode (no server required).
+## Useful for CI validation and smoke-testing the harness.
+## Usage: make benchmark-claude-code-dry-run
+benchmark-claude-code-dry-run:
+	python3 benchmarks/claude_code_benchmark.py --dry-run
+
+## Generate the ROI markdown report from the latest Claude Code benchmark results.
+## Reads benchmarks/results/claude_code_latest.json produced by benchmark-claude-code.
+## Usage: make benchmark-claude-code-report
+benchmark-claude-code-report:
+	python3 benchmarks/roi_report.py
+
+## Run the Claude Code + GitHub Copilot comparison benchmark (Case A vs Case B).
+## Case A: direct cloud path (no Isartor).
+## Case B: via Isartor with Qwen 2.5 Coder 7B as Layer 2.
+## Requires ISARTOR_URL, ISARTOR_API_KEY, and optionally ANTHROPIC_API_KEY.
+## Usage: make benchmark-claude-copilot
+##        ISARTOR_URL=http://localhost:8080 ISARTOR_API_KEY=changeme make benchmark-claude-copilot
+benchmark-claude-copilot:
+	./scripts/run_claude_code_benchmark.sh --compare \
+		--isartor-url "$${ISARTOR_URL:-http://localhost:8080}" \
+		--api-key "$${ISARTOR_API_KEY:-changeme}"
+
+## Run the Claude Code + GitHub Copilot benchmark in dry-run mode (no server needed).
+## Produces a realistic comparison report using simulated responses.
+## Useful for CI validation and report format verification.
+## Usage: make benchmark-claude-copilot-dry-run
+benchmark-claude-copilot-dry-run:
+	python3 benchmarks/claude_code_benchmark.py --dry-run
 
 # ── Build / test shortcuts ────────────────────────────────────────────────────
 
