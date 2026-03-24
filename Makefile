@@ -88,12 +88,13 @@ scenario-run-dry:
 
 claude-bench:
 	python3 benchmarks/claude_bench.py \
+		--cli copilot \
 		--binary "$${ISARTOR_BINARY:-./target/release/isartor}" \
 		--copilot-token "$${COPILOT_KEY}" \
 		--model "$${MODEL:-gpt-5.4}"
 
 claude-bench-dry:
-	python3 benchmarks/claude_bench.py --dry-run
+	python3 benchmarks/claude_bench.py --cli copilot --dry-run
 
 # -- Build / test shortcuts ----------------------------------------------------
 

@@ -243,6 +243,50 @@ def _dump_isartor_log() -> None:
 # ── Claude CLI ─────────────────────────────────────────────────────────────
 
 
+def run_copilot_cli(
+    workspace: Path,
+    prompt: str,
+    copilot_token: str,
+    port: int | None = None,
+    timeout: int = 900,
+    max_turns: int = 50,
+) -> tuple[int, str, str]:
+    """Run `copilot -p` in workspace. Returns (exit_code, stdout, stderr).
+
+    If port is None, Copilot CLI talks directly to GitHub (baseline).
+    If port is set, routes through Isartor on that port.
+    """
+    env = os.environ.copy()
+    env["GH_TOKEN"] = copilot_token
+    env["GITHUB_TOKEN"] = copilot_token
+
+    if port is not None:
+        # Route through Isartor — set as custom provider endpoint
+        env["OPENAI_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
+        env["OPENAI_API_KEY"] = "benchmark-key"
+
+    cmd = [
+        "copilot",
+        "-p", prompt,
+        "--allow-all-tools",
+        "--output-format", "json",
+        "--max-turns", str(max_turns),
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(workspace),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return result.returncode, result.stdout, result.stderr
+    except subprocess.TimeoutExpired:
+        return -1, "", f"copilot CLI timed out after {timeout}s"
+
+
 def run_claude_cli(
     workspace: Path,
     port: int,
@@ -262,7 +306,6 @@ def run_claude_cli(
     env["DISABLE_NON_ESSENTIAL_MODEL_CALLS"] = "1"
     env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
     env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "16000"
-    # Ensure Claude doesn't try to phone home or check for updates
     env["CLAUDE_CODE_SKIP_UPDATE_CHECK"] = "1"
 
     cmd = [
@@ -455,31 +498,54 @@ def run_scenario(
     timeout: int,
     max_turns: int,
     dry_run: bool = False,
+    cli: str = "copilot",  # "copilot" or "claude"
 ) -> RunResult:
     res = RunResult(scenario=scenario, workspace=str(workspace))
 
     if dry_run:
-        print(f"\n  [DRY RUN] {scenario}: would run `claude -p` in {workspace}", file=sys.stderr)
+        print(f"\n  [DRY RUN] {scenario}: would run `{cli} -p` in {workspace}", file=sys.stderr)
         res.wall_time_s = 0.1
         res.claude_exit_code = 0
         res.files_created = ["(dry-run)"]
         return res
 
-    # Start Isartor
+    # Copilot CLI baseline: NO Isartor needed — talks directly to GitHub
+    if cli == "copilot" and mode == "passthrough":
+        print(f"  Running `copilot -p` directly (no Isartor)...", file=sys.stderr)
+        t0 = time.time()
+        exit_code, stdout, stderr = run_copilot_cli(
+            workspace, BENCHMARK_PROMPT, copilot_token,
+            port=None, timeout=timeout, max_turns=max_turns,
+        )
+        wall_time = time.time() - t0
+        res.wall_time_s = wall_time
+        res.claude_exit_code = exit_code
+        res.claude_stdout = stdout[:5000]
+        res.claude_stderr = stderr[:2000]
+        _parse_cli_output(res, stdout, stderr, exit_code)
+        # No Isartor stats for direct baseline
+        commit_workspace(workspace, f"copilot-bench: {scenario}")
+        res.files_created = list_files(workspace)
+        print(f"  Files created: {len(res.files_created)}", file=sys.stderr)
+        print(f"  Validating workspace...", file=sys.stderr)
+        _apply_validation(res, validate_workspace(workspace))
+        commit_workspace(workspace, f"post-validation: {scenario}")
+        return res
+
+    # All other modes: start Isartor
     print(f"  Starting Isartor ({mode}) on port {port}...", file=sys.stderr)
     proc = start_isartor(binary, port, copilot_token, model, mode, sidecar_url)
     if not wait_for_health(port, timeout=60):
         stop_isartor(proc)
         print(f"  ❌ Isartor failed to start on port {port}", file=sys.stderr)
-        # Dump stderr for debugging
-        _, stderr = proc.communicate(timeout=5)
-        if stderr:
-            print(f"  Isartor stderr: {stderr.decode()[:500]}", file=sys.stderr)
+        _, proc_stderr = proc.communicate(timeout=5)
+        if proc_stderr:
+            print(f"  Isartor stderr: {proc_stderr.decode()[:500]}", file=sys.stderr)
         res.claude_exit_code = -2
         return res
     print(f"  ✅ Isartor ready on port {port}", file=sys.stderr)
 
-    # Pre-flight: verify Isartor→Copilot chain before running Claude CLI
+    # Pre-flight
     print(f"  Running preflight API test...", file=sys.stderr)
     if not preflight_api_test(port):
         stop_isartor(proc)
@@ -487,12 +553,18 @@ def run_scenario(
         res.claude_exit_code = -3
         return res
 
-    # Run Claude CLI
-    print(f"  Running `claude -p` (max {max_turns} turns, timeout {timeout}s)...", file=sys.stderr)
+    # Run CLI
+    print(f"  Running `{cli} -p` (max {max_turns} turns, timeout {timeout}s)...", file=sys.stderr)
     t0 = time.time()
-    exit_code, stdout, stderr = run_claude_cli(
-        workspace, port, model, BENCHMARK_PROMPT, timeout, max_turns,
-    )
+    if cli == "copilot":
+        exit_code, stdout, stderr = run_copilot_cli(
+            workspace, BENCHMARK_PROMPT, copilot_token,
+            port=port, timeout=timeout, max_turns=max_turns,
+        )
+    else:
+        exit_code, stdout, stderr = run_claude_cli(
+            workspace, port, model, BENCHMARK_PROMPT, timeout, max_turns,
+        )
     wall_time = time.time() - t0
 
     res.wall_time_s = wall_time
@@ -500,29 +572,7 @@ def run_scenario(
     res.claude_stdout = stdout[:5000]
     res.claude_stderr = stderr[:2000]
 
-    if exit_code != 0:
-        print(f"  ⚠ claude exited with code {exit_code}", file=sys.stderr)
-        if stderr:
-            print(f"  stderr (last 1000 chars):\n{stderr[-1000:]}", file=sys.stderr)
-        if stdout:
-            # Show tail of stdout for clues (may contain error JSON)
-            print(f"  stdout (last 500 chars):\n{stdout[-500:]}", file=sys.stderr)
-        # Dump Isartor logs for debugging
-        isartor_log = Path.home() / ".isartor" / "isartor.log"
-        if isartor_log.exists():
-            log_tail = isartor_log.read_text()[-2000:]
-            print(f"  Isartor log (last 2000 chars):\n{log_tail}", file=sys.stderr)
-
-    # Parse Claude JSON output
-    parsed = parse_claude_json(stdout)
-    if parsed:
-        res.claude_cost_usd = parsed.get("cost_usd", 0.0) or 0.0
-        res.claude_num_turns = parsed.get("num_turns", 0) or 0
-        res.claude_duration_ms = parsed.get("duration_ms", 0) or 0
-        res.claude_session_id = parsed.get("session_id", "") or ""
-        usage = parsed.get("usage", {}) or {}
-        res.claude_input_tokens = usage.get("input_tokens", 0) or 0
-        res.claude_output_tokens = usage.get("output_tokens", 0) or 0
+    _parse_cli_output(res, stdout, stderr, exit_code)
 
     # Get Isartor stats
     stats = get_isartor_stats(port)
@@ -537,13 +587,8 @@ def run_scenario(
         deflected = res.isartor_l1a_hits + res.isartor_l1b_hits + res.isartor_l2_hits
         res.isartor_deflection_rate = deflected / total * 100
 
-    # Stop Isartor
     stop_isartor(proc)
-
-    # Commit workspace
-    commit_workspace(workspace, f"claude-bench: {scenario}")
-
-    # List files created by Claude
+    commit_workspace(workspace, f"{cli}-bench: {scenario}")
     res.files_created = list_files(workspace)
     print(f"  Files created: {len(res.files_created)}", file=sys.stderr)
     for f in res.files_created[:15]:
@@ -551,18 +596,39 @@ def run_scenario(
     if len(res.files_created) > 15:
         print(f"    ... and {len(res.files_created) - 15} more", file=sys.stderr)
 
-    # Validate
     print(f"  Validating workspace...", file=sys.stderr)
-    val = validate_workspace(workspace)
+    _apply_validation(res, validate_workspace(workspace))
+    commit_workspace(workspace, f"post-validation: {scenario}")
+    return res
+
+
+def _parse_cli_output(res: RunResult, stdout: str, stderr: str, exit_code: int) -> None:
+    """Parse Claude/Copilot CLI output and populate result fields."""
+    if exit_code != 0:
+        print(f"  ⚠ CLI exited with code {exit_code}", file=sys.stderr)
+        if stderr:
+            print(f"  stderr (last 1000 chars):\n{stderr[-1000:]}", file=sys.stderr)
+        if stdout:
+            print(f"  stdout (last 500 chars):\n{stdout[-500:]}", file=sys.stderr)
+        _dump_isartor_log()
+
+    parsed = parse_claude_json(stdout)
+    if parsed:
+        res.claude_cost_usd = parsed.get("cost_usd", 0.0) or parsed.get("total_cost_usd", 0.0) or 0.0
+        res.claude_num_turns = parsed.get("num_turns", 0) or 0
+        res.claude_duration_ms = parsed.get("duration_ms", 0) or 0
+        res.claude_session_id = parsed.get("session_id", "") or ""
+        usage = parsed.get("usage", {}) or {}
+        res.claude_input_tokens = usage.get("input_tokens", 0) or 0
+        res.claude_output_tokens = usage.get("output_tokens", 0) or 0
+
+
+def _apply_validation(res: RunResult, val: dict) -> None:
     res.npm_install_ok = val["npm_install_ok"]
     res.tsc_ok = val["tsc_ok"]
     res.jest_ok = val["jest_ok"]
     res.jest_tests_passed = val["jest_tests_passed"]
     res.jest_tests_total = val["jest_tests_total"]
-
-    commit_workspace(workspace, f"post-validation: {scenario}")
-
-    return res
 
 
 # ── Report generation ─────────────────────────────────────────────────────
@@ -641,12 +707,12 @@ def generate_report(
 
     # ── summary.md ──
     lines = [
-        "# Claude Code Benchmark: Baseline vs Isartor",
+        "# Code Generation Benchmark: Baseline vs Isartor",
         "",
-        "Real Claude Code CLI building a TypeScript Express TODO API.",
+        "Autonomous CLI building a TypeScript Express TODO API.",
         "",
-        "- **Baseline**: Isartor in passthrough mode (no cache, no L2)",
-        "- **Isartor**: Isartor with full stack (L1 cache + L2 SLM + L3 cloud)",
+        "- **Baseline**: Direct Copilot (no Isartor)",
+        "- **Isartor**: Full stack (L1 cache + L2 SLM + L3 cloud)",
         "",
         "| Metric | Baseline | Isartor |",
         "|--------|----------|---------|",
@@ -698,7 +764,11 @@ def generate_report(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Claude Code CLI benchmark: Baseline vs Isartor",
+        description="Code generation benchmark: Baseline vs Isartor",
+    )
+    p.add_argument(
+        "--cli", default="copilot", choices=["copilot", "claude"],
+        help="Which CLI to use (default: copilot)",
     )
     p.add_argument(
         "--binary", default="./target/release/isartor",
@@ -720,11 +790,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--timeout", type=int, default=900,
-        help="Claude CLI timeout in seconds (default 900 = 15 min)",
+        help="CLI timeout in seconds (default 900 = 15 min)",
     )
     p.add_argument(
         "--max-turns", type=int, default=50,
-        help="Max Claude agentic turns",
+        help="Max agentic turns",
     )
     p.add_argument("--push-repo", default="", help="Git remote URL to push workspaces")
     p.add_argument("--dry-run", action="store_true", help="Simulate without API calls")
@@ -738,22 +808,23 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     ws_base = output_dir / "workspaces"
+    cli = args.cli
 
     if not args.dry_run and not args.copilot_token:
         print("❌ --copilot-token required (or set COPILOT_WORKFLOW_KEY)", file=sys.stderr)
         return 1
 
-    # Check claude CLI
+    # Check CLI availability
     if not args.dry_run:
-        r = subprocess.run(["claude", "--version"], capture_output=True, text=True)
+        cli_cmd = cli
+        r = subprocess.run([cli_cmd, "--version"], capture_output=True, text=True)
         if r.returncode != 0:
-            print(
-                "❌ `claude` CLI not found. Install: npm install -g @anthropic-ai/claude-code",
-                file=sys.stderr,
-            )
+            pkg = "@github/copilot" if cli == "copilot" else "@anthropic-ai/claude-code"
+            print(f"❌ `{cli_cmd}` CLI not found. Install: npm install -g {pkg}", file=sys.stderr)
             return 1
-        print(f"Claude CLI: {r.stdout.strip()}", file=sys.stderr)
+        print(f"CLI: {cli_cmd} {r.stdout.strip()}", file=sys.stderr)
 
+    print(f"Runner: {cli}", file=sys.stderr)
     print(f"Model: {args.model}", file=sys.stderr)
     print(f"Binary: {args.binary}", file=sys.stderr)
     print(f"Output: {output_dir}", file=sys.stderr)
@@ -764,7 +835,10 @@ def main() -> int:
 
     # ── Baseline ──
     if not args.isartor_only:
-        print("\n═══ Baseline (passthrough — no cache, no L2) ═══", file=sys.stderr)
+        if cli == "copilot":
+            print("\n═══ Baseline (direct Copilot — no Isartor) ═══", file=sys.stderr)
+        else:
+            print("\n═══ Baseline (passthrough — no cache, no L2) ═══", file=sys.stderr)
         ws = init_workspace(ws_base, "baseline")
         baseline_result = run_scenario(
             scenario="baseline",
@@ -778,6 +852,7 @@ def main() -> int:
             timeout=args.timeout,
             max_turns=args.max_turns,
             dry_run=args.dry_run,
+            cli=cli,
         )
         print(
             f"\n  Result: {baseline_result.wall_time_s:.1f}s, "
@@ -805,6 +880,7 @@ def main() -> int:
             timeout=args.timeout,
             max_turns=args.max_turns,
             dry_run=args.dry_run,
+            cli=cli,
         )
         print(
             f"\n  Result: {isartor_result.wall_time_s:.1f}s, "

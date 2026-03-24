@@ -77,13 +77,13 @@ jobs:
         if: env.RUNNER == 'claude_cli'
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      - name: Install Claude Code CLI
+      - name: Install Copilot CLI
         if: env.RUNNER == 'claude_cli'
         run: |
-          npm install -g @anthropic-ai/claude-code
-          claude --version
+          npm install -g @github/copilot
+          copilot --version
 
       # ── Post "started" comment ──────────────────────────────────────────
       - name: Post started comment
@@ -485,6 +485,7 @@ jobs:
             esac
 
             python3 benchmarks/claude_bench.py \
+              --cli copilot \
               --binary ./target/release/isartor \
               --copilot-token "${COPILOT_WORKFLOW_KEY:-}" \
               --model gpt-5.4 \
