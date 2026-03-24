@@ -211,9 +211,7 @@ async fn main() -> anyhow::Result<()> {
     // When cache_mode=exact, semantic matching is not used so we skip the download.
     let text_embedder = Arc::new(
         if matches!(config.cache_mode, isartor::config::CacheMode::Exact) {
-            tracing::info!(
-                "cache_mode=exact — skipping semantic embedder download (L1b disabled)"
-            );
+            tracing::info!("cache_mode=exact — skipping semantic embedder download (L1b disabled)");
             isartor::layer1::embeddings::TextEmbedder::new_noop()
         } else {
             isartor::layer1::embeddings::TextEmbedder::new().map_err(|e| {
