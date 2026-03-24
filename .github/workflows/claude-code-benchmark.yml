@@ -118,7 +118,29 @@ jobs:
         if: env.DRY_RUN == 'false'
         run: |
           # Install pre-built llama.cpp from the latest release
-          LLAMA_VERSION=$(curl -fsS https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          LLAMA_API_JSON=$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/ggerganov/llama.cpp/releases/latest 2>/dev/null || true)
+          if command -v jq >/dev/null 2>&1; then
+            LLAMA_VERSION=$(echo "$LLAMA_API_JSON" | jq -r '.tag_name // empty' 2>/dev/null || true)
+          else
+            LLAMA_VERSION=$(echo "$LLAMA_API_JSON" | grep -o '"tag_name":"[^"]*"' | head -1 | cut -d '"' -f 4 || true)
+          fi
+          # Fallback: query the tags API endpoint
+          if [ -z "$LLAMA_VERSION" ]; then
+            TAGS_JSON=$(curl -fsSL \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/ggerganov/llama.cpp/tags?per_page=1" 2>/dev/null || true)
+            if command -v jq >/dev/null 2>&1; then
+              LLAMA_VERSION=$(echo "$TAGS_JSON" | jq -r '.[0].name // empty' 2>/dev/null || true)
+            else
+              LLAMA_VERSION=$(echo "$TAGS_JSON" | grep -o '"name":"[^"]*"' | head -1 | cut -d '"' -f 4 || true)
+            fi
+          fi
+          if [ -z "$LLAMA_VERSION" ]; then
+            echo "::error::Could not determine the latest llama.cpp release tag. The GitHub API may be rate-limited or unavailable. Set LLAMA_VERSION manually or retry later."
+            exit 1
+          fi
           echo "Installing llama.cpp ${LLAMA_VERSION}"
           curl -fsSL \
             "https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip" \
