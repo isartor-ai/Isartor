@@ -35,6 +35,7 @@ isartor up
 isartor connect copilot          # GitHub Copilot CLI
 isartor connect claude           # Claude Code
 isartor connect cursor           # Cursor IDE
+isartor connect openclaw         # OpenClaw
 isartor connect codex            # OpenAI Codex CLI
 isartor connect gemini           # Gemini CLI
 isartor connect claude-copilot   # Claude Code + GitHub Copilot
@@ -76,7 +77,7 @@ cd Isartor && cargo build --release
 
 ## Why Isartor?
 
-AI coding agents repeat themselves — a lot. Copilot, Claude Code, and Cursor send the same system instructions, the same context preambles, and often the same user prompts across every turn of a conversation. Standard API gateways forward all of it to cloud LLMs regardless.
+AI coding agents and personal assistants repeat themselves — a lot. Copilot, Claude Code, Cursor, and OpenClaw send the same system instructions, the same context preambles, and often the same user prompts across every turn of a conversation. Standard API gateways forward all of it to cloud LLMs regardless.
 
 **Isartor sits between your tools and the cloud.** It intercepts every prompt and runs a cascade of local algorithms — from sub-millisecond hashing to in-process neural inference — to resolve requests before they reach the network. Only the genuinely hard prompts make it through.
 
@@ -131,6 +132,7 @@ One command connects your favourite tool. No proxy, no MITM, no CA certificates.
 |:-----|:--------|:----------|
 | **GitHub Copilot CLI** | `isartor connect copilot` | MCP server (stdio or HTTP/SSE at `/mcp/`) |
 | **GitHub Copilot in VS Code** | `isartor connect copilot-vscode` | Managed `settings.json` debug overrides |
+| **OpenClaw** | `isartor connect openclaw` | Provider patch for `openclaw.json` |
 | **Claude Code** | `isartor connect claude` | `ANTHROPIC_BASE_URL` override |
 | **Claude Code + Copilot** | `isartor connect claude-copilot` | Claude base URL + Copilot-backed L3 |
 | **Cursor IDE** | `isartor connect cursor` | Base URL + MCP registration at `/mcp/` |
@@ -168,7 +170,7 @@ response = client.chat.completions.create(
 )
 ```
 
-Works with the official Python/Node SDKs, LangChain, LlamaIndex, AutoGen, CrewAI, or any OpenAI-compatible client.
+Works with the official Python/Node SDKs, LangChain, LlamaIndex, AutoGen, CrewAI, OpenClaw, or any OpenAI-compatible client.
 
 ---
 

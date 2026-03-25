@@ -104,6 +104,7 @@ If gateway auth is enabled, also add:
 |------|---------|-----------|
 | [GitHub Copilot CLI](copilot.md) | `isartor connect copilot` | MCP server (cache-only) |
 | [GitHub Copilot in VS Code](copilot-vscode.md) | `isartor connect copilot-vscode` | Managed `settings.json` debug overrides |
+| [OpenClaw](openclaw.md) | `isartor connect openclaw` | Provider patch for `openclaw.json` |
 | [OpenCode](opencode.md) | `isartor connect opencode` | Global provider + auth config |
 | [Claude Code + GitHub Copilot](claude-copilot.md) | `isartor connect claude-copilot` | Claude base URL override + Copilot-backed L3 |
 | [Claude Code](claude-code.md) | `isartor connect claude` | Base URL override |
