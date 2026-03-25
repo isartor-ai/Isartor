@@ -41,6 +41,85 @@ RETRYABLE_HTTP_STATUSES = {429, 502, 503, 504}
 MAX_HTTP_ATTEMPTS = 3
 HTTP_RETRY_BACKOFF_SECS = 1.5
 
+# ---------------------------------------------------------------------------
+# Synthetic system instructions — mimics what real coding tools send
+# ---------------------------------------------------------------------------
+# Real agent tools (Claude Code, Copilot, Cursor) inject ~3-8 KB of
+# instruction text on every turn.  This block exercises L2.5 context
+# optimisation: ContentClassifier detects it, DedupStage replaces repeats,
+# and LogCrunchStage strips decoration.
+
+SYSTEM_INSTRUCTIONS = """\
+<!-- isartor:benchmark-instructions:start -->
+<custom_instructions>
+# Copilot Instructions for TypeScript Todo App
+
+## Build, test, and lint commands
+
+- Use `npm run build` for a TypeScript build and `npm run dev` for development.
+- Run the full test suite with `npm test` or `npx jest --all`.
+- Run formatting and lint checks:
+  - `npx eslint src/ --ext .ts`
+  - `npx prettier --check "src/**/*.ts"`
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## High-level architecture
+
+- `src/server.ts` is the entry point. It loads config, creates the Express app,
+  and starts the HTTP server on the configured port.
+- The main request path uses Express middleware plus route handlers.
+- The application follows a layered architecture: routes → service → repository.
+
+────────────────────────────────────────────────────────────────────────────────
+
+## Key conventions
+
+- All route handlers are in `src/routes/` and mounted via `app.use()`.
+- The data layer uses an in-memory Map store for development; swap for a real
+  database in production.
+- Error handling middleware catches and formats all errors as JSON responses.
+- TypeScript strict mode is enabled; all public interfaces are explicitly typed.
+- Use UUID v4 for all entity identifiers.
+
+***
+
+## Testing strategy
+
+- Unit tests in `__tests__/unit/` test service and store logic in isolation.
+- Integration tests in `__tests__/integration/` use supertest against the Express app.
+- All tests run via Jest with ts-jest preset.
+- Coverage target: ≥ 80% line coverage on src/ files.
+
+---
+
+## Code style
+
+- Use `const` over `let` where possible; avoid `var`.
+- Prefer async/await over raw Promises.
+- Export interfaces and types from dedicated `types.ts` files.
+- Keep route handlers thin — business logic belongs in the service layer.
+</custom_instructions>
+
+<environment_context>
+Working directory: /workspace/todo-app
+Runtime: Node.js 22, TypeScript 5.x
+Package manager: npm
+OS: Linux (Ubuntu 22.04)
+</environment_context>
+
+<session_context>
+Session: benchmark-session
+Task: Build a complete TypeScript Express.js todo application
+Phase: Code generation benchmark
+</session_context>
+
+<!-- HTML comments like this one should be stripped by LogCrunch -->
+<!-- Another tracking comment that adds no value -->
+<!-- Build metadata: version=benchmark, timestamp=2026-03-25 -->
+<!-- isartor:benchmark-instructions:end -->
+"""
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -59,6 +138,8 @@ class PromptResult:
     status: int
     error: str = ""
     files_written: list[str] = field(default_factory=list)
+    context_optimized: bool = False
+    context_bytes_saved: int = 0
 
 
 @dataclass
@@ -80,6 +161,8 @@ class ScenarioResult:
     validation_total: int
     validation_failed: int
     prompts: list[PromptResult]
+    l2_5_optimized: int = 0
+    l2_5_bytes_saved: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -92,22 +175,30 @@ def send_anthropic_request(
     prompt: str,
     timeout: float,
     extra_headers: dict[str, str] | None = None,
+    system_instructions: str = "",
+    session_id: str = "",
 ) -> tuple[int, dict[str, str], str]:
     """POST an Anthropic-compatible chat request. Returns (status, headers, body)."""
     import urllib.request
     import urllib.error
 
-    body = json.dumps({
+    payload: dict[str, Any] = {
         "model": "gpt-5.4",
         "max_tokens": 16000,
         "messages": [{"role": "user", "content": prompt}],
-    }).encode()
+    }
+    if system_instructions:
+        payload["system"] = system_instructions
+
+    body = json.dumps(payload).encode()
 
     headers = {
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
         "x-api-key": api_key,
     }
+    if session_id:
+        headers["x-isartor-session-id"] = session_id
     if extra_headers:
         headers.update(extra_headers)
 
@@ -140,6 +231,7 @@ def send_copilot_request(
     github_token: str,
     timeout: float,
     model: str = "gpt-5.4",
+    system_instructions: str = "",
     _session_cache: dict[str, str] = {},
 ) -> tuple[int, dict[str, str], str]:
     """Direct Copilot request (baseline, no Isartor)."""
@@ -168,9 +260,14 @@ def send_copilot_request(
 
     session_token = _session_cache["token"]
 
+    messages: list[dict[str, str]] = []
+    if system_instructions:
+        messages.append({"role": "system", "content": system_instructions})
+    messages.append({"role": "user", "content": prompt})
+
     body = json.dumps({
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "max_tokens": 16000,
     }).encode()
 
@@ -411,9 +508,11 @@ def run_scenario(
     """Replay all fixture prompts against one target, writing code into workspace."""
 
     results: list[PromptResult] = []
-    layer_counts = {"l1a": 0, "l1b": 0, "l2": 0, "l3": 0}
+    layer_counts = {"l1a": 0, "l1b": 0, "l2": 0, "l2.5": 0, "l3": 0}
 
     is_baseline = name == "baseline"
+    session_id = f"bench-{name}-{uuid.uuid4().hex[:8]}"
+    system_text = SYSTEM_INSTRUCTIONS if not args.no_system else ""
 
     for i, entry in enumerate(entries):
         step = entry.get("step", i + 1)
@@ -435,10 +534,12 @@ def run_scenario(
                 status, headers, body = send_copilot_request(
                     prompt, args.copilot_token, args.timeout,
                     model=args.model,
+                    system_instructions=system_text,
                 )
             else:
                 status, headers, body = send_anthropic_request(
                     args.direct_url, args.direct_api_key, prompt, args.timeout,
+                    system_instructions=system_text,
                 )
             latency_ms = (time.monotonic() - t0) * 1000
             response_text = extract_response_text(body) if status == 200 else ""
@@ -448,6 +549,8 @@ def run_scenario(
                 args.api_key,
                 prompt,
                 args.timeout,
+                system_instructions=system_text,
+                session_id=session_id,
             )
             latency_ms = (time.monotonic() - t0) * 1000
             response_text = extract_response_text(body) if status == 200 else ""
@@ -456,6 +559,19 @@ def run_scenario(
         layer_raw = headers.get("x-isartor-layer", "l3") if not is_baseline else "l3"
         layer = layer_raw if layer_raw in layer_counts else "l3"
         layer_counts[layer] += 1
+
+        # Track L2.5 context optimization (pass-through, not a deflection)
+        ctx_opt_header = headers.get("x-isartor-context-optimized", "")
+        ctx_optimized = bool(ctx_opt_header)
+        ctx_bytes_saved = 0
+        if ctx_opt_header:
+            # Parse "bytes_saved=1234"
+            for part in ctx_opt_header.split(","):
+                if "bytes_saved=" in part:
+                    try:
+                        ctx_bytes_saved = int(part.split("=")[1].strip())
+                    except ValueError:
+                        pass
 
         # Write code into workspace
         files_written: list[str] = []
@@ -483,6 +599,8 @@ def run_scenario(
             status=status,
             error="" if status == 200 else f"HTTP {status}",
             files_written=files_written,
+            context_optimized=ctx_optimized,
+            context_bytes_saved=ctx_bytes_saved,
         ))
 
     # Commit all generated code
@@ -497,6 +615,8 @@ def run_scenario(
     deflected = layer_counts["l1a"] + layer_counts["l1b"] + layer_counts["l2"]
     deflection_rate = (deflected / total * 100) if total > 0 else 0.0
     errors = sum(1 for r in results if r.status != 200)
+    l2_5_optimized = sum(1 for r in results if r.context_optimized)
+    l2_5_bytes_saved = sum(r.context_bytes_saved for r in results)
 
     # Run validation
     val_passed, val_total, val_failed = run_validation(workspace, args)
@@ -519,6 +639,8 @@ def run_scenario(
         validation_total=val_total,
         validation_failed=val_failed,
         prompts=results,
+        l2_5_optimized=l2_5_optimized,
+        l2_5_bytes_saved=l2_5_bytes_saved,
     )
 
 
@@ -581,6 +703,10 @@ def write_tokens_json(
                 "l2": result.l2_hits,
                 "l3": result.l3_hits,
             },
+            "l2_5_context_optimizer": {
+                "optimized_requests": result.l2_5_optimized,
+                "total_bytes_saved": result.l2_5_bytes_saved,
+            },
             "prompts": [
                 {
                     "step": p.step,
@@ -589,6 +715,8 @@ def write_tokens_json(
                     "input_tokens": p.input_tokens_est,
                     "output_tokens": p.output_tokens_est,
                     "latency_ms": round(p.latency_ms, 1),
+                    "context_optimized": p.context_optimized,
+                    "context_bytes_saved": p.context_bytes_saved,
                 }
                 for p in result.prompts
             ],
@@ -642,6 +770,8 @@ def write_summary_report(
         lines.append(f"| Cloud tokens | {result.total_cloud_input_tokens + result.total_cloud_output_tokens:,} |")
         lines.append(f"| Deflection rate | {result.deflection_rate}% |")
         lines.append(f"| L1a / L1b / L2 / L3 | {result.l1a_hits} / {result.l1b_hits} / {result.l2_hits} / {result.l3_hits} |")
+        if result.l2_5_optimized > 0:
+            lines.append(f"| L2.5 context optimized | {result.l2_5_optimized}/{result.total_prompts} requests ({result.l2_5_bytes_saved:,} bytes saved) |")
         lines.append(f"| Errors | {result.errors} |")
         lines.append(f"| Validation | {'✅ passed' if result.validation_passed else '❌ failed'} ({result.validation_total} checks, {result.validation_failed} failed) |")
 
@@ -715,6 +845,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--push-repo",
                    default=os.environ.get("PUSH_REPO", ""),
                    help="Git repo URL to push workspaces (e.g. https://github.com/org/repo).")
+    p.add_argument("--no-system", action="store_true",
+                   help="Omit synthetic system instructions (disables L2.5 testing).")
 
     return p
 
@@ -773,9 +905,14 @@ def main() -> int:
         print("\n═══ Scenario B: Isartor + Copilot ═══", file=sys.stderr)
         ws_isartor = init_workspace(output_dir, "workspace_isartor")
         isartor_result = run_scenario("isartor", entries, ws_isartor, args)
+        l25_msg = ""
+        if isartor_result.l2_5_optimized > 0:
+            l25_msg = (f", L2.5 optimized {isartor_result.l2_5_optimized}/"
+                       f"{isartor_result.total_prompts} "
+                       f"({isartor_result.l2_5_bytes_saved:,} bytes saved)")
         print(f"  → {isartor_result.total_prompts} prompts, "
               f"{isartor_result.errors} errors, "
-              f"deflection {isartor_result.deflection_rate}%", file=sys.stderr)
+              f"deflection {isartor_result.deflection_rate}%{l25_msg}", file=sys.stderr)
 
     # --- Generate outputs ---
     print("\n═══ Generating outputs ═══", file=sys.stderr)
