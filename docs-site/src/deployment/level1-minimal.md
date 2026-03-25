@@ -320,7 +320,7 @@ These are the most relevant `ISARTOR__*` variables for Level 1 deployments. For 
 When your traffic outgrows Level 1, the migration path is straightforward:
 
 1. **Add the generation sidecar** — `ISARTOR__LAYER2__SIDECAR_URL=http://127.0.0.1:8081` (replaces embedded candle with the more powerful Phi-3-mini on GPU).
-2. **Optionally add an embedding sidecar for v2 pipeline** — `ISARTOR__EMBEDDING_SIDECAR__SIDECAR_URL=http://127.0.0.1:8082` (only needed if using the v2 algorithmic pipeline; v1 semantic cache already uses in-process candle BertModel).
+2. **Optionally add an embedding sidecar** — `ISARTOR__EMBEDDING_SIDECAR__SIDECAR_URL=http://127.0.0.1:8082` (only needed for external embedding inference; the default L1b semantic cache already uses in-process candle BertModel).
 3. **Deploy via Docker Compose** — See [Level 2 — Sidecar Deployment](level2-sidecar.md).
 
 > **Note:** The pluggable backend defaults (`cache_backend=memory`, `router_backend=embedded`) remain appropriate for Level 2 single-host deployments. You only need to switch to `cache_backend=redis` and `router_backend=vllm` at Level 3 when scaling horizontally.

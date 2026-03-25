@@ -111,6 +111,7 @@ If gateway auth is enabled, also add:
 | [Cursor IDE](cursor.md) | `isartor connect cursor` | Base URL override + MCP |
 | [OpenAI Codex CLI](codex.md) | `isartor connect codex` | Base URL override |
 | [Gemini CLI](gemini.md) | `isartor connect gemini` | Base URL override |
+| [Antigravity](antigravity.md) | `isartor connect antigravity` | Base URL override |
 | [Generic / other tools](generic.md) | `isartor connect generic` | Base URL override |
 
 Add `--gateway-api-key <key>` to any connect command only if you have explicitly

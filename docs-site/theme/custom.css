@@ -31,3 +31,14 @@ table th {
 .sidebar .sidebar-scrollbox {
     padding-bottom: 2em;
 }
+
+/* Mermaid diagram styling */
+.mermaid {
+    text-align: center;
+    padding: 1em 0;
+}
+
+.mermaid svg {
+    max-width: 100%;
+    height: auto;
+}

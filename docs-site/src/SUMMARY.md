@@ -25,6 +25,7 @@
 - [Cursor IDE](integrations/cursor.md)
 - [OpenAI Codex CLI](integrations/codex.md)
 - [Gemini CLI](integrations/gemini.md)
+- [Antigravity](integrations/antigravity.md)
 - [Generic Connector](integrations/generic.md)
 
 # Deployment

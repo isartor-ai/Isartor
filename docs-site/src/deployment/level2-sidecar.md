@@ -70,7 +70,7 @@ This guide covers deploying Isartor with a dedicated AI sidecar for generation. 
 | --- | --- | --- | --- | --- |
 | **gateway** | `isartor:latest` (built) | 8080 | Prompt Firewall (includes candle BertModel for Layer 1 embeddings) | 256 MB |
 | **slm-generation** | `ghcr.io/ggml-org/llama.cpp:server` | 8081 | Phi-3-mini-4k (Q4_K_M) — intent classification + generation | 4 GB |
-| **slm-embedding** *(optional)* | `ghcr.io/ggml-org/llama.cpp:server` | 8082 | all-MiniLM-L6-v2 (Q8_0) — v2 pipeline embeddings only (v1 uses in-process candle) | 512 MB |
+| **slm-embedding** *(optional)* | `ghcr.io/ggml-org/llama.cpp:server` | 8082 | all-MiniLM-L6-v2 (Q8_0) — external embedding sidecar (default uses in-process candle) | 512 MB |
 | **otel-collector** | `otel/opentelemetry-collector-contrib:0.96.0` | 4317 | OTLP gRPC receiver | 128 MB |
 | **jaeger** | `jaegertracing/all-in-one:1.55` | 16686 | Distributed tracing UI | 256 MB |
 | **prometheus** | `prom/prometheus:v2.51.0` | 9090 | Metrics storage (7d retention) | 256 MB |
@@ -231,9 +231,9 @@ These variables are relevant to the sidecar architecture. For the full reference
 | `ISARTOR__LAYER2__SIDECAR_URL` | `http://127.0.0.1:8081` | Generation sidecar URL (use Docker service name in Compose: `http://slm-generation:8081`) |
 | `ISARTOR__LAYER2__MODEL_NAME` | `phi-3-mini` | Model name for OpenAI-compatible requests |
 | `ISARTOR__LAYER2__TIMEOUT_SECONDS` | `30` | HTTP timeout for generation calls |
-| `ISARTOR__EMBEDDING_SIDECAR__SIDECAR_URL` | `http://127.0.0.1:8082` | Embedding sidecar URL — **v2 pipeline only** (v1 uses in-process candle; use `http://slm-embedding:8082` in Compose) |
-| `ISARTOR__EMBEDDING_SIDECAR__MODEL_NAME` | `all-minilm` | Embedding model name — v2 pipeline only |
-| `ISARTOR__EMBEDDING_SIDECAR__TIMEOUT_SECONDS` | `10` | HTTP timeout for embedding calls — v2 pipeline only |
+| `ISARTOR__EMBEDDING_SIDECAR__SIDECAR_URL` | `http://127.0.0.1:8082` | Embedding sidecar URL — optional (default uses in-process candle; use `http://slm-embedding:8082` in Compose) |
+| `ISARTOR__EMBEDDING_SIDECAR__MODEL_NAME` | `all-minilm` | Embedding model name (sidecar only) |
+| `ISARTOR__EMBEDDING_SIDECAR__TIMEOUT_SECONDS` | `10` | HTTP timeout for embedding calls (sidecar only) |
 
 ### Pluggable Backends
 

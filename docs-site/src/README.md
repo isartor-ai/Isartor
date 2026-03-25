@@ -4,13 +4,15 @@
   <img src="logo.png" alt="Isartor" width="300">
 </p>
 
-**An ultra-lightweight, pure-Rust Prompt Firewall that executes local intelligence, slashes LLM costs, and accelerates agentic workloads.**
+**Open-source Prompt Firewall — deflect up to 95% of redundant LLM traffic before it leaves your infrastructure.**
+
+Pure Rust · Single Binary · Zero Hidden Telemetry · Air-Gappable
 
 ---
 
-Standard API gateways are "dumb pipes" — they blindly forward every prompt to cloud LLMs regardless of complexity. Agent loops repeat identical prompts. Simple tasks burn the same expensive tokens as complex reasoning. The result: runaway costs, high latency, and sensitive data leaving your perimeter.
+AI coding agents and personal assistants repeat themselves — a lot. Copilot, Claude Code, Cursor, and OpenClaw send the same system instructions, the same context preambles, and often the same user prompts across every turn. Standard API gateways forward all of it to cloud LLMs regardless.
 
-Isartor replaces the dumb pipe with **algorithmic intelligence at the edge**. Acting as a drop-in OpenAI replacement, it intercepts prompts and applies a cascade of local algorithms — from deterministic hashing to pure-Rust neural networks — to resolve requests locally before they ever reach the cloud.
+Isartor sits between your tools and the cloud. It intercepts every prompt and runs a cascade of local algorithms — from sub-millisecond hashing to in-process neural inference — to resolve requests before they reach the network. Only the genuinely hard prompts make it through.
 
 ## The Deflection Stack
 
@@ -28,7 +30,7 @@ Request ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM 
 | **L1a — Exact Cache** | Sub-millisecond duplicate detection via fast hashing. Traps infinite agent loops instantly. | < 1 ms |
 | **L1b — Semantic Cache** | Catches meaning-equivalent prompts ("Price?" ≈ "Cost?") using pure-Rust embeddings. | 1–5 ms |
 | **L2 — SLM Router** | Triages intent with an embedded Small Language Model to resolve simple tasks locally. | 50–200 ms |
-| **L2.5 — Context Optimiser** | Retrieves and reranks documents to minimise token usage before the cloud call. | 5–50 ms |
+| **L2.5 — Context Optimiser** | Compresses repeated instruction payloads (CLAUDE.md, copilot-instructions) via session dedup and minification. | < 1 ms |
 | **L3 — Cloud Logic** | Routes surviving complex prompts to OpenAI, Anthropic, or Azure with fallback resilience. | Network-bound |
 
 Layers 1a and 1b deflect **71% of repetitive agentic traffic** and **38% of diverse task traffic** before any neural inference runs.
@@ -62,7 +64,7 @@ client = openai.OpenAI(
 )
 ```
 
-Works with the official SDKs, LangChain, LlamaIndex, AutoGen, GitHub Copilot CLI, and any other OpenAI-compatible tool.
+Works with the official SDKs, LangChain, LlamaIndex, AutoGen, GitHub Copilot, OpenClaw, and any other OpenAI-compatible tool.
 
 Recent OpenAI-compatible improvements for coding agents include:
 
