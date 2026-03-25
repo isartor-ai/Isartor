@@ -118,6 +118,7 @@ make benchmark-dry-run
 - Configuration uses `ISARTOR__...` environment variables with **double underscores** as separators.
 - The Axum middleware stack wraps inside-out. See `src/main.rs` for the documented layer order.
 - Use `spawn_blocking` for CPU-intensive work (embeddings, model inference) to avoid starving the Tokio runtime.
+- The `src/compression/` module uses a **Fusion Pipeline** pattern: stateless `CompressionStage` trait objects executed in order. To add a new compression stage, implement the `CompressionStage` trait and wire it in `src/compression/optimize.rs::build_pipeline()`.
 
 ---
 

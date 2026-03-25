@@ -59,6 +59,21 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
+### Compression Pipeline Tests
+
+Run the L2.5 compression module tests specifically:
+
+```bash
+# All compression tests (pipeline, stages, cache, optimize)
+cargo test --all-features compression
+
+# Specific modules
+cargo test --all-features content_classifier
+cargo test --all-features dedup_cache
+cargo test --all-features log_crunch
+cargo test --all-features optimize_request_body
+```
+
 ---
 
 ## Manual Step-by-Step

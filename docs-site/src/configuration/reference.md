@@ -43,6 +43,9 @@ isartor init
 | external_llm_model       | ISARTOR__EXTERNAL_LLM_MODEL     | string   | gpt-4o-mini            | Model name to request from the provider          |
 | external_llm_api_key     | ISARTOR__EXTERNAL_LLM_API_KEY   | string   | (none)                 | API key for the configured LLM provider (not needed for ollama) |
 | l3_timeout_secs          | ISARTOR__L3_TIMEOUT_SECS        | u64      | 120                    | HTTP timeout applied to all Layer 3 provider requests |
+| enable_context_optimizer | ISARTOR__ENABLE_CONTEXT_OPTIMIZER | bool   | true                   | Master switch for L2.5 context optimiser             |
+| context_optimizer_dedup  | ISARTOR__CONTEXT_OPTIMIZER_DEDUP | bool    | true                   | Enable cross-turn instruction deduplication          |
+| context_optimizer_minify | ISARTOR__CONTEXT_OPTIMIZER_MINIFY | bool   | true                   | Enable static minification (comments, rules, blanks) |
 
 ---
 
@@ -73,6 +76,16 @@ isartor init
 - `slm_router.remote_url`, `slm_router.model`, `slm_router.model_path`: Router config
 - `slm_router.classifier_mode`: `tiered` (default — TEMPLATE/SNIPPET/COMPLEX) or `binary` (legacy SIMPLE/COMPLEX)
 - `slm_router.max_answer_tokens`: Max tokens the SLM may generate for a local answer (default 2048)
+
+### Layer 2.5: Context Optimiser
+
+L2.5 compresses repeated instruction payloads (CLAUDE.md, copilot-instructions.md, skills blocks) before they reach the cloud, reducing input tokens on every L3 call.
+
+- `enable_context_optimizer`: Master switch (default `true`). Set to `false` to disable L2.5 entirely.
+- `context_optimizer_dedup`: Enable cross-turn instruction deduplication (default `true`). When the same instruction block is seen in consecutive turns of the same session, it is replaced with a compact hash reference.
+- `context_optimizer_minify`: Enable static minification (default `true`). Strips HTML/XML comments, decorative horizontal rules, consecutive blank lines, and Unicode box-drawing decoration.
+
+The pipeline processes system/instruction messages from OpenAI, Anthropic, and native request formats. See [Deflection Stack — L2.5](../concepts/deflection-stack.md#l25--context-optimiser) for architecture details.
 
 ### Layer 3: Cloud Fallbacks
 
@@ -112,6 +125,11 @@ provider = "candle"           # "candle" or "tei"
 provider = "embedded"         # "embedded" or "vllm"
 # remote_url = "http://localhost:8000"
 # model = "gemma-2-2b-it"
+
+# L2.5 Context Optimiser (all enabled by default)
+# enable_context_optimizer = true
+# context_optimizer_dedup = true
+# context_optimizer_minify = true
 
 [fallback]
 # openai_api_key = "sk-..."

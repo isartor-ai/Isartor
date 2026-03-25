@@ -17,9 +17,15 @@ flowchart TD
     B --> C[Cache L1a: LRU/Redis]
     C --> D[Cache L1b: Candle/TEI]
     D --> E[SLM Router: Candle/vLLM]
-    E --> F[Context Optimiser: Retrieve + Rerank]
+    E --> F[Context Optimiser: CompressionPipeline]
     F --> G[Cloud Fallback: OpenAI/Anthropic]
     G --> H[Response]
+
+    subgraph F_detail [L2.5 CompressionPipeline]
+        direction LR
+        F1[ContentClassifier] --> F2[DedupStage]
+        F2 --> F3[LogCrunchStage]
+    end
 ```
 
 ## Pluggable Trait Provider Pattern
@@ -33,7 +39,7 @@ Rather than feature-flag every call-site, we define **Ports** (trait interfaces 
 | **L1a Exact Cache** | In-memory LRU (`ahash` + `parking_lot`) | Redis cluster (shared across replicas) |
 | **L1b Semantic Cache** | In-process `candle` BertModel | External TEI sidecar (optional) |
 | **L2 SLM Router** | Embedded `candle` GGUF inference | Remote vLLM / TGI server (GPU pool) |
-| **L2.5 Context Optimiser** | In-process retrieve + rerank (top-K selection) | Distributed rerank (optional TEI / ANN pool) |
+| **L2.5 Context Optimiser** | In-process CompressionPipeline (classifier → dedup → log_crunch) | In-process CompressionPipeline (extensible with custom stages) |
 | **L3 Cloud Logic** | Direct to OpenAI / Anthropic | Direct to OpenAI / Anthropic |
 
 ### Adding a New Adapter
@@ -74,11 +80,23 @@ See the deployment guides for tier-specific setup:
 src/
 ├── core/
 │   ├── mod.rs            # Re-exports
-│   └── ports.rs          # Trait interfaces (ExactCache, SlmRouter)
+│   ├── ports.rs          # Trait interfaces (ExactCache, SlmRouter)
+│   └── context_compress.rs # Re-export shim (backward compat)
 ├── adapters/
 │   ├── mod.rs            # Re-exports
 │   ├── cache.rs          # InMemoryCache, RedisExactCache
 │   └── router.rs         # EmbeddedCandleRouter, RemoteVllmRouter
+├── compression/
+│   ├── mod.rs            # Re-exports all pipeline types
+│   ├── pipeline.rs       # CompressionPipeline executor + CompressionStage trait
+│   ├── cache.rs          # InstructionCache (per-session dedup state)
+│   ├── optimize.rs       # Request body rewriting (JSON → pipeline → reassembly)
+│   └── stages/
+│       ├── content_classifier.rs  # Gate: instruction vs conversational
+│       ├── dedup.rs               # Cross-turn instruction dedup
+│       └── log_crunch.rs          # Static minification
+├── middleware/
+│   └── context_optimizer.rs  # L2.5 Axum middleware
 ├── factory.rs            # build_exact_cache(), build_slm_router()
 └── config.rs             # CacheBackend, RouterBackend enums + AppConfig
 ```

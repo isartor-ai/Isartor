@@ -128,6 +128,14 @@ debug/warn level.
 | `layer2_slm`           | `src/middleware/slm_triage.rs`    | `slm.complexity_score` (`TEMPLATE`\|`SNIPPET`\|`COMPLEX`; legacy binary mode: `SIMPLE`\|`COMPLEX`) |
 | `l2_classify_intent`   | `src/adapters/router.rs`          | `router.backend` (`embedded_candle`\|`remote_vllm`), **`router.decision`**, `router.model`, `router.url`, `prompt_len` |
 
+### Layer 2.5 — Context Optimiser
+
+| Span Name                       | Source                                | Key Attributes                                                       |
+|---------------------------------|---------------------------------------|----------------------------------------------------------------------|
+| `layer2_5_context_optimizer`    | `src/middleware/context_optimizer.rs`  | `context.bytes_saved`, `context.strategy` (e.g. `"classifier+dedup"`, `"classifier+log_crunch"`) |
+
+When L2.5 modifies the request body, it also sets the response header `x-isartor-context-optimized: bytes_saved=<N>`.
+
 ### Layer 3 — Cloud LLM
 
 | Span Name      | Source              | Key Attributes                                           |
@@ -151,6 +159,8 @@ in Jaeger / Tempo:
 | `cache.backend`        | string    | L1a get/put spans           | `"memory"` or `"redis"`              |
 | `router.decision`      | string    | L2 classify span            | `"TEMPLATE"`, `"SNIPPET"`, or `"COMPLEX"` (tiered mode); `"SIMPLE"` or `"COMPLEX"` (binary mode) |
 | `router.backend`       | string    | L2 classify span            | `"embedded_candle"` or `"remote_vllm"` |
+| `context.bytes_saved`  | u64       | L2.5 optimizer span         | Bytes removed by compression pipeline  |
+| `context.strategy`     | string    | L2.5 optimizer span         | Pipeline stages that modified content (e.g. `"classifier+dedup"`) |
 | `provider.name`        | string    | L3 handler span             | e.g. `"openai"`, `"xai"`, `"azure"` |
 | `model`                | string    | L3 handler span             | e.g. `"gpt-4o"`, `"grok-beta"`      |
 | `http.status_code`     | u16       | Root span                   | HTTP response status code            |
@@ -180,6 +190,7 @@ Four instruments are registered as a singleton `GatewayMetrics` via `OnceLock`:
 | `proxy::connect::emit_proxy_decision()` | `record_request_with_context()`, `record_tokens_saved_with_context()` (if early) |
 | `cache_middleware` (L1 hit)       | `record_layer_duration("L1a_ExactCache" \| "L1b_SemanticCache")` |
 | `slm_triage_middleware` (L2 hit)  | `record_layer_duration("L2_SLM")`                         |
+| `context_optimizer_middleware`    | `record_layer_duration("L2_5_ContextOptimiser")` (when bytes saved > 0) |
 | `chat_handler` (L3)              | `record_layer_duration("L3_Cloud")`                        |
 
 ### Request Dimensions

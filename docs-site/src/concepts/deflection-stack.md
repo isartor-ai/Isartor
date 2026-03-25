@@ -106,7 +106,7 @@ order.  Each stage is a stateless `CompressionStage` trait object.  If a stage s
 **Adding custom stages:**
 
 Implement the `CompressionStage` trait and add your stage to the pipeline via
-`build_pipeline()` in `src/core/context_compress.rs`.
+`build_pipeline()` in `src/compression/optimize.rs`.
 
 **Configuration:**
 
@@ -152,7 +152,8 @@ The deflection stack is implemented as Axum middleware plus a final handler. For
 3. **Auth** — API key validation.
 4. **Layer 1 cache** — L1a exact match, then L1b semantic match.
 5. **Layer 2 SLM triage** — Intent classification and local response.
-6. **Layer 3 handler** — Cloud LLM fallback.
+6. **Layer 2.5 context optimiser** — Instruction dedup + minification via `CompressionPipeline`.
+7. **Layer 3 handler** — Cloud LLM fallback.
 
 > **Implementation note:** Axum middleware wraps inside-out — the last `.layer(...)` added runs first. The stack order in `src/main.rs` documents this explicitly and must be preserved.
 
