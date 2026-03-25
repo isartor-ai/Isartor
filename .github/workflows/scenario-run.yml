@@ -585,6 +585,21 @@ jobs:
                     `| **Tokens saved** | **${c.tokens_saved.toLocaleString()} (${c.savings_pct}%)** |`,
                   ].join('\n');
                 }
+
+                // L2.5 context optimizer stats
+                const isartorData = data.isartor || {};
+                const l25 = isartorData.l2_5_context_optimizer;
+                if (l25 && l25.optimized_requests > 0) {
+                  const total = isartorData.total_prompts || l25.optimized_requests;
+                  tokensInfo += [
+                    ``,
+                    `### 🗜️ L2.5 Context Optimizer`,
+                    `| Metric | Value |`,
+                    `|--------|-------|`,
+                    `| Requests optimized | ${l25.optimized_requests}/${total} |`,
+                    `| **Bytes saved** | **${l25.total_bytes_saved.toLocaleString()}** |`,
+                  ].join('\n');
+                }
               } catch {}
             }
 

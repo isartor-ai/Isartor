@@ -690,6 +690,7 @@ def write_tokens_json(
         if result is None:
             continue
         data[label] = {
+            "total_prompts": result.total_prompts,
             "total_input_tokens": result.total_input_tokens,
             "total_output_tokens": result.total_output_tokens,
             "total_tokens": result.total_input_tokens + result.total_output_tokens,
