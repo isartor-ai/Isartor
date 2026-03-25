@@ -349,8 +349,8 @@ def commit_workspace(ws: Path, message: str) -> None:
         )
 
 
-def push_workspace(ws: Path, repo_url: str, branch: str) -> None:
-    """Push workspace contents to a remote git repo."""
+def push_workspace(ws: Path, repo_url: str, branch: str) -> bool:
+    """Push workspace contents to a remote git repo. Returns True on success."""
     env = {
         **os.environ,
         "GIT_AUTHOR_NAME": "isartor-benchmark",
@@ -368,11 +368,15 @@ def push_workspace(ws: Path, repo_url: str, branch: str) -> None:
         subprocess.run(["git", "remote", "set-url", "origin", repo_url], cwd=ws, check=True)
 
     # Force push to branch (overwrites previous benchmark results)
-    subprocess.run(
+    result = subprocess.run(
         ["git", "push", "--force", "origin", f"HEAD:{branch}"],
-        cwd=ws, check=True, env=env,
+        cwd=ws, capture_output=True, text=True, env=env,
     )
-    print(f"  Pushed {ws.name} → {repo_url} branch={branch}", file=sys.stderr)
+    if result.returncode == 0:
+        print(f"  ✅ Pushed {ws.name} → {repo_url} branch={branch}", file=sys.stderr)
+        return True
+    print(f"  ❌ Push failed: {result.stderr.strip()[:300]}", file=sys.stderr)
+    return False
 
 
 # ---------------------------------------------------------------------------
