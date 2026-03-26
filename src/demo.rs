@@ -20,6 +20,7 @@ use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
+use crate::config::{AppConfig, LlmProvider};
 use crate::state::AppState;
 
 // ── Bundled fixture ──────────────────────────────────────────────────
@@ -74,6 +75,26 @@ pub struct DemoStats {
     pub deflection_pct: f64,
     pub avg_latency_us: f64,
     pub results: Vec<PromptResult>,
+    pub live_showcase: LiveShowcaseResult,
+}
+
+/// Optional live upstream showcase for post-install demo runs.
+#[derive(Debug)]
+pub enum LiveShowcaseResult {
+    Success {
+        provider: String,
+        model: String,
+        latency: std::time::Duration,
+        response_preview: String,
+    },
+    Skipped {
+        reason: String,
+    },
+    Failed {
+        provider: String,
+        model: String,
+        error: String,
+    },
 }
 
 // ── Canonical seeds ──────────────────────────────────────────────────
@@ -87,11 +108,23 @@ fn canonical_seeds() -> Vec<(&'static str, &'static str)> {
             "The capital of France is Paris.",
         ),
         (
-            "Explain REST API design best practices",
-            "REST APIs should use resource-oriented URLs, standard HTTP methods (GET, POST, PUT, DELETE), proper status codes, versioning, and HATEOAS links.",
+            "Tell me the capital of France",
+            "The capital of France is Paris.",
         ),
         (
-            "Write a Python function to reverse a string",
+            "Explain what a REST API is",
+            "A REST API is an HTTP interface that exposes resources through predictable URLs and standard verbs such as GET, POST, PUT, and DELETE.",
+        ),
+        (
+            "What is a REST API?",
+            "A REST API is an HTTP interface that exposes resources through predictable URLs and standard verbs such as GET, POST, PUT, and DELETE.",
+        ),
+        (
+            "How do I reverse a string in Python?",
+            "```python\ndef reverse_string(s: str) -> str:\n    return s[::-1]\n```",
+        ),
+        (
+            "How to reverse a string in Python?",
             "```python\ndef reverse_string(s: str) -> str:\n    return s[::-1]\n```",
         ),
         (
@@ -99,11 +132,19 @@ fn canonical_seeds() -> Vec<(&'static str, &'static str)> {
             "The meaning of life is a philosophical question explored through many traditions. A popular cultural answer is 42.",
         ),
         (
-            "Explain machine learning in simple terms",
+            "What is machine learning?",
+            "Machine learning is a subset of AI where computers learn patterns from data rather than being explicitly programmed.",
+        ),
+        (
+            "Explain machine learning to me",
             "Machine learning is a subset of AI where computers learn patterns from data rather than being explicitly programmed.",
         ),
         (
             "How does photosynthesis work?",
+            "Photosynthesis converts sunlight, water, and CO₂ into glucose and oxygen using chlorophyll in plant cells.",
+        ),
+        (
+            "Explain photosynthesis",
             "Photosynthesis converts sunlight, water, and CO₂ into glucose and oxygen using chlorophyll in plant cells.",
         ),
     ]
@@ -115,6 +156,8 @@ fn canonical_seeds() -> Vec<(&'static str, &'static str)> {
 ///
 /// Returns aggregate stats and per-prompt results for display.
 pub async fn run_demo(state: &Arc<AppState>) -> anyhow::Result<DemoStats> {
+    let live_showcase = run_live_showcase(state).await;
+
     // 1. Parse the replay fixture.
     let prompts = parse_replay_fixture()?;
     let total = prompts.len();
@@ -182,12 +225,58 @@ pub async fn run_demo(state: &Arc<AppState>) -> anyhow::Result<DemoStats> {
         deflection_pct,
         avg_latency_us,
         results,
+        live_showcase,
     })
 }
 
 /// Print the demo result table to stdout.
 pub fn print_demo_results(stats: &DemoStats) {
     println!();
+    println!("  Isartor Demo");
+    println!("  ────────────");
+    println!(
+        "  You just ran the post-install showcase: optional live L3, then local cache replay."
+    );
+    println!();
+
+    match &stats.live_showcase {
+        LiveShowcaseResult::Success {
+            provider,
+            model,
+            latency,
+            response_preview,
+        } => {
+            println!("  Live provider showcase");
+            println!("  ─────────────────────");
+            println!("  Provider:   {}", provider);
+            println!("  Model:      {}", model);
+            println!("  Latency:    {:.0} ms", latency.as_secs_f64() * 1_000.0);
+            println!("  Preview:    {}", response_preview);
+            println!();
+        }
+        LiveShowcaseResult::Skipped { reason } => {
+            println!("  Live provider showcase");
+            println!("  ─────────────────────");
+            println!("  Skipped:    {}", reason);
+            println!();
+        }
+        LiveShowcaseResult::Failed {
+            provider,
+            model,
+            error,
+        } => {
+            println!("  Live provider showcase");
+            println!("  ─────────────────────");
+            println!("  Provider:   {}", provider);
+            println!("  Model:      {}", model);
+            println!("  Status:     failed");
+            println!("  Detail:     {}", error);
+            println!();
+        }
+    }
+
+    println!("  Cache replay");
+    println!("  ────────────");
     println!("  ┌──────────────────────────────────────────────────┐");
     println!("  │             Isartor Demo Results                 │");
     println!("  ├──────────────────────────────────────────────────┤");
@@ -218,6 +307,17 @@ pub fn print_demo_results(stats: &DemoStats) {
     );
     println!("  └──────────────────────────────────────────────────┘");
     println!();
+    println!(
+        "  Cloud calls avoided locally: {}/{} ({:.1}%)",
+        stats.exact_hits + stats.semantic_hits,
+        stats.total,
+        stats.deflection_pct
+    );
+    println!("  Next steps:");
+    println!("    1. isartor check");
+    println!("    2. isartor up --detach");
+    println!("    3. isartor connect <tool>");
+    println!();
 }
 
 /// Write the demo result summary to `isartor_demo_result.txt`.
@@ -235,6 +335,36 @@ pub fn write_demo_result_file(stats: &DemoStats) -> std::io::Result<()> {
     writeln!(f, "Passthrough:         {}", stats.passthrough)?;
     writeln!(f, "Deflection rate:     {:.1}%", stats.deflection_pct)?;
     writeln!(f, "Avg latency (µs):    {:.0}", stats.avg_latency_us)?;
+    writeln!(f)?;
+    writeln!(f, "Live provider showcase:")?;
+    match &stats.live_showcase {
+        LiveShowcaseResult::Success {
+            provider,
+            model,
+            latency,
+            response_preview,
+        } => {
+            writeln!(f, "  status: success")?;
+            writeln!(f, "  provider: {}", provider)?;
+            writeln!(f, "  model: {}", model)?;
+            writeln!(f, "  latency_ms: {:.0}", latency.as_secs_f64() * 1_000.0)?;
+            writeln!(f, "  preview: {}", response_preview)?;
+        }
+        LiveShowcaseResult::Skipped { reason } => {
+            writeln!(f, "  status: skipped")?;
+            writeln!(f, "  reason: {}", reason)?;
+        }
+        LiveShowcaseResult::Failed {
+            provider,
+            model,
+            error,
+        } => {
+            writeln!(f, "  status: failed")?;
+            writeln!(f, "  provider: {}", provider)?;
+            writeln!(f, "  model: {}", model)?;
+            writeln!(f, "  error: {}", error)?;
+        }
+    }
     writeln!(f)?;
     writeln!(f, "Per-prompt breakdown:")?;
     for (i, r) in stats.results.iter().enumerate() {
@@ -331,6 +461,61 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
+async fn run_live_showcase(state: &Arc<AppState>) -> LiveShowcaseResult {
+    if let Some(reason) = live_showcase_skip_reason(&state.config) {
+        return LiveShowcaseResult::Skipped { reason };
+    }
+
+    let provider = state.llm_agent.provider_name().to_string();
+    let model = configured_demo_model(&state.config);
+    let prompt = "You are part of the Isartor post-install demo. In one short sentence, explain how a prompt firewall helps AI coding tools.";
+    let start = Instant::now();
+
+    match state.llm_agent.chat(prompt).await {
+        Ok(response) => LiveShowcaseResult::Success {
+            provider,
+            model,
+            latency: start.elapsed(),
+            response_preview: truncate(response.trim(), 140),
+        },
+        Err(err) => LiveShowcaseResult::Failed {
+            provider,
+            model,
+            error: truncate(&format!("{err:#}"), 140),
+        },
+    }
+}
+
+fn live_showcase_skip_reason(config: &AppConfig) -> Option<String> {
+    if config.offline_mode {
+        return Some("offline mode is active".to_string());
+    }
+
+    if provider_requires_key(&config.llm_provider) && config.external_llm_api_key.trim().is_empty()
+    {
+        return Some(format!(
+            "no {} API key configured — run `isartor set-key -p {}` to unlock the live showcase",
+            config.llm_provider, config.llm_provider
+        ));
+    }
+
+    None
+}
+
+fn provider_requires_key(provider: &LlmProvider) -> bool {
+    !matches!(provider, LlmProvider::Ollama)
+}
+
+fn configured_demo_model(config: &AppConfig) -> String {
+    match config.llm_provider {
+        LlmProvider::Azure if !config.azure_deployment_id.trim().is_empty() => format!(
+            "{} (deployment; model {})",
+            config.azure_deployment_id, config.external_llm_model
+        ),
+        _ => config.external_llm_model.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +547,28 @@ mod tests {
         let result = truncate(&long, 20);
         assert!(result.chars().count() <= 20);
         assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn live_showcase_skips_without_key_for_remote_provider() {
+        let mut config = AppConfig::load_with_validation(false).unwrap();
+        config.llm_provider = LlmProvider::Groq;
+        config.external_llm_api_key.clear();
+
+        let reason = live_showcase_skip_reason(&config).unwrap();
+        assert!(reason.contains("isartor set-key -p groq"));
+    }
+
+    #[test]
+    fn configured_demo_model_prefers_azure_deployment_name() {
+        let mut config = AppConfig::load_with_validation(false).unwrap();
+        config.llm_provider = LlmProvider::Azure;
+        config.azure_deployment_id = "demo-deployment".into();
+        config.external_llm_model = "gpt-4o-mini".into();
+
+        assert_eq!(
+            configured_demo_model(&config),
+            "demo-deployment (deployment; model gpt-4o-mini)"
+        );
     }
 }

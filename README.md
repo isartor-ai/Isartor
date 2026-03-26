@@ -28,10 +28,16 @@
 # Install (macOS / Linux)
 curl -fsSL https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.sh | sh
 
-# Start the gateway
-isartor up
+# Configure your L3 provider (example: Groq)
+isartor set-key -p groq
+
+# Verify the provider and run the post-install showcase
+isartor check
+isartor demo
 
 # Connect your AI tool (pick one)
+# (or start the gateway directly if you're ready)
+isartor up
 isartor connect copilot          # GitHub Copilot CLI
 isartor connect claude           # Claude Code
 isartor connect cursor           # Cursor IDE
@@ -41,7 +47,7 @@ isartor connect gemini           # Gemini CLI
 isartor connect claude-copilot   # Claude Code + GitHub Copilot
 ```
 
-That's it. Your tool now routes through Isartor and every repeated prompt is resolved locally in under 1 ms.
+The best first-run path is: **install → set key → check → demo → connect tool**. `isartor demo` still works without an API key, but with a configured provider it now also shows a live upstream round-trip before the cache replay.
 
 <details>
 <summary><strong>More install options</strong> (Docker · Windows · Build from source)</summary>
@@ -220,7 +226,7 @@ isartor up                     Start the API gateway
 isartor up --detach            Start in background
 isartor up copilot             Start gateway + Copilot CONNECT proxy
 isartor stop                   Stop a running instance
-isartor demo                   Run the deflection demo (no API key needed)
+isartor demo                   Run the post-install showcase (cache-only or live + cache)
 isartor init                   Generate a commented config scaffold
 isartor set-key -p openai      Configure your LLM provider API key
 isartor stats                  Prompt totals, layer hits, routing history

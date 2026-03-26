@@ -568,6 +568,9 @@ async fn run_standalone_demo() -> anyhow::Result<()> {
 
     let stats = isartor::demo::run_demo(&app_state).await?;
     isartor::demo::print_demo_results(&stats);
+    if let Err(e) = isartor::demo::write_demo_result_file(&stats) {
+        eprintln!("  ⚠  Failed to write isartor_demo_result.txt: {e}");
+    }
 
     // Non-zero exit if deflection < 50 % so CI can catch regressions.
     if stats.deflection_pct < 50.0 {

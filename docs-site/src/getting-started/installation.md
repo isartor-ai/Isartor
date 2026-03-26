@@ -70,9 +70,11 @@ Check that the binary is available:
 isartor --version
 ```
 
-Run the built-in deflection demo (no API key needed):
+Run the built-in demo. It works without an API key, but if you configure a provider first it also shows a live upstream round-trip:
 
 ```bash
+isartor set-key -p groq
+isartor check
 isartor demo
 ```
 

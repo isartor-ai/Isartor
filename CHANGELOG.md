@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.4] - 2026-03-26
+
+### Changed
+- **Post-install demo polish**: `isartor demo` now opens with a clearer install-to-go-live narrative, shows an optional live Layer 3 provider preview when configured, and writes `isartor_demo_result.txt` for standalone runs.
+- **Stronger demo cache replay**: the bundled canonical demo seeds now align with the replay fixture, lifting the showcase deflection rate to 60% so the demo passes its acceptance threshold consistently.
+- **Docs onboarding flow**: README and docs now guide users through `set-key` → `check` → `demo` before connecting their editor or CLI.
+
 ## [2026.3.3] - 2026-03-26
 
 ### Changed

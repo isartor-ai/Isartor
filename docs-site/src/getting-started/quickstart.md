@@ -15,6 +15,8 @@ Other useful commands:
 ```bash
 isartor init         # generate a commented config scaffold
 isartor set-key -p openai  # configure your LLM provider API key
+isartor check        # verify provider/model/key masking and live connectivity
+isartor demo         # run the post-install showcase
 isartor stop         # stop a running Isartor instance (uses PID file)
 isartor update       # self-update to the latest version from GitHub releases
 ```

@@ -270,7 +270,7 @@ curl -sS -H "X-API-Key: $API_KEY" \
 
 ```bash
 ./target/release/isartor demo
-# Replays 50 bundled prompts through L1a/L1b, prints deflection rate.
+# Runs the post-install showcase: optional live provider call, then 50 bundled prompts through L1a/L1b.
 # Writes isartor_demo_result.txt
 ```
 

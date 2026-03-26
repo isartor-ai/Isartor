@@ -209,7 +209,7 @@ This writes the key to `isartor.toml` or the appropriate env file.
 | `isartor up` | Start the API gateway only (recommended default). Flag: `--detach` to run in background |
 | `isartor up <copilot\|claude\|antigravity>` | Start the gateway plus the CONNECT proxy for that client |
 | `isartor init` | Generate a commented `isartor.toml` config scaffold |
-| `isartor demo` | Run the deflection demo (no API key needed) |
+| `isartor demo` | Run the post-install showcase (cache-only, or live + cache when a provider is configured) |
 | `isartor check` | Audit outbound connections |
 | `isartor connect <client>` | Configure AI clients to route through Isartor |
 | `isartor connect copilot` | Configure Copilot CLI with CONNECT proxy + TLS MITM |
