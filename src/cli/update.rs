@@ -7,10 +7,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
-use reqwest::Url;
+use reqwest::{StatusCode, Url};
 
 const REPO: &str = "isartor-ai/Isartor";
 const GITHUB_API: &str = "https://api.github.com";
+const GITHUB_WEB: &str = "https://github.com";
 const PROXY_ENV_KEYS: &[&str] = &[
     "HTTPS_PROXY",
     "https_proxy",
@@ -129,15 +130,47 @@ async fn fetch_latest_tag() -> Result<String> {
     let client = build_github_client(env!("CARGO_PKG_VERSION"))?;
 
     let resp = client.get(&url).send().await?;
-    if !resp.status().is_success() {
-        bail!("Failed to fetch latest release: HTTP {}", resp.status());
+    if resp.status().is_success() {
+        let json: serde_json::Value = resp.json().await?;
+        let tag = json["tag_name"]
+            .as_str()
+            .context("no tag_name in release response")?;
+        return Ok(tag.to_string());
     }
 
-    let json: serde_json::Value = resp.json().await?;
-    let tag = json["tag_name"]
-        .as_str()
-        .context("no tag_name in release response")?;
-    Ok(tag.to_string())
+    if matches!(
+        resp.status(),
+        StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS | StatusCode::UNAUTHORIZED
+    ) {
+        eprintln!(
+            "  ↺ GitHub API returned {}. Falling back to public release redirect.",
+            resp.status()
+        );
+        return fetch_latest_tag_via_release_redirect(&client).await;
+    }
+
+    bail!("Failed to fetch latest release: HTTP {}", resp.status());
+}
+
+async fn fetch_latest_tag_via_release_redirect(client: &reqwest::Client) -> Result<String> {
+    let latest_url = format!("{GITHUB_WEB}/{REPO}/releases/latest");
+    let resp = client.get(&latest_url).send().await?;
+
+    if !resp.status().is_success() {
+        bail!(
+            "Failed to fetch latest release: API and redirect fallback both failed (redirect HTTP {})",
+            resp.status()
+        );
+    }
+
+    extract_tag_from_release_url(resp.url())
+        .context("failed to resolve latest release tag from redirect URL")
+}
+
+fn extract_tag_from_release_url(url: &Url) -> Option<String> {
+    let segments = url.path_segments()?.collect::<Vec<_>>();
+    let tag_index = segments.iter().position(|segment| *segment == "tag")?;
+    segments.get(tag_index + 1).map(|tag| tag.to_string())
 }
 
 fn build_github_client(current_version: &str) -> Result<reqwest::Client> {
@@ -443,5 +476,21 @@ mod tests {
         assert!(message.contains("export PATH=\"$HOME/.local/bin:$PATH\""));
         assert!(message.contains("hash -r"));
         assert!(message.contains("which isartor"));
+    }
+
+    #[test]
+    fn extracts_tag_from_release_redirect_url() {
+        let url =
+            Url::parse("https://github.com/isartor-ai/Isartor/releases/tag/v2026.3.1").unwrap();
+        assert_eq!(
+            extract_tag_from_release_url(&url),
+            Some("v2026.3.1".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_non_tag_release_urls() {
+        let url = Url::parse("https://github.com/isartor-ai/Isartor/releases/latest").unwrap();
+        assert_eq!(extract_tag_from_release_url(&url), None);
     }
 }
