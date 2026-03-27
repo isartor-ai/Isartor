@@ -17,7 +17,9 @@ use tokio_stream::wrappers::IntervalStream;
 use tracing::{Instrument, info_span};
 
 use crate::anthropic_sse;
-use crate::config::LlmProvider;
+use crate::config::{
+    DEFAULT_OPENAI_CHAT_COMPLETIONS_URL, LlmProvider, default_chat_completions_url,
+};
 use crate::core::cache_scope::{
     build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
 };
@@ -98,7 +100,17 @@ fn provider_chat_completions_url(state: &AppState) -> Option<String> {
             state.config.external_llm_url.clone()
         }),
         provider if supports_openai_passthrough(provider) => {
-            Some(state.config.external_llm_url.clone())
+            let configured_url = state.config.external_llm_url.trim();
+            let default_url = default_chat_completions_url(provider)?;
+
+            if configured_url.is_empty()
+                || (*provider != LlmProvider::Openai
+                    && configured_url == DEFAULT_OPENAI_CHAT_COMPLETIONS_URL)
+            {
+                Some(default_url.to_string())
+            } else {
+                Some(configured_url.to_string())
+            }
         }
         _ => None,
     }
@@ -1769,6 +1781,32 @@ mod tests {
         assert_eq!(
             json["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
             "lookup_weather"
+        );
+    }
+
+    #[test]
+    fn groq_passthrough_uses_groq_default_when_config_still_points_to_openai() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config.llm_provider = LlmProvider::Groq;
+        config.external_llm_url = DEFAULT_OPENAI_CHAT_COMPLETIONS_URL.into();
+
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            instruction_cache: Arc::new(InstructionCache::new()),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+
+        assert_eq!(
+            provider_chat_completions_url(&state).as_deref(),
+            Some("https://api.groq.com/openai/v1/chat/completions")
         );
     }
 

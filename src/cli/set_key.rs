@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 
-use crate::config::LlmProvider;
+use crate::config::{LlmProvider, default_chat_completions_url};
 
 /// Set the API key for an LLM provider (writes to isartor.toml or env file).
 #[derive(Parser, Debug, Clone)]
@@ -129,8 +129,13 @@ pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
     // 4. Handle --env-file mode
     if args.env_file {
         let env_content = format!(
-            "export ISARTOR__LLM_PROVIDER=\"{}\"\nexport ISARTOR__EXTERNAL_LLM_MODEL=\"{}\"\nexport ISARTOR__EXTERNAL_LLM_API_KEY=\"{}\"\n",
-            provider_str, model, api_key
+            "export ISARTOR__LLM_PROVIDER=\"{}\"\n{}export ISARTOR__EXTERNAL_LLM_MODEL=\"{}\"\nexport ISARTOR__EXTERNAL_LLM_API_KEY=\"{}\"\n",
+            provider_str,
+            default_chat_completions_url(&provider)
+                .map(|url| format!("export ISARTOR__EXTERNAL_LLM_URL=\"{}\"\n", url))
+                .unwrap_or_default(),
+            model,
+            api_key
         );
 
         if args.dry_run {
@@ -176,6 +181,9 @@ pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
         .with_context(|| format!("Failed to parse {}", config_path.display()))?;
 
     doc["llm_provider"] = toml_edit::value(provider_str);
+    if let Some(url) = default_chat_completions_url(&provider) {
+        doc["external_llm_url"] = toml_edit::value(url);
+    }
     doc["external_llm_model"] = toml_edit::value(model.as_str());
     doc["external_llm_api_key"] = toml_edit::value(api_key.as_str());
 
@@ -288,6 +296,10 @@ mod tests {
 
         let content = std::fs::read_to_string(&tmp).unwrap();
         assert!(content.contains("llm_provider = \"groq\""));
+        assert!(
+            content
+                .contains("external_llm_url = \"https://api.groq.com/openai/v1/chat/completions\"")
+        );
         assert!(content.contains("external_llm_model = \"llama-3.1-8b-instant\""));
         assert!(content.contains("external_llm_api_key = \"gsk_testkey12345678\""));
 

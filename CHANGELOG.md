@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.9] - 2026-03-27
+
+### Fixed
+- **Groq OpenAI passthrough endpoint selection**: OpenAI-compatible tool passthrough now falls back to Groq's own `/openai/v1/chat/completions` endpoint instead of reusing the OpenAI default URL, preventing Groq keys from being sent to OpenAI and failing with misleading `401 invalid_api_key` errors.
+- **`isartor set-key -p groq` endpoint wiring**: provider key setup now writes the provider-specific `external_llm_url` alongside the model and key so Groq and other OpenAI-compatible providers start with the correct Layer 3 endpoint.
+
 ## [2026.3.8] - 2026-03-27
 
 ### Changed
@@ -403,7 +409,8 @@ Isartor's first CalVer release — marking go-live readiness.
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.8...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.9...HEAD
+[2026.3.9]: https://github.com/isartor-ai/Isartor/compare/v2026.3.8...v2026.3.9
 [2026.3.8]: https://github.com/isartor-ai/Isartor/compare/v2026.3.7...v2026.3.8
 [2026.3.7]: https://github.com/isartor-ai/Isartor/compare/v2026.3.6...v2026.3.7
 [2026.3.6]: https://github.com/isartor-ai/Isartor/compare/v2026.3.5...v2026.3.6

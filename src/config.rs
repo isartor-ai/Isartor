@@ -96,6 +96,26 @@ impl std::fmt::Display for LlmProvider {
     }
 }
 
+pub const DEFAULT_OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
+
+pub fn default_chat_completions_url(provider: &LlmProvider) -> Option<&'static str> {
+    match provider {
+        LlmProvider::Openai => Some(DEFAULT_OPENAI_CHAT_COMPLETIONS_URL),
+        LlmProvider::Copilot => Some("https://api.githubcopilot.com/chat/completions"),
+        LlmProvider::Xai => Some("https://api.x.ai/v1/chat/completions"),
+        LlmProvider::Mistral => Some("https://api.mistral.ai/v1/chat/completions"),
+        LlmProvider::Groq => Some("https://api.groq.com/openai/v1/chat/completions"),
+        LlmProvider::Deepseek => Some("https://api.deepseek.com/chat/completions"),
+        LlmProvider::Galadriel => Some("https://api.galadriel.com/v1/chat/completions"),
+        LlmProvider::Hyperbolic => Some("https://api.hyperbolic.xyz/v1/chat/completions"),
+        LlmProvider::Moonshot => Some("https://api.moonshot.cn/v1/chat/completions"),
+        LlmProvider::Openrouter => Some("https://openrouter.ai/api/v1/chat/completions"),
+        LlmProvider::Perplexity => Some("https://api.perplexity.ai/chat/completions"),
+        LlmProvider::Together => Some("https://api.together.xyz/v1/chat/completions"),
+        _ => None,
+    }
+}
+
 impl From<&str> for LlmProvider {
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
@@ -445,10 +465,7 @@ impl AppConfig {
             .set_default("embedding_sidecar.timeout_seconds", 10_i64)?
             // Layer 3
             .set_default("llm_provider", "openai")?
-            .set_default(
-                "external_llm_url",
-                "https://api.openai.com/v1/chat/completions",
-            )?
+            .set_default("external_llm_url", DEFAULT_OPENAI_CHAT_COMPLETIONS_URL)?
             .set_default("external_llm_model", "gpt-4o-mini")?
             .set_default("external_llm_api_key", "")?
             .set_default("l3_timeout_secs", 120_i64)?
