@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.8] - 2026-03-27
+
+### Changed
+- **OpenClaw docs and connector guidance**: the README and docs-site now make the required `http://localhost:8080/v1` base URL explicit and document the recommended `openclaw models status --agent main --probe` verification path.
+
+### Fixed
+- **OpenClaw reconnect auth drift**: `isartor connect openclaw` now refreshes the `main` / default agent model override and clears stale per-agent `models.json` registries so changing the gateway API key does not leave OpenClaw stuck on old provider auth.
+
 ## [2026.3.7] - 2026-03-27
 
 ### Changed
@@ -395,7 +403,8 @@ Isartor's first CalVer release — marking go-live readiness.
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.7...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.8...HEAD
+[2026.3.8]: https://github.com/isartor-ai/Isartor/compare/v2026.3.7...v2026.3.8
 [2026.3.7]: https://github.com/isartor-ai/Isartor/compare/v2026.3.6...v2026.3.7
 [2026.3.6]: https://github.com/isartor-ai/Isartor/compare/v2026.3.5...v2026.3.6
 [2026.3.5]: https://github.com/isartor-ai/Isartor/compare/v2026.3.4...v2026.3.5

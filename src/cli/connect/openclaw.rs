@@ -98,6 +98,15 @@ pub async fn handle_openclaw_connect(args: OpenclawArgs) -> ConnectResult {
             .to_string(),
     });
 
+    if let Err(err) =
+        remove_stale_agent_model_registries(&updated, &config_path, args.base.dry_run, &mut changes)
+    {
+        return failure_result(
+            format!("Failed to refresh OpenClaw agent model registries: {err}"),
+            changes,
+        );
+    }
+
     let test =
         test_isartor_connection(&gateway, gateway_key.as_deref(), "Hello from OpenClaw test").await;
 
@@ -111,10 +120,10 @@ pub async fn handle_openclaw_connect(args: OpenclawArgs) -> ConnectResult {
              Provider:  {OPENCLAW_PROVIDER_ID}\n\
              Model:     {provider_ref}\n\
              Base URL:  {base_url}\n\n\
-             Pragmatic note: OpenClaw now sees one managed Isartor model, which mirrors Isartor's current upstream model setting. If you change Isartor's provider or model later, rerun `isartor connect openclaw` to refresh OpenClaw's catalog.\n\n\
+             Pragmatic note: OpenClaw now sees one managed Isartor model, which mirrors Isartor's current upstream model setting. If you change Isartor's provider, model, or gateway API key later, rerun `isartor connect openclaw` so both `openclaw.json` and the per-agent model registry refresh together.\n\n\
              Recommended next steps:\n\
              1. Start Isartor: `isartor up --detach`\n\
-             2. Check OpenClaw's active model: `openclaw models status`\n\
+             2. Check OpenClaw's active model/auth: `openclaw models status --agent main --probe`\n\
              3. Smoke test a prompt: `openclaw agent --agent main -m \"hello\"`",
             config_path.display(),
             backup_path.display(),
@@ -269,6 +278,9 @@ fn build_openclaw_config(existing: Value, base_url: &str, api_key: &str, model: 
         defaults.insert("models".to_string(), updated_allowlist);
     }
     agents_root.insert("defaults".to_string(), Value::Object(defaults));
+    if let Some(updated_list) = update_agent_list_models(agents_root.remove("list"), model) {
+        agents_root.insert("list".to_string(), updated_list);
+    }
     root.insert("agents".to_string(), Value::Object(agents_root));
 
     Value::Object(root)
@@ -315,6 +327,145 @@ fn update_model_allowlist(existing: Option<Value>, model: &str) -> Option<Value>
     Some(Value::Object(allowlist))
 }
 
+fn update_agent_list_models(existing: Option<Value>, model: &str) -> Option<Value> {
+    match existing {
+        Some(Value::Array(mut agents)) => {
+            for agent in &mut agents {
+                let Some(agent_obj) = agent.as_object_mut() else {
+                    continue;
+                };
+
+                let is_main = agent_obj
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value == "main")
+                    .unwrap_or(false);
+                let is_default = agent_obj
+                    .get("default")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+
+                if is_main || is_default {
+                    let existing_model = agent_obj.remove("model");
+                    agent_obj.insert(
+                        "model".to_string(),
+                        update_default_model(existing_model, model),
+                    );
+                }
+            }
+            Some(Value::Array(agents))
+        }
+        other => other,
+    }
+}
+
+fn remove_stale_agent_model_registries(
+    config: &Value,
+    config_path: &Path,
+    dry_run: bool,
+    changes: &mut Vec<ConfigChange>,
+) -> anyhow::Result<()> {
+    for path in agent_model_registry_paths(config, config_path)? {
+        if !path.exists() {
+            continue;
+        }
+        remove_file(&path, dry_run);
+        changes.push(ConfigChange {
+            change_type: ConfigChangeType::FileModified,
+            target: path.to_string_lossy().to_string(),
+            description:
+                "Removed stale OpenClaw per-agent model registry so it can regenerate with the refreshed Isartor provider settings"
+                    .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn agent_model_registry_paths(config: &Value, config_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let state_dir = resolve_openclaw_state_dir(config_path)?;
+    let mut agent_dirs = vec![state_dir.join("agents/main/agent")];
+
+    if let Some(agents) = config
+        .get("agents")
+        .and_then(|value| value.as_object())
+        .and_then(|agents| agents.get("list"))
+        .and_then(|value| value.as_array())
+    {
+        for agent in agents {
+            let Some(agent_obj) = agent.as_object() else {
+                continue;
+            };
+
+            if let Some(agent_dir) = agent_obj.get("agentDir").and_then(|value| value.as_str()) {
+                agent_dirs.push(expand_openclaw_path(agent_dir, &state_dir)?);
+                continue;
+            }
+
+            if let Some(agent_id) = agent_obj.get("id").and_then(|value| value.as_str()) {
+                agent_dirs.push(state_dir.join("agents").join(agent_id).join("agent"));
+            }
+        }
+    }
+
+    agent_dirs.sort();
+    agent_dirs.dedup();
+    Ok(agent_dirs
+        .into_iter()
+        .map(|agent_dir| agent_dir.join("models.json"))
+        .collect())
+}
+
+fn resolve_openclaw_state_dir(config_path: &Path) -> anyhow::Result<PathBuf> {
+    if let Ok(path) = std::env::var("OPENCLAW_STATE_DIR")
+        && !path.trim().is_empty()
+    {
+        return expand_openclaw_path(&path, &std::env::current_dir()?);
+    }
+
+    if let Ok(path) = std::env::var("OPENCLAW_HOME")
+        && !path.trim().is_empty()
+    {
+        let openclaw_home = expand_openclaw_path(&path, &std::env::current_dir()?)?;
+        return Ok(openclaw_home.join(".openclaw"));
+    }
+
+    Ok(config_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .to_path_buf())
+}
+
+fn expand_openclaw_path(path: &str, fallback_home: &Path) -> anyhow::Result<PathBuf> {
+    if path == "~" {
+        return resolve_openclaw_home(fallback_home);
+    }
+
+    if let Some(stripped) = path.strip_prefix("~/") {
+        return Ok(resolve_openclaw_home(fallback_home)?.join(stripped));
+    }
+
+    Ok(PathBuf::from(path))
+}
+
+fn resolve_openclaw_home(fallback_home: &Path) -> anyhow::Result<PathBuf> {
+    if let Ok(path) = std::env::var("OPENCLAW_HOME")
+        && !path.trim().is_empty()
+    {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        return Ok(home);
+    }
+
+    if !fallback_home.as_os_str().is_empty() {
+        return Ok(fallback_home.to_path_buf());
+    }
+
+    Err(anyhow!("could not resolve OpenClaw home directory"))
+}
+
 fn remove_isartor_provider(
     path: &Path,
     dry_run: bool,
@@ -346,8 +497,24 @@ fn remove_isartor_provider(
         changed |= cleanup_default_model(defaults);
         changed |= cleanup_model_allowlist(defaults);
     }
+    if let Some(agents_list) = root
+        .get_mut("agents")
+        .and_then(|value| value.as_object_mut())
+        .and_then(|agents| agents.get_mut("list"))
+        .and_then(|value| value.as_array_mut())
+    {
+        for agent in agents_list {
+            let Some(agent_obj) = agent.as_object_mut() else {
+                continue;
+            };
+            if should_sync_agent_override(agent_obj) {
+                changed |= cleanup_agent_override(agent_obj);
+            }
+        }
+    }
 
     if !changed {
+        let _ = remove_stale_agent_model_registries(&root, path, dry_run, changes);
         return Ok(false);
     }
 
@@ -358,7 +525,24 @@ fn remove_isartor_provider(
         target: path.to_string_lossy().to_string(),
         description: "Removed Isartor provider config from OpenClaw".to_string(),
     });
+    remove_stale_agent_model_registries(&root, path, dry_run, changes)?;
     Ok(true)
+}
+
+fn should_sync_agent_override(agent_obj: &Map<String, Value>) -> bool {
+    agent_obj
+        .get("id")
+        .and_then(|value| value.as_str())
+        .map(|value| value == "main")
+        .unwrap_or(false)
+        || agent_obj
+            .get("default")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+}
+
+fn cleanup_agent_override(agent_obj: &mut Map<String, Value>) -> bool {
+    cleanup_default_model(agent_obj)
 }
 
 fn cleanup_default_model(defaults: &mut Map<String, Value>) -> bool {
@@ -570,6 +754,84 @@ mod tests {
     }
 
     #[test]
+    fn build_openclaw_config_updates_main_agent_override() {
+        let config = build_openclaw_config(
+            serde_json::json!({
+                "agents": {
+                    "list": [
+                        {
+                            "id": "main",
+                            "model": {
+                                "primary": "openai/gpt-5.4",
+                                "fallbacks": ["anthropic/claude-opus-4-6"]
+                            }
+                        },
+                        {
+                            "id": "ops",
+                            "model": {
+                                "primary": "anthropic/claude-opus-4-6"
+                            }
+                        }
+                    ]
+                }
+            }),
+            "http://localhost:8080/v1",
+            "fresh-key",
+            "gpt-4o-mini",
+        );
+
+        assert_eq!(
+            config["agents"]["list"][0]["model"]["primary"],
+            "isartor/gpt-4o-mini"
+        );
+        assert_eq!(
+            config["agents"]["list"][0]["model"]["fallbacks"][0],
+            "anthropic/claude-opus-4-6"
+        );
+        assert_eq!(
+            config["agents"]["list"][1]["model"]["primary"],
+            "anthropic/claude-opus-4-6"
+        );
+    }
+
+    #[test]
+    fn remove_stale_agent_model_registries_clears_main_and_custom_agent_dirs() {
+        let dir = tempdir().unwrap();
+        let config_path = dir.path().join("openclaw.json");
+        let main_models = dir.path().join("agents/main/agent/models.json");
+        let custom_models = dir.path().join("custom-agent/models.json");
+        std::fs::create_dir_all(main_models.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(custom_models.parent().unwrap()).unwrap();
+        std::fs::write(&main_models, "{}\n").unwrap();
+        std::fs::write(&custom_models, "{}\n").unwrap();
+
+        let mut changes = Vec::new();
+        remove_stale_agent_model_registries(
+            &serde_json::json!({
+                "agents": {
+                    "list": [
+                        {
+                            "id": "main"
+                        },
+                        {
+                            "id": "work",
+                            "agentDir": custom_models.parent().unwrap().to_string_lossy().to_string()
+                        }
+                    ]
+                }
+            }),
+            &config_path,
+            false,
+            &mut changes,
+        )
+        .unwrap();
+
+        assert!(!main_models.exists());
+        assert!(!custom_models.exists());
+        assert_eq!(changes.len(), 2);
+    }
+
+    #[test]
     fn remove_isartor_provider_promotes_first_non_isartor_fallback() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("openclaw.json");
@@ -592,7 +854,15 @@ mod tests {
                             "isartor/gpt-4o-mini": { "alias": "Isartor" },
                             "openai/gpt-5.4": { "alias": "GPT" }
                         }
-                    }
+                    },
+                    "list": [
+                        {
+                            "id": "main",
+                            "model": {
+                                "primary": "isartor/gpt-4o-mini"
+                            }
+                        }
+                    ]
                 }
             }))
             .unwrap(),
@@ -620,6 +890,7 @@ mod tests {
                 .get("isartor/gpt-4o-mini")
                 .is_none()
         );
+        assert!(updated["agents"]["list"][0].get("model").is_none());
     }
 
     #[test]

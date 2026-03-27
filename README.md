@@ -180,6 +180,8 @@ One command connects your favourite tool. No proxy, no MITM, no CA certificates.
 
 [Full integration guides →](https://isartor-ai.github.io/Isartor/integrations/overview.html)
 
+OpenClaw note: use Isartor's OpenAI-compatible `/v1` base path, not the root `:8080` URL. If you change Isartor's gateway API key later, rerun `isartor connect openclaw` so OpenClaw's per-agent model registry refreshes too.
+
 ---
 
 ## How Isartor Compares
