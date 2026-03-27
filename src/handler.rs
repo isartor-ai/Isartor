@@ -28,7 +28,7 @@ use crate::mcp::{self, ToolExecutor};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{
     ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatRequest, OpenAiChatResponse,
-    OpenAiMessage, OpenAiModel, OpenAiModelList,
+    OpenAiMessage, OpenAiMessageContent, OpenAiModel, OpenAiModelList,
 };
 use crate::providers::copilot::exchange_copilot_session_token;
 use crate::state::AppState;
@@ -524,7 +524,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                     choices: vec![OpenAiChatChoice {
                         message: OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: Some(text),
+                            content: Some(OpenAiMessageContent::text(text)),
                             name: None,
                             tool_call_id: None,
                             tool_calls: None,
@@ -1669,6 +1669,107 @@ mod tests {
             "{\"city\":\"Berlin\"}"
         );
         assert_eq!(json["choices"][0]["finish_reason"], "tool_calls");
+    }
+
+    #[tokio::test]
+    async fn openai_tool_request_passthrough_accepts_array_content_parts() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{body_partial_json, method, path},
+        };
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_partial_json(serde_json::json!({
+                "model": "gpt-4o-mini",
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Hello"},
+                        {"type": "text", "text": " from OpenClaw"}
+                    ]
+                }],
+                "tools": [{
+                    "type": "function",
+                    "function": {"name": "lookup_weather"}
+                }]
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "lookup_weather",
+                                "arguments": "{\"city\":\"Berlin\"}"
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "model": "gpt-4o-mini"
+            })))
+            .mount(&server)
+            .await;
+
+        let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config.external_llm_url = format!("{}/v1/chat/completions", server.uri());
+
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            instruction_cache: Arc::new(InstructionCache::new()),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+        let app = handler_app(state);
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "model": "client-specified-model",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Hello"},
+                    {"type": "text", "text": " from OpenClaw"}
+                ]
+            }],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "lookup_weather",
+                    "parameters": {"type": "object"}
+                }
+            }]
+        }))
+        .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(
+            json["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+            "lookup_weather"
+        );
     }
 
     #[tokio::test]

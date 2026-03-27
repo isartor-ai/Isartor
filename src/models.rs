@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 // ── Observability: Final-layer annotation ────────────────────────────
 
@@ -185,7 +186,7 @@ pub struct OllamaEmbedResponse {
 pub struct OpenAiMessage {
     pub role: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
+    pub content: Option<OpenAiMessageContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,6 +195,46 @@ pub struct OpenAiMessage {
     pub tool_calls: Option<Vec<serde_json::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub function_call: Option<serde_json::Value>,
+}
+
+/// OpenAI-compatible message content may be a plain string or an array of
+/// typed content parts. OpenClaw uses the array form during agent flows.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum OpenAiMessageContent {
+    Text(String),
+    Parts(Vec<Value>),
+}
+
+impl OpenAiMessageContent {
+    pub fn text(value: impl Into<String>) -> Self {
+        Self::Text(value.into())
+    }
+
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) => Some(text.as_str()),
+            Self::Parts(_) => None,
+        }
+    }
+
+    pub fn rendered_text(&self) -> Option<String> {
+        match self {
+            Self::Text(text) => Some(text.clone()),
+            Self::Parts(parts) => {
+                let joined = parts
+                    .iter()
+                    .filter_map(|part| part.get("text").and_then(Value::as_str))
+                    .collect::<Vec<_>>()
+                    .join("");
+                if joined.is_empty() {
+                    None
+                } else {
+                    Some(joined)
+                }
+            }
+        }
+    }
 }
 
 /// Request body for `POST /v1/chat/completions`.
@@ -412,7 +453,7 @@ mod tests {
     fn openai_message_roundtrip() {
         let msg = OpenAiMessage {
             role: "user".into(),
-            content: Some("hello".into()),
+            content: Some(OpenAiMessageContent::text("hello")),
             name: None,
             tool_call_id: None,
             tool_calls: None,
@@ -421,7 +462,34 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         let back: OpenAiMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(back.role, "user");
-        assert_eq!(back.content.as_deref(), Some("hello"));
+        assert_eq!(
+            back.content
+                .as_ref()
+                .and_then(OpenAiMessageContent::as_text),
+            Some("hello")
+        );
+    }
+
+    #[test]
+    fn openai_message_deserializes_array_content_parts() {
+        let json = r#"{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Hello"},
+                {"type": "text", "text": " from OpenClaw"}
+            ]
+        }"#;
+
+        let message: OpenAiMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(message.role, "user");
+        assert_eq!(
+            message
+                .content
+                .as_ref()
+                .and_then(OpenAiMessageContent::rendered_text)
+                .as_deref(),
+            Some("Hello from OpenClaw")
+        );
     }
 
     #[test]
@@ -430,7 +498,7 @@ mod tests {
             model: "gpt-4o".into(),
             messages: vec![OpenAiMessage {
                 role: "user".into(),
-                content: Some("hi".into()),
+                content: Some(OpenAiMessageContent::text("hi")),
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,
@@ -482,7 +550,14 @@ mod tests {
         }"#;
         let resp: OpenAiChatResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.choices.len(), 1);
-        assert_eq!(resp.choices[0].message.content.as_deref(), Some("Hi!"));
+        assert_eq!(
+            resp.choices[0]
+                .message
+                .content
+                .as_ref()
+                .and_then(OpenAiMessageContent::as_text),
+            Some("Hi!")
+        );
         assert_eq!(resp.model, Some("gpt-4o-mini".into()));
     }
 
@@ -490,7 +565,14 @@ mod tests {
     fn openai_chat_response_deserialize_no_model() {
         let json = r#"{"choices": [{"message": {"role":"assistant","content":"ok"}, "index":0, "finish_reason": null}]}"#;
         let resp: OpenAiChatResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.choices[0].message.content.as_deref(), Some("ok"));
+        assert_eq!(
+            resp.choices[0]
+                .message
+                .content
+                .as_ref()
+                .and_then(OpenAiMessageContent::as_text),
+            Some("ok")
+        );
         assert!(resp.model.is_none());
     }
 

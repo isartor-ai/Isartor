@@ -63,6 +63,8 @@ enum Commands {
     Update(isartor::cli::update::UpdateArgs),
     /// Show prompt totals, layer hits, and recent request routing.
     Stats(isartor::cli::stats::StatsArgs),
+    /// Show or follow the detached Isartor log file.
+    Logs(isartor::cli::logs::LogsArgs),
     /// Start a Model Context Protocol (MCP) stdio server for Copilot CLI integration.
     Mcp(isartor::cli::mcp::McpArgs),
 }
@@ -119,6 +121,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Stats(args)) => {
             isartor::cli::stats::handle_stats(args).await?;
+            return Ok(());
+        }
+        Some(Commands::Logs(args)) => {
+            isartor::cli::logs::handle_logs(args)?;
             return Ok(());
         }
         Some(Commands::Mcp(args)) => {
@@ -523,7 +529,7 @@ fn spawn_detached_startup() -> anyhow::Result<()> {
     eprintln!("  ✓ Isartor starting in background (PID {}).", child.id());
     eprintln!("    Logs: {}", log_path.display());
     eprintln!("    Stop: isartor stop");
-    eprintln!("    Tip: tail -f {}", log_path.display());
+    eprintln!("    Tip: isartor logs --follow");
 
     Ok(())
 }

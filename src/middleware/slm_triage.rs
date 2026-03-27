@@ -14,6 +14,7 @@ use crate::core::prompt::extract_prompt;
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{
     ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage,
+    OpenAiMessageContent,
 };
 use crate::state::AppState;
 
@@ -125,7 +126,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     choices: vec![OpenAiChatChoice {
                         message: OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: Some(answer),
+                            content: Some(OpenAiMessageContent::text(answer)),
                             name: None,
                             tool_call_id: None,
                             tool_calls: None,

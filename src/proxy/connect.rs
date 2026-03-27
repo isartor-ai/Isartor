@@ -27,8 +27,8 @@ use crate::core::prompt::{extract_cache_key, extract_prompt, has_tooling};
 use crate::metrics;
 use crate::middleware::slm_triage::answer_quality_ok;
 use crate::models::{
-    FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage, PromptVisibilityEntry,
-    ProxyRecentResponse, ProxyRouteDecision,
+    FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage, OpenAiMessageContent,
+    PromptVisibilityEntry, ProxyRecentResponse, ProxyRouteDecision,
 };
 use crate::proxy::tls::IsartorCa;
 use crate::state::AppState;
@@ -529,7 +529,7 @@ fn build_openai_proxy_response(content: String, model: String) -> String {
         choices: vec![OpenAiChatChoice {
             message: OpenAiMessage {
                 role: "assistant".to_string(),
-                content: Some(content),
+                content: Some(OpenAiMessageContent::text(content)),
                 name: None,
                 tool_call_id: None,
                 tool_calls: None,

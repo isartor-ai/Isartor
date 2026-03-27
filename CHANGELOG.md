@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.6] - 2026-03-27
+
+### Added
+- **Detached log follower**: `isartor logs --follow` now tails the detached gateway log file so users can monitor a background Isartor instance without reaching for `tail -f`.
+
+### Fixed
+- **OpenClaw OpenAI compatibility**: Isartor now accepts OpenAI-style message `content` as either a plain string or an array of typed content parts, fixing OpenClaw agent requests that send array-based content blocks to `/v1/chat/completions`.
+
 ## [2026.3.5] - 2026-03-26
 
 ### Added
@@ -381,7 +389,8 @@ Isartor's first CalVer release — marking go-live readiness.
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.5...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.6...HEAD
+[2026.3.6]: https://github.com/isartor-ai/Isartor/compare/v2026.3.5...v2026.3.6
 [2026.3.5]: https://github.com/isartor-ai/Isartor/compare/v2026.3.4...v2026.3.5
 [2026.3.4]: https://github.com/isartor-ai/Isartor/compare/v2026.3.3...v2026.3.4
 [2026.3.3]: https://github.com/isartor-ai/Isartor/compare/v2026.3.2...v2026.3.3

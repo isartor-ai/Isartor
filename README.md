@@ -226,6 +226,7 @@ export ISARTOR__OTEL_EXPORTER_ENDPOINT=http://otel-collector:4317
 ```
 isartor up                     Start the API gateway
 isartor up --detach            Start in background
+isartor logs --follow          Follow detached Isartor logs
 isartor up copilot             Start gateway + Copilot CONNECT proxy
 isartor stop                   Stop a running instance
 isartor demo                   Run the post-install showcase (cache-only or live + cache)
