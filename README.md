@@ -97,13 +97,6 @@ cd Isartor && cargo build --release
 
 ## How It Works
 
-Three steps, one binary:
-
-| Step | What you do | What Isartor does |
-|:-----|:------------|:------------------|
-| **1. Install** | `curl ... | sh` and run `isartor demo` | Installs a local gateway and shows the cache-first deflection flow in your terminal |
-| **2. Connect** | `isartor up --detach` then `isartor connect copilot|claude|cursor|openclaw` | Rewrites the client-side config so your tool points at Isartor instead of the raw provider |
-| **3. Save** | Keep using your tool normally | Deflects duplicate prompts, traps semantic repeats, compresses repeated instructions, and sends only the hard requests to the cloud |
 
 If you already know your provider credentials, the day-one path is:
 
