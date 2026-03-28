@@ -6,6 +6,16 @@ The files in this directory are supplementary references. For the complete,
 structured documentation — including installation, architecture, integrations,
 deployment, configuration, and observability — visit the docs site above.
 
+For first-run onboarding, start with the guided terminal wizard:
+
+```bash
+isartor setup
+```
+
+That flow wraps provider setup, optional Layer 2 configuration, connector setup,
+and a final verification pass. The older explicit flow (`isartor init`,
+`isartor set-key`, `isartor connect`, `isartor check`) remains available too.
+
 ## Files in this directory
 
 | File | Description |

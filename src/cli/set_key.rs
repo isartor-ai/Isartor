@@ -1,8 +1,9 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use toml_edit::DocumentMut;
 
 use crate::config::{LlmProvider, default_chat_completions_url};
 
@@ -58,7 +59,7 @@ const KNOWN_PROVIDERS: &[&str] = &[
 ];
 
 /// Return the default model for a given provider.
-fn default_model(provider: &LlmProvider) -> &'static str {
+pub fn default_model(provider: &LlmProvider) -> &'static str {
     match provider {
         LlmProvider::Openai => "gpt-4o-mini",
         LlmProvider::Azure => "gpt-4o-mini",
@@ -97,6 +98,51 @@ fn validate_provider(s: &str) -> Result<LlmProvider> {
         );
     }
     Ok(LlmProvider::from(lower.as_str()))
+}
+
+pub fn apply_provider_config(
+    doc: &mut DocumentMut,
+    provider: &LlmProvider,
+    model: &str,
+    api_key: &str,
+) {
+    doc["llm_provider"] = toml_edit::value(provider.as_str());
+    if let Some(url) = default_chat_completions_url(provider) {
+        doc["external_llm_url"] = toml_edit::value(url);
+    }
+    doc["external_llm_model"] = toml_edit::value(model);
+    doc["external_llm_api_key"] = toml_edit::value(api_key);
+}
+
+pub fn write_provider_config(
+    config_path: &Path,
+    provider: &LlmProvider,
+    model: &str,
+    api_key: &str,
+    dry_run: bool,
+) -> Result<String> {
+    let existing = if config_path.exists() {
+        std::fs::read_to_string(config_path)
+            .with_context(|| format!("Failed to read {}", config_path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut doc = existing
+        .parse::<DocumentMut>()
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+
+    apply_provider_config(&mut doc, provider, model, api_key);
+
+    let output = doc.to_string();
+    if dry_run {
+        return Ok(output);
+    }
+
+    std::fs::write(config_path, &output)
+        .with_context(|| format!("Failed to write {}", config_path.display()))?;
+
+    Ok(output)
 }
 
 pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
@@ -169,34 +215,13 @@ pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
     // 5. Handle isartor.toml mode (default)
     let config_path = &args.config_path;
 
-    let existing = if config_path.exists() {
-        std::fs::read_to_string(config_path)
-            .with_context(|| format!("Failed to read {}", config_path.display()))?
-    } else {
-        String::new()
-    };
-
-    let mut doc = existing
-        .parse::<toml_edit::DocumentMut>()
-        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
-
-    doc["llm_provider"] = toml_edit::value(provider_str);
-    if let Some(url) = default_chat_completions_url(&provider) {
-        doc["external_llm_url"] = toml_edit::value(url);
-    }
-    doc["external_llm_model"] = toml_edit::value(model.as_str());
-    doc["external_llm_api_key"] = toml_edit::value(api_key.as_str());
-
-    let output = doc.to_string();
+    let output = write_provider_config(config_path, &provider, &model, &api_key, args.dry_run)?;
 
     if args.dry_run {
         eprintln!("[dry-run] Would write to {}:", config_path.display());
         eprintln!("{}", output);
         return Ok(());
     }
-
-    std::fs::write(config_path, &output)
-        .with_context(|| format!("Failed to write {}", config_path.display()))?;
 
     eprintln!();
     eprintln!("  ✓ Provider:  {}", provider_str);

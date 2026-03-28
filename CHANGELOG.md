@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.10] - 2026-03-28
+
+### Added
+- **Guided setup wizard**: added `isartor setup` / `isartor configure`, an interactive first-run flow for choosing a provider, saving the API key and model, configuring optional Layer 2 routing, connecting supported tools, and running final verification from one command.
+
+### Fixed
+- **Azure connectivity ping**: `isartor check` / `isartor ping` now probes Azure OpenAI with a deployment-scoped chat completions request, matching the live runtime path and avoiding false `404 Not Found` failures on valid Azure deployments.
+
 ## [2026.3.9] - 2026-03-27
 
 ### Fixed
@@ -409,7 +417,8 @@ Isartor's first CalVer release — marking go-live readiness.
 ### Fixed
 - Build musl targets with runner-based zigbuild (no Docker container)
 
-[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.9...HEAD
+[Unreleased]: https://github.com/isartor-ai/Isartor/compare/v2026.3.10...HEAD
+[2026.3.10]: https://github.com/isartor-ai/Isartor/compare/v2026.3.9...v2026.3.10
 [2026.3.9]: https://github.com/isartor-ai/Isartor/compare/v2026.3.8...v2026.3.9
 [2026.3.8]: https://github.com/isartor-ai/Isartor/compare/v2026.3.7...v2026.3.8
 [2026.3.7]: https://github.com/isartor-ai/Isartor/compare/v2026.3.6...v2026.3.7

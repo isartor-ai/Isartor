@@ -50,6 +50,9 @@ enum Commands {
     Init,
     /// Replay bundled demo prompts against the local cache layers and print a deflection table.
     Demo,
+    /// Guided terminal setup for provider, Layer 2, connectors, and verification.
+    #[command(visible_alias = "configure")]
+    Setup(isartor::cli::setup::SetupArgs),
     /// Audit outbound provider connectivity and configuration.
     #[command(visible_alias = "ping", visible_alias = "connectivity-check")]
     Check,
@@ -99,6 +102,10 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Demo) => {
             return run_standalone_demo().await;
+        }
+        Some(Commands::Setup(args)) => {
+            isartor::cli::setup::handle_setup(args).await?;
+            return Ok(());
         }
         Some(Commands::Check) => {
             return run_connectivity_check().await;
@@ -707,7 +714,7 @@ struct L3ConnectivityTarget {
 #[derive(Clone, Copy)]
 enum L3PingKind {
     OpenAiModels,
-    AzureDeployments,
+    AzureChatCompletions,
     AnthropicMessages,
     GeminiModelInfo,
     CopilotSessionToken,
@@ -739,12 +746,13 @@ fn l3_connectivity_target(config: &AppConfig) -> L3ConnectivityTarget {
             model,
             masked_key: mask_secret(&config.external_llm_api_key),
             endpoint: format!(
-                "{}/openai/deployments?api-version={}",
+                "{}/openai/deployments/{}/chat/completions?api-version={}",
                 config.external_llm_url.trim_end_matches('/'),
+                config.azure_deployment_id,
                 config.azure_api_version
             ),
             external: !isartor::core::is_internal_endpoint(&config.external_llm_url),
-            ping_kind: L3PingKind::AzureDeployments,
+            ping_kind: L3PingKind::AzureChatCompletions,
             requires_api_key: true,
         },
         LlmProvider::Anthropic => L3ConnectivityTarget {
@@ -939,10 +947,15 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
             .await
             .map_err(anyhow::Error::from)
             .and_then(summarize_ping_response),
-        L3PingKind::AzureDeployments => client
-            .get(&target.endpoint)
+        L3PingKind::AzureChatCompletions => client
+            .post(&target.endpoint)
             .header("api-key", &config.external_llm_api_key)
+            .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
+            .json(&json!({
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1
+            }))
             .send()
             .await
             .map_err(anyhow::Error::from)
@@ -1060,5 +1073,24 @@ mod tests {
         assert_eq!(target.model, "llama-3.1-8b-instant");
         assert_eq!(target.masked_key, "gsk_…5678");
         assert_eq!(target.endpoint, "https://api.groq.com/openai/v1/models");
+    }
+
+    #[test]
+    fn connectivity_target_uses_azure_chat_completions_endpoint() {
+        let mut config = AppConfig::load_with_validation(false).unwrap();
+        config.llm_provider = LlmProvider::Azure;
+        config.external_llm_url = "https://example.openai.azure.com".into();
+        config.azure_deployment_id = "gpt-4o-mini".into();
+        config.azure_api_version = "2024-08-01-preview".into();
+        config.external_llm_model = "gpt-4o-mini".into();
+        config.external_llm_api_key = "azure-secret-key".into();
+
+        let target = l3_connectivity_target(&config);
+        assert_eq!(target.provider, "azure");
+        assert_eq!(target.model, "gpt-4o-mini (deployment; model gpt-4o-mini)");
+        assert_eq!(
+            target.endpoint,
+            "https://example.openai.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-08-01-preview"
+        );
     }
 }

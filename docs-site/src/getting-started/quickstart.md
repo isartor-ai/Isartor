@@ -2,6 +2,25 @@
 
 This guide walks you through starting Isartor, making your first request, observing a cache hit, and checking stats. If you haven't installed Isartor yet, see the [Installation](./installation.md) guide.
 
+## Guided Setup
+
+For the smoothest first-run experience, use the setup wizard:
+
+```bash
+isartor setup
+```
+
+The wizard can:
+
+- choose your Layer 3 provider
+- collect the provider API key and model
+- optionally set the Isartor gateway API key
+- configure Layer 2 as disabled, embedded, or sidecar
+- connect one or more tools
+- run a final verification pass
+
+The older explicit commands still work if you prefer scripting or manual control.
+
 ## Starting Isartor
 
 ```bash
@@ -14,6 +33,7 @@ Other useful commands:
 
 ```bash
 isartor init         # generate a commented config scaffold
+isartor setup        # guided setup for provider, L2, connectors, and verification
 isartor set-key -p openai  # configure your LLM provider API key
 isartor check        # verify provider/model/key masking and live connectivity
 isartor demo         # run the post-install showcase

@@ -31,8 +31,11 @@
 # Install (macOS / Linux)
 curl -fsSL https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.sh | sh
 
-# Configure your L3 provider (example: Groq)
-isartor set-key -p groq
+# Guided setup (provider, optional L2, connectors, verification)
+isartor setup
+
+# Or configure manually (example: Groq)
+# isartor set-key -p groq
 
 # Verify the provider and run the post-install showcase
 isartor check
@@ -51,7 +54,7 @@ isartor connect gemini           # Gemini CLI
 isartor connect claude-copilot   # Claude Code + GitHub Copilot
 ```
 
-The best first-run path is: **install → set key → check → demo → connect tool**. `isartor demo` still works without an API key, but with a configured provider it now also shows a live upstream round-trip before the cache replay.
+The best first-run path is now: **install → `isartor setup` → demo → connect tool**. If you prefer the old explicit flow, `set-key`, `check`, and `connect` still work exactly as before. `isartor demo` still works without an API key, but with a configured provider it now also shows a live upstream round-trip before the cache replay.
 
 ## See Isartor in the Terminal
 
@@ -102,8 +105,7 @@ If you already know your provider credentials, the day-one path is:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.sh | sh
-isartor set-key -p groq
-isartor check
+isartor setup
 isartor demo
 isartor up --detach
 isartor connect copilot
