@@ -135,6 +135,23 @@ async fn send_openai_passthrough_request(
                 Value::String(configured_openai_model_id(state)),
             );
         }
+        // Flatten content arrays to strings for Copilot proxy compatibility
+        if state.config.llm_provider == LlmProvider::Copilot {
+            if let Some(Value::Array(messages)) = map.get_mut("messages") {
+                for message in messages.iter_mut() {
+                    if let Some(obj) = message.as_object_mut() {
+                        if let Some(Value::Array(parts)) = obj.get("content") {
+                            let flat: String = parts
+                                .iter()
+                                .filter_map(|p| p.get("text").and_then(Value::as_str))
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            obj.insert("content".to_string(), Value::String(flat));
+                        }
+                    }
+                }
+            }
+        }
     }
 
     let mut request_builder = state
