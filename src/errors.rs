@@ -61,6 +61,13 @@ pub enum GatewayError {
         attempted_url: String,
         message: String,
     },
+
+    /// Request blocked by local provider quota policy.
+    Quota {
+        provider: String,
+        message: String,
+        fallback_allowed: bool,
+    },
 }
 
 impl GatewayError {
@@ -76,12 +83,38 @@ impl GatewayError {
             Self::Configuration { .. } => ErrorClass::Fatal,
             // Offline mode violations are always fatal.
             Self::OfflineModeViolation { .. } => ErrorClass::Fatal,
+            Self::Quota { .. } => ErrorClass::Fatal,
         }
     }
 
     /// `true` if this error is worth retrying.
     pub fn is_retryable(&self) -> bool {
         self.class() == ErrorClass::Retryable
+    }
+
+    pub fn should_fallback_to_next_provider(&self) -> bool {
+        match self {
+            Self::CloudLlm { message, .. } => {
+                if self.is_retryable() {
+                    return true;
+                }
+
+                let lower = message.to_lowercase();
+                (lower.contains("401") || lower.contains("403") || lower.contains("quota"))
+                    && !lower.contains("invalid api key")
+                    && !lower.contains("invalid_api_key")
+                    && !lower.contains("invalid request")
+                    && !lower.contains("invalid_request")
+                    && !lower.contains("model not found")
+                    && !lower.contains("model_not_found")
+                    && !lower.contains("deployment not found")
+                    && !lower.contains("bad request")
+            }
+            Self::Quota {
+                fallback_allowed, ..
+            } => *fallback_allowed,
+            _ => false,
+        }
     }
 
     /// The gateway layer that produced the error, as a short label.
@@ -94,6 +127,7 @@ impl GatewayError {
             Self::Validation { .. } => "Validation",
             Self::Configuration { .. } => "Configuration",
             Self::OfflineModeViolation { .. } => "OfflineMode",
+            Self::Quota { .. } => "Quota",
         }
     }
 
@@ -184,6 +218,11 @@ impl fmt::Display for GatewayError {
             } => {
                 write!(f, "[offline] blocked {attempted_url}: {message}")
             }
+            Self::Quota {
+                provider, message, ..
+            } => {
+                write!(f, "[quota:{provider}] {message}")
+            }
         }
     }
 }
@@ -230,6 +269,8 @@ fn classify_error_message(msg: &str) -> ErrorClass {
         "connection refused",
         "connection reset",
         "429",
+        "quota",
+        "insufficient_quota",
         "rate limit",
         "rate_limit",
         "502",

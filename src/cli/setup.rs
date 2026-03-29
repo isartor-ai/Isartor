@@ -194,8 +194,7 @@ fn prompt_provider_api_key(current: &AppConfig, provider: &LlmProvider) -> Resul
         return Ok(String::new());
     }
 
-    let keep_current =
-        *provider == current.llm_provider && !current.external_llm_api_key.trim().is_empty();
+    let keep_current = *provider == current.llm_provider && current.has_primary_provider_key();
     loop {
         eprint!(
             "Provider API key{}: ",
@@ -210,7 +209,7 @@ fn prompt_provider_api_key(current: &AppConfig, provider: &LlmProvider) -> Resul
         let trimmed = key.trim().to_string();
 
         if trimmed.is_empty() && keep_current {
-            return Ok(current.external_llm_api_key.clone());
+            return Ok(current.primary_provider_api_key());
         }
         if trimmed.is_empty() {
             eprintln!("API key is required for {}.", provider.as_str());
@@ -719,7 +718,8 @@ enum L3PingKind {
 
 async fn provider_ping_summary(config: &AppConfig) -> String {
     let target = l3_connectivity_target(config);
-    if target.requires_api_key && config.external_llm_api_key.trim().is_empty() {
+    let primary_api_key = config.primary_provider_api_key();
+    if target.requires_api_key && primary_api_key.trim().is_empty() {
         return "SKIPPED — API key not configured".to_string();
     }
 
@@ -735,10 +735,7 @@ async fn provider_ping_summary(config: &AppConfig) -> String {
     let result = match target.ping_kind {
         L3PingKind::OpenAiModels => client
             .get(&target.endpoint)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", config.external_llm_api_key),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", primary_api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await
@@ -746,7 +743,7 @@ async fn provider_ping_summary(config: &AppConfig) -> String {
             .and_then(summarize_ping_response),
         L3PingKind::AzureChatCompletions => client
             .post(&target.endpoint)
-            .header("api-key", &config.external_llm_api_key)
+            .header("api-key", &primary_api_key)
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
             .json(&json!({
@@ -759,7 +756,7 @@ async fn provider_ping_summary(config: &AppConfig) -> String {
             .and_then(summarize_ping_response),
         L3PingKind::AnthropicMessages => client
             .post(&target.endpoint)
-            .header("x-api-key", &config.external_llm_api_key)
+            .header("x-api-key", &primary_api_key)
             .header("anthropic-version", "2023-06-01")
             .header(CONTENT_TYPE, "application/json")
             .json(&json!({
@@ -772,10 +769,7 @@ async fn provider_ping_summary(config: &AppConfig) -> String {
             .map_err(anyhow::Error::from)
             .and_then(summarize_ping_response),
         L3PingKind::GeminiModelInfo => client
-            .get(format!(
-                "{}?key={}",
-                target.endpoint, config.external_llm_api_key
-            ))
+            .get(format!("{}?key={}", target.endpoint, primary_api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await
@@ -784,7 +778,7 @@ async fn provider_ping_summary(config: &AppConfig) -> String {
         L3PingKind::CopilotSessionToken => {
             match crate::providers::copilot::exchange_copilot_session_token(
                 &client,
-                &config.external_llm_api_key,
+                &primary_api_key,
             )
             .await
             {
@@ -801,10 +795,7 @@ async fn provider_ping_summary(config: &AppConfig) -> String {
             .and_then(summarize_ping_response),
         L3PingKind::CohereModels => client
             .get(&target.endpoint)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", config.external_llm_api_key),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", primary_api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await
@@ -812,10 +803,7 @@ async fn provider_ping_summary(config: &AppConfig) -> String {
             .and_then(summarize_ping_response),
         L3PingKind::HuggingFaceModelInfo => client
             .get(&target.endpoint)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", config.external_llm_api_key),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", primary_api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await

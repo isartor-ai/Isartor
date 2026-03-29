@@ -15,7 +15,13 @@ When operators need full payload troubleshooting, the outer monitoring middlewar
 
 Layer 3 now also maintains a broader provider registry for OpenAI-compatible backends. Where possible, Isartor reuses a shared OpenAI-compatible runtime path with provider-specific default endpoints instead of duplicating nearly identical client logic for every vendor.
 
-The running `AppState` also maintains a small in-memory provider-health snapshot for the currently configured Layer 3 backend. That snapshot powers the authenticated `GET /debug/providers` endpoint and the `isartor providers` CLI command so operators can see the active provider, endpoint, request/error counts, and last-known success or failure without enabling full request-body logging.
+The running `AppState` also maintains an ordered Layer 3 provider chain: one primary provider plus zero or more optional fallbacks. Each provider keeps its own retry budget, and Isartor only advances to the next provider when the current one exhausts retries with a retry-safe upstream error. Successful Layer 3 responses are annotated with `x-isartor-provider` so clients can tell which upstream actually answered.
+
+Each provider can now also own a small in-memory key pool. When multiple credentials are configured for the same provider, Isartor selects keys with `round_robin` or `priority` rotation and temporarily cools down only the rate-limited key after `429` / quota-style failures. That keeps fallback between providers separate from rotation within a provider.
+
+That same `AppState` now keeps a small in-memory provider-health snapshot for the whole configured Layer 3 chain. The authenticated `GET /debug/providers` endpoint and the `isartor providers` CLI command expose the active provider plus every configured backup, including endpoint, request/error counts, masked key-pool entries, and the last-known success or failure without enabling full request-body logging.
+
+At the protocol boundary, Isartor now supports four inbound request families that share the same deflection stack but keep cache keys namespaced by response shape: native (`/api/chat`), OpenAI-compatible (`/v1/chat/completions`), Anthropic-compatible (`/v1/messages`), and Gemini-native (`/v1beta/models/{model}:generateContent` plus `:streamGenerateContent`). Streaming is still a boundary concern: handlers produce canonical JSON, while middleware converts successful cached or downstream responses into the surface-specific SSE format when the client uses a streaming route.
 
 
 
@@ -28,7 +34,7 @@ flowchart TD
     C --> D[Cache L1b: Candle/TEI]
     D --> E[SLM Router: Candle/vLLM]
     E --> F[Context Optimiser: CompressionPipeline]
-    F --> G[Cloud Fallback: OpenAI/Anthropic]
+    F --> G[Cloud Fallback Chain: primary then ordered backups]
     G --> H[Response]
 
     subgraph F_detail [L2.5 CompressionPipeline]
@@ -116,3 +122,12 @@ src/
 - [Deflection Stack](deflection-stack.md) — detailed layer-by-layer breakdown
 - [Architecture Decision Records](architecture-decisions.md) — rationale behind key design choices
 - [Configuration Reference](../configuration/reference.md)
+
+
+### Usage analytics
+
+Isartor now records per-request provider/model usage events for both cloud calls and pre-L3 deflections. Events are persisted as JSONL under `usage_log_path`, aggregated in-memory with retention pruning, and exposed through the authenticated `GET /debug/usage` endpoint plus `isartor stats --usage`.
+
+### Provider quotas
+
+Per-provider quota enforcement is built on top of that same usage-event stream. Before a request is dispatched to Layer 3, Isartor projects the request's token/cost impact against the configured provider's daily, weekly, and monthly windows, then either warns, blocks with `429`, or falls through to the next provider in the ordered fallback chain. This keeps quota accounting and operator reporting aligned with one shared source of truth instead of separate usage and quota stores.

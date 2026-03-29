@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use toml_edit::DocumentMut;
 
-use crate::config::{LlmProvider, default_chat_completions_url};
+use crate::config::{KeyRotationStrategy, LlmProvider, default_chat_completions_url};
 
 /// Set the API key for an LLM provider (writes to isartor.toml or env file).
 #[derive(Parser, Debug, Clone)]
@@ -33,6 +33,26 @@ pub struct SetKeyArgs {
     /// Write shell export statements to ~/.isartor/env instead of isartor.toml.
     #[arg(long)]
     pub env_file: bool,
+
+    /// Append this key to the multi-key pool instead of replacing the legacy single key field.
+    #[arg(long, default_value_t = false)]
+    pub add: bool,
+
+    /// Optional human-readable label when adding to a key pool.
+    #[arg(long)]
+    pub label: Option<String>,
+
+    /// Priority used by priority-based key rotation (lower wins).
+    #[arg(long, default_value_t = 1)]
+    pub priority: u32,
+
+    /// Rotation strategy used when multiple keys are configured.
+    #[arg(long)]
+    pub strategy: Option<String>,
+
+    /// Cooldown applied after a rate-limit / quota response.
+    #[arg(long)]
+    pub cooldown_secs: Option<u64>,
 }
 
 /// Set or update a user-facing model alias in `isartor.toml`.
@@ -146,6 +166,53 @@ pub fn apply_provider_config(
     doc["external_llm_api_key"] = toml_edit::value(api_key);
 }
 
+fn parse_rotation_strategy(value: &str) -> Result<KeyRotationStrategy> {
+    match value.trim().to_lowercase().as_str() {
+        "round_robin" | "round-robin" | "roundrobin" => Ok(KeyRotationStrategy::RoundRobin),
+        "priority" => Ok(KeyRotationStrategy::Priority),
+        other => bail!("Unknown key rotation strategy: '{other}'. Use round_robin or priority."),
+    }
+}
+
+fn rotation_strategy_value(strategy: &KeyRotationStrategy) -> &'static str {
+    match strategy {
+        KeyRotationStrategy::RoundRobin => "round_robin",
+        KeyRotationStrategy::Priority => "priority",
+    }
+}
+
+fn append_provider_key(
+    doc: &mut DocumentMut,
+    api_key: &str,
+    label: Option<&str>,
+    priority: u32,
+    strategy: Option<&KeyRotationStrategy>,
+    cooldown_secs: Option<u64>,
+) {
+    if doc.get("provider_keys").is_none() {
+        doc["provider_keys"] = toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new());
+    }
+
+    let mut table = toml_edit::Table::new();
+    table["key"] = toml_edit::value(api_key);
+    table["priority"] = toml_edit::value(i64::from(priority));
+    if let Some(label) = label.filter(|label| !label.trim().is_empty()) {
+        table["label"] = toml_edit::value(label.trim());
+    }
+
+    doc["provider_keys"]
+        .as_array_of_tables_mut()
+        .expect("provider_keys must be an array of tables")
+        .push(table);
+
+    if let Some(strategy) = strategy {
+        doc["key_rotation_strategy"] = toml_edit::value(rotation_strategy_value(strategy));
+    }
+    if let Some(cooldown_secs) = cooldown_secs {
+        doc["key_cooldown_secs"] = toml_edit::value(i64::try_from(cooldown_secs).unwrap_or(60));
+    }
+}
+
 pub fn write_provider_config(
     config_path: &Path,
     provider: &LlmProvider,
@@ -235,6 +302,22 @@ pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
     if api_key.is_empty() && provider != LlmProvider::Ollama {
         bail!("API key is required for provider '{}'", provider_str);
     }
+    if args.priority == 0 {
+        bail!("--priority must be greater than zero");
+    }
+    if args.add && args.env_file {
+        bail!("--add is only supported for isartor.toml mode");
+    }
+    let strategy = args
+        .strategy
+        .as_deref()
+        .map(parse_rotation_strategy)
+        .transpose()?;
+    if let Some(cooldown_secs) = args.cooldown_secs
+        && cooldown_secs == 0
+    {
+        bail!("--cooldown-secs must be greater than zero");
+    }
 
     // 3. Resolve model
     let model = args
@@ -284,7 +367,35 @@ pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
     // 5. Handle isartor.toml mode (default)
     let config_path = &args.config_path;
 
-    let output = write_provider_config(config_path, &provider, &model, &api_key, args.dry_run)?;
+    let output = if args.add {
+        let existing = if config_path.exists() {
+            std::fs::read_to_string(config_path)
+                .with_context(|| format!("Failed to read {}", config_path.display()))?
+        } else {
+            String::new()
+        };
+
+        let mut doc = existing
+            .parse::<DocumentMut>()
+            .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+        apply_provider_config(&mut doc, &provider, &model, "");
+        append_provider_key(
+            &mut doc,
+            &api_key,
+            args.label.as_deref(),
+            args.priority,
+            strategy.as_ref(),
+            args.cooldown_secs,
+        );
+        let output = doc.to_string();
+        if !args.dry_run {
+            std::fs::write(config_path, &output)
+                .with_context(|| format!("Failed to write {}", config_path.display()))?;
+        }
+        output
+    } else {
+        write_provider_config(config_path, &provider, &model, &api_key, args.dry_run)?
+    };
 
     if args.dry_run {
         eprintln!("[dry-run] Would write to {}:", config_path.display());
@@ -297,6 +408,19 @@ pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
     eprintln!("  ✓ Model:     {}", model);
     if !api_key.is_empty() {
         eprintln!("  ✓ API key:   {}", mask_key(&api_key));
+    }
+    if args.add {
+        eprintln!("  ✓ Added to:  provider_keys");
+        eprintln!("  ✓ Priority:  {}", args.priority);
+        if let Some(label) = args.label.as_deref() {
+            eprintln!("  ✓ Label:     {}", label);
+        }
+        if let Some(strategy) = strategy {
+            eprintln!("  ✓ Strategy:  {}", rotation_strategy_value(&strategy));
+        }
+        if let Some(cooldown_secs) = args.cooldown_secs {
+            eprintln!("  ✓ Cooldown:  {}s", cooldown_secs);
+        }
     }
     eprintln!("  ✓ Written:   {}", config_path.display());
     eprintln!();
@@ -393,6 +517,11 @@ mod tests {
             config_path: tmp.clone(),
             dry_run: true,
             env_file: false,
+            add: false,
+            label: None,
+            priority: 1,
+            strategy: None,
+            cooldown_secs: None,
         };
 
         handle_set_key(args).await.unwrap();
@@ -413,6 +542,11 @@ mod tests {
             config_path: tmp.clone(),
             dry_run: false,
             env_file: false,
+            add: false,
+            label: None,
+            priority: 1,
+            strategy: None,
+            cooldown_secs: None,
         };
 
         handle_set_key(args).await.unwrap();
@@ -445,6 +579,11 @@ mod tests {
             config_path: tmp.clone(),
             dry_run: false,
             env_file: false,
+            add: false,
+            label: None,
+            priority: 1,
+            strategy: None,
+            cooldown_secs: None,
         };
 
         handle_set_key(args).await.unwrap();
@@ -472,6 +611,11 @@ mod tests {
             config_path: tmp.clone(),
             dry_run: false,
             env_file: false,
+            add: false,
+            label: None,
+            priority: 1,
+            strategy: None,
+            cooldown_secs: None,
         };
 
         handle_set_key(args).await.unwrap();
@@ -480,6 +624,42 @@ mod tests {
         assert!(content.contains("llm_provider = \"ollama\""));
         assert!(content.contains("external_llm_model = \"llama3.2\""));
         assert!(content.contains("external_llm_api_key = \"\""));
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[tokio::test]
+    async fn test_set_key_add_appends_provider_key_pool() {
+        let tmp = std::env::temp_dir().join("isartor_test_set_key_add.toml");
+        std::fs::write(
+            &tmp,
+            "llm_provider = \"openai\"\nexternal_llm_model = \"gpt-4o-mini\"\nexternal_llm_api_key = \"sk-legacy\"\n",
+        )
+        .unwrap();
+
+        let args = SetKeyArgs {
+            provider: "openai".to_string(),
+            key: Some("sk-shared".to_string()),
+            model: Some("gpt-4o-mini".to_string()),
+            config_path: tmp.clone(),
+            dry_run: false,
+            env_file: false,
+            add: true,
+            label: Some("team".to_string()),
+            priority: 2,
+            strategy: Some("priority".to_string()),
+            cooldown_secs: Some(120),
+        };
+
+        handle_set_key(args).await.unwrap();
+
+        let content = std::fs::read_to_string(&tmp).unwrap();
+        assert!(content.contains("[[provider_keys]]"));
+        assert!(content.contains("key = \"sk-shared\""));
+        assert!(content.contains("label = \"team\""));
+        assert!(content.contains("priority = 2"));
+        assert!(content.contains("key_rotation_strategy = \"priority\""));
+        assert!(content.contains("key_cooldown_secs = 120"));
 
         let _ = std::fs::remove_file(&tmp);
     }

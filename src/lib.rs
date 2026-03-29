@@ -16,6 +16,7 @@ pub mod demo;
 pub mod errors;
 pub mod factory;
 pub mod first_run;
+pub mod gemini_sse;
 pub mod handler;
 pub mod health;
 pub mod hf;

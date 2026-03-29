@@ -1,7 +1,7 @@
 use clap::Parser;
 
 use crate::config::AppConfig;
-use crate::models::{AgentStatsResponse, PromptStatsResponse};
+use crate::models::{AgentStatsResponse, PromptStatsResponse, UsageStatsResponse};
 
 #[derive(Parser, Debug, Clone)]
 pub struct StatsArgs {
@@ -21,6 +21,14 @@ pub struct StatsArgs {
     #[arg(long, default_value_t = false)]
     pub by_tool: bool,
 
+    /// Show provider/model usage analytics instead of prompt stats.
+    #[arg(long, default_value_t = false)]
+    pub usage: bool,
+
+    /// Usage analytics window in hours.
+    #[arg(long, default_value_t = 24)]
+    pub usage_hours: u64,
+
     /// Output as JSON instead of human-readable text.
     #[arg(long, default_value_t = false)]
     pub json: bool,
@@ -31,23 +39,35 @@ pub async fn handle_stats(args: StatsArgs) -> anyhow::Result<()> {
     let Some(health) = fetch_health(&gateway).await else {
         anyhow::bail!("Isartor is not reachable at {}", gateway);
     };
-    let Some(stats) = fetch_prompt_stats(
-        &gateway,
-        effective_gateway_api_key(args.gateway_api_key.as_deref()),
-        args.recent_limit,
-    )
-    .await
+    let gateway_api_key = effective_gateway_api_key(args.gateway_api_key.as_deref());
+
+    if args.usage {
+        let Some(usage) = fetch_usage_stats(&gateway, gateway_api_key, args.usage_hours).await
+        else {
+            anyhow::bail!("Unable to read usage stats. Provide --gateway-api-key if needed.");
+        };
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&usage).unwrap_or_default()
+            );
+            return Ok(());
+        }
+        print!("{}", render_usage_report(&gateway, &health.version, &usage));
+        return Ok(());
+    }
+
+    let Some(stats) =
+        fetch_prompt_stats(&gateway, gateway_api_key.clone(), args.recent_limit).await
     else {
         anyhow::bail!("Unable to read prompt stats. Provide --gateway-api-key if needed.");
     };
-    let gateway_api_key = effective_gateway_api_key(args.gateway_api_key.as_deref());
     let agent_stats = if args.by_tool {
         fetch_agent_stats(&gateway, gateway_api_key.clone()).await
     } else {
         None
     };
 
-    // JSON output mode — dump the raw response and exit.
     if args.json {
         if args.by_tool {
             println!(
@@ -134,6 +154,25 @@ async fn fetch_agent_stats(
         return None;
     }
     resp.json::<AgentStatsResponse>().await.ok()
+}
+
+async fn fetch_usage_stats(
+    gateway: &str,
+    gateway_api_key: Option<String>,
+    hours: u64,
+) -> Option<UsageStatsResponse> {
+    let client = reqwest::Client::new();
+    let mut req = client
+        .get(format!("{}/debug/usage?hours={}", gateway, hours))
+        .timeout(std::time::Duration::from_secs(2));
+    if let Some(key) = gateway_api_key {
+        req = req.header("X-API-Key", key);
+    }
+    let resp = req.send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.json::<UsageStatsResponse>().await.ok()
 }
 
 fn effective_gateway_api_key(cli_value: Option<&str>) -> Option<String> {
@@ -389,5 +428,201 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(stats.agents.get("copilot").unwrap().requests, 2);
+    }
+}
+
+type UsageAggregate = (u64, u64, u64, f64, f64);
+
+fn render_usage_report(gateway: &str, version: &str, usage: &UsageStatsResponse) -> String {
+    use std::collections::BTreeMap;
+    use std::fmt::Write;
+
+    let mut output = String::new();
+    writeln!(&mut output, "\nIsartor Usage Stats").ok();
+    writeln!(&mut output, "  URL:             {}", gateway).ok();
+    writeln!(&mut output, "  Version:         {}", version).ok();
+    writeln!(
+        &mut output,
+        "  Window:          last {}h",
+        usage.window_hours
+    )
+    .ok();
+    writeln!(&mut output, "  Requests:        {}", usage.total_requests).ok();
+    writeln!(
+        &mut output,
+        "  Deflected:       {}",
+        usage.total_deflected_requests
+    )
+    .ok();
+    writeln!(
+        &mut output,
+        "  Deflection rate: {:.1}%",
+        usage.deflection_rate * 100.0
+    )
+    .ok();
+    writeln!(
+        &mut output,
+        "  Prompt tokens:   {}",
+        usage.total_prompt_tokens
+    )
+    .ok();
+    writeln!(
+        &mut output,
+        "  Completion:      {}",
+        usage.total_completion_tokens
+    )
+    .ok();
+    writeln!(&mut output, "  Total tokens:    {}", usage.total_tokens).ok();
+    writeln!(
+        &mut output,
+        "  Est. spend:      ${:.4}",
+        usage.estimated_cost_usd
+    )
+    .ok();
+    writeln!(
+        &mut output,
+        "  Est. saved:      ${:.4}",
+        usage.estimated_saved_cost_usd
+    )
+    .ok();
+    writeln!(&mut output, "  Log:             {}", usage.usage_log_path).ok();
+
+    let mut grouped: BTreeMap<(String, String), UsageAggregate> = BTreeMap::new();
+    for entry in &usage.entries {
+        let aggregate = grouped
+            .entry((entry.provider.clone(), entry.model.clone()))
+            .or_insert((0, 0, 0, 0.0, 0.0));
+        aggregate.0 = aggregate.0.saturating_add(entry.requests_total);
+        aggregate.1 = aggregate.1.saturating_add(entry.deflected_total);
+        aggregate.2 = aggregate.2.saturating_add(entry.total_tokens);
+        aggregate.3 += entry.estimated_cost_usd;
+        aggregate.4 += entry.estimated_saved_cost_usd;
+    }
+
+    writeln!(&mut output, "By Provider / Model").ok();
+    if grouped.is_empty() {
+        writeln!(&mut output, "  No usage recorded yet.").ok();
+    } else {
+        writeln!(
+            &mut output,
+            "  {:<12} {:<28} {:>7} {:>9} {:>12} {:>12} {:>12}",
+            "Provider", "Model", "Reqs", "Saved", "Tokens", "Spend $", "Saved $"
+        )
+        .ok();
+        for ((provider, model), (requests, deflected, tokens, spend, saved)) in grouped {
+            writeln!(
+                &mut output,
+                "  {:<12} {:<28} {:>7} {:>9} {:>12} {:>12.4} {:>12.4}",
+                provider, model, requests, deflected, tokens, spend, saved
+            )
+            .ok();
+        }
+    }
+
+    writeln!(&mut output, "\nDaily Breakdown").ok();
+    if usage.entries.is_empty() {
+        writeln!(&mut output, "  No daily entries recorded yet.").ok();
+    } else {
+        for entry in &usage.entries {
+            writeln!(
+                &mut output,
+                "  {}  {} / {}  req={} saved={} tokens={} spend=${:.4} saved=${:.4}",
+                entry.day,
+                entry.provider,
+                entry.model,
+                entry.requests_total,
+                entry.deflected_total,
+                entry.total_tokens,
+                entry.estimated_cost_usd,
+                entry.estimated_saved_cost_usd
+            )
+            .ok();
+        }
+    }
+
+    writeln!(&mut output).ok();
+    output
+}
+
+#[cfg(test)]
+mod usage_tests_extra {
+    use super::*;
+    use crate::models::UsageStatsEntry;
+    use axum::{Json, Router, routing::get};
+    use tokio::net::TcpListener;
+
+    #[test]
+    fn render_usage_report_includes_costs() {
+        let report = render_usage_report(
+            "http://localhost:8080",
+            "test",
+            &UsageStatsResponse {
+                window_hours: 24,
+                usage_log_path: "~/.isartor/usage.jsonl".into(),
+                retention_days: 30,
+                total_requests: 2,
+                total_deflected_requests: 1,
+                total_prompt_tokens: 100,
+                total_completion_tokens: 50,
+                total_tokens: 150,
+                estimated_cost_usd: 0.12,
+                estimated_saved_cost_usd: 0.03,
+                deflection_rate: 1.0 / 3.0,
+                entries: vec![UsageStatsEntry {
+                    day: "2026-01-01".into(),
+                    provider: "openai".into(),
+                    model: "gpt-4o-mini".into(),
+                    prompt_tokens: 100,
+                    completion_tokens: 50,
+                    total_tokens: 150,
+                    requests_total: 2,
+                    deflected_total: 1,
+                    estimated_cost_usd: 0.12,
+                    estimated_saved_cost_usd: 0.03,
+                }],
+            },
+        );
+        assert!(report.contains("Est. spend"));
+        assert!(report.contains("gpt-4o-mini"));
+        assert!(report.contains("Saved $"));
+    }
+
+    #[tokio::test]
+    async fn fetch_usage_stats_reads_debug_endpoint() {
+        let app = Router::new()
+            .route(
+                "/debug/usage",
+                get(|| async {
+                    Json(UsageStatsResponse {
+                        window_hours: 24,
+                        usage_log_path: "test".into(),
+                        retention_days: 30,
+                        total_requests: 1,
+                        total_deflected_requests: 0,
+                        total_prompt_tokens: 10,
+                        total_completion_tokens: 5,
+                        total_tokens: 15,
+                        estimated_cost_usd: 0.01,
+                        estimated_saved_cost_usd: 0.0,
+                        deflection_rate: 0.0,
+                        entries: vec![],
+                    })
+                }),
+            )
+            .route(
+                "/health",
+                get(|| async { Json(serde_json::json!({ "version": "test" })) }),
+            );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let stats = fetch_usage_stats(&format!("http://{}", addr), None, 24)
+            .await
+            .unwrap();
+        assert_eq!(stats.total_requests, 1);
     }
 }

@@ -146,6 +146,36 @@ pub struct AgentStatsResponse {
     pub agents: BTreeMap<String, AgentStatsEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct UsageStatsEntry {
+    pub day: String,
+    pub provider: String,
+    pub model: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub requests_total: u64,
+    pub deflected_total: u64,
+    pub estimated_cost_usd: f64,
+    pub estimated_saved_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct UsageStatsResponse {
+    pub window_hours: u64,
+    pub usage_log_path: String,
+    pub retention_days: u64,
+    pub total_requests: u64,
+    pub total_deflected_requests: u64,
+    pub total_prompt_tokens: u64,
+    pub total_completion_tokens: u64,
+    pub total_tokens: u64,
+    pub estimated_cost_usd: f64,
+    pub estimated_saved_cost_usd: f64,
+    pub deflection_rate: f64,
+    pub entries: Vec<UsageStatsEntry>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderHealthStatus {
@@ -153,6 +183,30 @@ pub enum ProviderHealthStatus {
     Failing,
     #[default]
     Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKeyHealthStatus {
+    Available,
+    CoolingDown,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ProviderKeyStatusEntry {
+    pub masked_key: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub label: String,
+    pub priority: u32,
+    pub status: ProviderKeyHealthStatus,
+    pub requests_total: u64,
+    pub rate_limit_total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_used: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cooldown_until: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -166,6 +220,10 @@ pub struct ProviderStatusEntry {
     pub endpoint_configured: bool,
     pub requests_total: u64,
     pub errors_total: u64,
+    pub key_rotation_strategy: String,
+    pub key_cooldown_secs: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<ProviderKeyStatusEntry>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_success: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

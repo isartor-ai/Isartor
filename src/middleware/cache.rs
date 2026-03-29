@@ -17,9 +17,10 @@ use crate::core::cache_scope::{
     build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
 };
 use crate::core::prompt::{
-    extract_cache_key, extract_request_model, extract_semantic_key, has_tooling,
-    override_request_model,
+    cache_namespace_for_path, extract_cache_key, extract_request_model, extract_route_model,
+    extract_semantic_key, has_tooling, is_gemini_streaming_path, override_request_model,
 };
+use crate::gemini_sse;
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::openai_sse;
@@ -32,6 +33,10 @@ fn streaming_cache_response(
 ) -> Option<Response> {
     match cache_ns {
         "anthropic" => Some(anthropic_sse::cached_to_sse_response(
+            cached_json,
+            model_fallback,
+        )),
+        "gemini" => Some(gemini_sse::cached_to_sse_response(
             cached_json,
             model_fallback,
         )),
@@ -98,7 +103,9 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         }
     };
 
+    let route_model = extract_route_model(request.uri().path());
     let resolved_model = extract_request_model(body_bytes.as_ref())
+        .or(route_model)
         .map(|model| state.config.resolve_model_alias(&model))
         .unwrap_or_else(|| state.config.configured_model_id());
     let canonical_body = override_request_model(body_bytes.as_ref(), &resolved_model);
@@ -116,17 +123,14 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
 
     // Keep cache entries separate per response format to avoid cross-format cache hits.
     // (e.g., OpenAI-compatible endpoints should not return native ChatResponse bodies.)
-    let cache_ns = match request.uri().path() {
-        "/v1/chat/completions" => "openai",
-        "/v1/messages" => "anthropic",
-        _ => "native",
-    };
+    let cache_ns = cache_namespace_for_path(request.uri().path());
     let semantic_cache_prompt = namespaced_semantic_cache_input(cache_ns, &semantic_prompt);
     let semantic_cache_enabled = request.uri().path() != "/v1/messages" && !has_tooling;
 
     // Detect if the client expects an SSE stream (Claude Code sends stream: true).
     let is_streaming = match cache_ns {
         "anthropic" => anthropic_sse::is_streaming_request(&canonical_body),
+        "gemini" => is_gemini_streaming_path(request.uri().path()),
         "openai" => openai_sse::is_streaming_request(&canonical_body),
         _ => false,
     };
@@ -363,6 +367,7 @@ mod tests {
     use crate::core::cache_scope::{build_exact_cache_key, derive_session_cache_scope};
     use crate::core::context_compress::InstructionCache;
     use crate::core::prompt::{extract_cache_key, extract_semantic_key};
+    use crate::core::usage::UsageTracker;
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::middleware::body_buffer::buffer_body_middleware;
@@ -416,6 +421,10 @@ mod tests {
             external_llm_model: "test".into(),
             model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            fallback_providers: Vec::new(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
@@ -424,6 +433,11 @@ mod tests {
             otel_exporter_endpoint: "http://localhost:4317".into(),
             enable_request_logs: false,
             request_log_path: "~/.isartor/request_logs".into(),
+            usage_log_path: "~/.isartor".into(),
+            usage_retention_days: 30,
+            usage_window_hours: 24,
+            usage_pricing: std::collections::HashMap::new(),
+            quota: std::collections::HashMap::new(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -440,11 +454,18 @@ mod tests {
                 std::num::NonZeroUsize::new(100).unwrap(),
             )),
             vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(MockAgent),
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -497,6 +518,25 @@ mod tests {
                             "model": "test-model",
                             "content": [{"type": "text", "text": "downstream anthropic response"}],
                             "stop_reason": "end_turn"
+                        })),
+                    )
+                }),
+            )
+            .route(
+                "/v1beta/models/{*rest}",
+                post(|| async {
+                    (
+                        StatusCode::OK,
+                        axum::Json(serde_json::json!({
+                            "candidates": [{
+                                "content": {
+                                    "role": "model",
+                                    "parts": [{"text": "downstream gemini response"}]
+                                },
+                                "finishReason": "STOP",
+                                "index": 0
+                            }],
+                            "modelVersion": "test-model"
                         })),
                     )
                 }),
@@ -573,6 +613,17 @@ mod tests {
                     "type": "function",
                     "function": {"name": tool_name}
                 }
+            }))
+            .unwrap(),
+        )
+    }
+
+    fn gemini_body(prompt: &str) -> Body {
+        Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "contents": [
+                    {"role": "user", "parts": [{"text": prompt}]}
+                ]
             }))
             .unwrap(),
         )
@@ -868,6 +919,74 @@ mod tests {
             state.exact_cache.get(&plain_key).is_none(),
             "tool-enabled request must not reuse plain completion key"
         );
+    }
+
+    #[tokio::test]
+    async fn gemini_streaming_exact_cache_hit_returns_sse() {
+        let state = test_state(CacheMode::Exact);
+
+        let key = build_exact_cache_key(
+            "gemini",
+            "user: cached gemini prompt\nmodel: gemini-2.0-flash",
+            None,
+        );
+        let cached_json = serde_json::json!({
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [{"text": "cached gemini answer"}]
+                },
+                "finishReason": "STOP",
+                "index": 0
+            }],
+            "modelVersion": "gemini-2.0-flash"
+        })
+        .to_string();
+        state.exact_cache.put(key, cached_json);
+
+        let app = cache_app(state);
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse")
+            .header("content-type", "application/json")
+            .body(gemini_body("cached gemini prompt"))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "text/event-stream"
+        );
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("\"candidates\""));
+        assert!(text.contains("\"text\":\"cached gemini answer\""));
+    }
+
+    #[tokio::test]
+    async fn gemini_generate_content_uses_gemini_cache_namespace() {
+        let state = test_state(CacheMode::Exact);
+        let app = cache_app(state.clone());
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/v1beta/models/gemini-2.0-flash:generateContent")
+            .header("content-type", "application/json")
+            .body(gemini_body("hello gemini"))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let key = build_exact_cache_key(
+            "gemini",
+            "user: hello gemini\nmodel: gemini-2.0-flash",
+            None,
+        );
+        let cached = state.exact_cache.get(&key);
+        assert!(cached.is_some());
     }
 
     #[tokio::test]

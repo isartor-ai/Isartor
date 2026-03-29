@@ -97,15 +97,20 @@ pub fn metrics() -> &'static GatewayMetrics {
 
 // ── Convenience helpers ──────────────────────────────────────────────
 
+/// Estimate prompt tokens using a simple ~4 chars/token heuristic.
+pub fn estimate_prompt_tokens(prompt: &str) -> u64 {
+    (prompt.chars().count() as u64 / 4).max(1)
+}
+
+/// Estimate completion tokens using the same lightweight heuristic.
+pub fn estimate_completion_tokens(response: &str) -> u64 {
+    (response.chars().count() as u64 / 4).max(1)
+}
+
 /// Estimate the number of tokens a prompt would have consumed if sent to
-/// a cloud LLM.  Uses the simple heuristic of ~4 characters per token
-/// (GPT-style BPE).  A more accurate approach would use `tiktoken`, but
-/// the rough estimate is sufficient for cost dashboards.
+/// a cloud LLM. Uses prompt tokens plus a conservative completion budget.
 pub fn estimate_tokens(prompt: &str) -> u64 {
-    // prompt tokens + a modest estimate for completion tokens
-    let prompt_tokens = (prompt.len() as u64) / 4;
-    let completion_estimate = 256; // conservative average
-    prompt_tokens + completion_estimate
+    estimate_prompt_tokens(prompt) + 256
 }
 
 fn request_attrs(

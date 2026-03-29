@@ -251,6 +251,7 @@ async fn body_survives_all_middleware() {
         InferenceEngineMode, Layer2Settings, RouterBackend,
     };
     use isartor::core::context_compress::InstructionCache;
+    use isartor::core::usage::UsageTracker;
     use isartor::handler::chat_handler;
     use isartor::layer1::embeddings::TextEmbedder;
     use isartor::layer1::layer1a_cache::ExactMatchCache;
@@ -309,6 +310,10 @@ async fn body_survives_all_middleware() {
         external_llm_model: "gpt-4o-mini".into(),
         model_aliases: std::collections::HashMap::new(),
         external_llm_api_key: "".into(),
+        provider_keys: Vec::new(),
+        key_rotation_strategy: isartor::config::KeyRotationStrategy::RoundRobin,
+        key_cooldown_secs: 60,
+        fallback_providers: Vec::new(),
         l3_timeout_secs: 120,
         azure_deployment_id: "".into(),
         azure_api_version: "".into(),
@@ -317,6 +322,11 @@ async fn body_survives_all_middleware() {
         otel_exporter_endpoint: "http://localhost:4317".into(),
         enable_request_logs: false,
         request_log_path: "~/.isartor/request_logs".into(),
+        usage_log_path: "~/.isartor".into(),
+        usage_retention_days: 30,
+        usage_window_hours: 24,
+        usage_pricing: std::collections::HashMap::new(),
+        quota: std::collections::HashMap::new(),
         offline_mode: false,
         proxy_port: "0.0.0.0:8081".into(),
         enable_context_optimizer: true,
@@ -328,11 +338,16 @@ async fn body_survives_all_middleware() {
         http_client: reqwest::Client::new(),
         exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
         vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+        provider_chain: Arc::new(isartor::state::resolved_provider_chain(&config)),
+        usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
         llm_agent: Arc::new(EchoAgent),
         slm_client: Arc::new(SlmClient::new(&config.layer2)),
         text_embedder: Arc::new(TextEmbedder::new().expect("TextEmbedder init")),
         instruction_cache: Arc::new(InstructionCache::new()),
         provider_health: Arc::new(isartor::state::ProviderHealthTracker::from_config(&config)),
+        provider_key_pools: Arc::new(isartor::state::ProviderKeyPoolManager::from_provider_chain(
+            isartor::state::resolved_provider_chain(&config).as_slice(),
+        )),
         config,
         #[cfg(feature = "embedded-inference")]
         embedded_classifier: None,

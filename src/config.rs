@@ -103,6 +103,109 @@ impl LlmProvider {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyRotationStrategy {
+    #[default]
+    RoundRobin,
+    Priority,
+}
+
+fn default_key_cooldown_secs() -> u64 {
+    60
+}
+
+fn default_provider_key_priority() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+pub struct ProviderPricingConfig {
+    #[serde(default)]
+    pub input_cost_per_million_usd: f64,
+    #[serde(default)]
+    pub output_cost_per_million_usd: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum QuotaLimitAction {
+    #[default]
+    Warn,
+    Block,
+    Fallback,
+}
+
+fn default_quota_warning_threshold_ratio() -> f64 {
+    0.8
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+pub struct ProviderQuotaConfig {
+    #[serde(default)]
+    pub daily_token_limit: Option<u64>,
+    #[serde(default)]
+    pub weekly_token_limit: Option<u64>,
+    #[serde(default)]
+    pub monthly_token_limit: Option<u64>,
+    #[serde(default)]
+    pub daily_cost_limit_usd: Option<f64>,
+    #[serde(default)]
+    pub weekly_cost_limit_usd: Option<f64>,
+    #[serde(default)]
+    pub monthly_cost_limit_usd: Option<f64>,
+    #[serde(default)]
+    pub action_on_limit: QuotaLimitAction,
+    #[serde(default = "default_quota_warning_threshold_ratio")]
+    pub warning_threshold_ratio: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+pub struct ProviderKeyConfig {
+    #[serde(default)]
+    pub key: String,
+    #[serde(default = "default_provider_key_priority")]
+    pub priority: u32,
+    #[serde(default)]
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+pub struct FallbackProviderConfig {
+    pub provider: LlmProvider,
+    pub model: String,
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub provider_keys: Vec<ProviderKeyConfig>,
+    #[serde(default)]
+    pub key_rotation_strategy: KeyRotationStrategy,
+    #[serde(default = "default_key_cooldown_secs")]
+    pub key_cooldown_secs: u64,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub azure_deployment_id: String,
+    #[serde(default = "default_azure_api_version")]
+    pub azure_api_version: String,
+}
+
+fn default_azure_api_version() -> String {
+    "2024-08-01-preview".to_string()
+}
+
+fn default_usage_log_path() -> String {
+    crate::core::usage::default_usage_log_dir_string()
+}
+
+fn default_usage_retention_days() -> u64 {
+    crate::core::usage::default_usage_retention_days()
+}
+
+fn default_usage_window_hours() -> u64 {
+    crate::core::usage::default_usage_window_hours()
+}
+
 impl std::fmt::Display for LlmProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
@@ -392,6 +495,24 @@ pub struct AppConfig {
     /// API key for the external heavy LLM (Layer 3).
     pub external_llm_api_key: String,
 
+    /// Optional multi-account key pool for the primary provider.
+    #[serde(default)]
+    pub provider_keys: Vec<ProviderKeyConfig>,
+
+    /// Strategy used when multiple primary-provider keys are configured.
+    #[serde(default)]
+    pub key_rotation_strategy: KeyRotationStrategy,
+
+    /// Cooldown duration in seconds after a primary-provider key hits a
+    /// rate-limit / quota-style upstream response.
+    #[serde(default = "default_key_cooldown_secs")]
+    pub key_cooldown_secs: u64,
+
+    /// Ordered fallback providers used when the primary provider exhausts its
+    /// retry budget with a provider-side failure such as 429/5xx/timeout.
+    #[serde(default)]
+    pub fallback_providers: Vec<FallbackProviderConfig>,
+
     /// HTTP request timeout for Layer 3 provider calls, in seconds.
     pub l3_timeout_secs: u64,
 
@@ -437,6 +558,16 @@ pub struct AppConfig {
     pub otel_exporter_endpoint: String,
     pub enable_request_logs: bool,
     pub request_log_path: String,
+    #[serde(default = "default_usage_log_path")]
+    pub usage_log_path: String,
+    #[serde(default = "default_usage_retention_days")]
+    pub usage_retention_days: u64,
+    #[serde(default = "default_usage_window_hours")]
+    pub usage_window_hours: u64,
+    #[serde(default)]
+    pub usage_pricing: HashMap<String, ProviderPricingConfig>,
+    #[serde(default)]
+    pub quota: HashMap<String, ProviderQuotaConfig>,
 
     // ── Air-Gap / Offline Mode ──────────────────────────────────────
     /// When `true`, all outbound HTTP connections are blocked at the
@@ -475,6 +606,27 @@ impl AppConfig {
             .get(requested_model)
             .cloned()
             .unwrap_or_else(|| requested_model.to_string())
+    }
+
+    pub fn primary_provider_keys(&self) -> Vec<ProviderKeyConfig> {
+        effective_provider_keys(&self.external_llm_api_key, &self.provider_keys)
+    }
+
+    pub fn has_primary_provider_key(&self) -> bool {
+        !provider_requires_api_key(&self.llm_provider) || !self.primary_provider_keys().is_empty()
+    }
+
+    pub fn primary_provider_api_key(&self) -> String {
+        self.primary_provider_keys()
+            .first()
+            .map(|entry| entry.key.clone())
+            .unwrap_or_else(|| self.external_llm_api_key.clone())
+    }
+
+    pub fn quota_for_provider(&self, provider: &str) -> Option<&ProviderQuotaConfig> {
+        self.quota
+            .get(provider)
+            .or_else(|| self.quota.get(&provider.to_lowercase()))
     }
 
     /// Load configuration but optionally skip strict provider validation.
@@ -517,6 +669,8 @@ impl AppConfig {
             .set_default("external_llm_url", DEFAULT_OPENAI_CHAT_COMPLETIONS_URL)?
             .set_default("external_llm_model", "gpt-4o-mini")?
             .set_default("external_llm_api_key", "")?
+            .set_default("key_rotation_strategy", "round_robin")?
+            .set_default("key_cooldown_secs", 60_i64)?
             .set_default("l3_timeout_secs", 120_i64)?
             // Azure
             .set_default("azure_deployment_id", "")?
@@ -532,6 +686,18 @@ impl AppConfig {
             .set_default(
                 "request_log_path",
                 crate::core::request_logger::default_request_log_dir_string(),
+            )?
+            .set_default(
+                "usage_log_path",
+                crate::core::usage::default_usage_log_dir_string(),
+            )?
+            .set_default(
+                "usage_retention_days",
+                crate::core::usage::default_usage_retention_days() as i64,
+            )?
+            .set_default(
+                "usage_window_hours",
+                crate::core::usage::default_usage_window_hours() as i64,
             )?
             // Air-gap / offline mode
             .set_default("offline_mode", false)?
@@ -555,6 +721,8 @@ impl AppConfig {
         // Docker-friendly secret support: allow reading sensitive values from files
         // (e.g. Docker / Compose secrets mounted under /run/secrets/*).
         apply_secret_file_overrides(&mut app)?;
+        apply_provider_key_env_overrides(&mut app)?;
+        apply_fallback_provider_env_overrides(&mut app)?;
         if validate_provider {
             validate_provider_config(&app)?;
         }
@@ -604,66 +772,220 @@ fn apply_secret_file_overrides(cfg: &mut AppConfig) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_provider_config(cfg: &AppConfig) -> anyhow::Result<()> {
-    if cfg.llm_provider == LlmProvider::Copilot && cfg.external_llm_api_key.trim().is_empty() {
+fn apply_fallback_provider_env_overrides(cfg: &mut AppConfig) -> anyhow::Result<()> {
+    for var in ["ISARTOR__FALLBACK_PROVIDERS", "ISARTOR_FALLBACK_PROVIDERS"] {
+        let Ok(raw) = std::env::var(var) else {
+            continue;
+        };
+
+        let raw = raw.trim();
+        if raw.is_empty() {
+            cfg.fallback_providers.clear();
+            return Ok(());
+        }
+
+        cfg.fallback_providers = serde_json::from_str(raw).map_err(|e| {
+            anyhow::anyhow!("failed to parse {var} as JSON array of fallback provider objects: {e}")
+        })?;
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+fn apply_provider_key_env_overrides(cfg: &mut AppConfig) -> anyhow::Result<()> {
+    for var in ["ISARTOR__PROVIDER_KEYS", "ISARTOR_PROVIDER_KEYS"] {
+        let Ok(raw) = std::env::var(var) else {
+            continue;
+        };
+
+        let raw = raw.trim();
+        if raw.is_empty() {
+            cfg.provider_keys.clear();
+            return Ok(());
+        }
+
+        cfg.provider_keys = serde_json::from_str(raw).map_err(|e| {
+            anyhow::anyhow!("failed to parse {var} as JSON array of provider key objects: {e}")
+        })?;
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+fn provider_requires_api_key(provider: &LlmProvider) -> bool {
+    !matches!(provider, LlmProvider::Ollama)
+}
+
+pub fn effective_provider_keys(
+    legacy_api_key: &str,
+    provider_keys: &[ProviderKeyConfig],
+) -> Vec<ProviderKeyConfig> {
+    let mut keys = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    let trimmed_legacy = legacy_api_key.trim();
+    if !trimmed_legacy.is_empty() {
+        seen.insert(trimmed_legacy.to_string());
+        keys.push(ProviderKeyConfig {
+            key: trimmed_legacy.to_string(),
+            priority: 0,
+            label: "legacy-primary".to_string(),
+        });
+    }
+
+    for entry in provider_keys {
+        let trimmed = entry.key.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            continue;
+        }
+        keys.push(ProviderKeyConfig {
+            key: trimmed.to_string(),
+            priority: entry.priority,
+            label: entry.label.trim().to_string(),
+        });
+    }
+
+    keys
+}
+
+fn validate_provider_key_configs(
+    provider_keys: &[ProviderKeyConfig],
+    context: &str,
+) -> anyhow::Result<()> {
+    for (index, provider_key) in provider_keys.iter().enumerate() {
+        if provider_key.key.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "{context} provider_keys[{}].key must not be empty",
+                index
+            ));
+        }
+        if provider_key.priority == 0 {
+            return Err(anyhow::anyhow!(
+                "{context} provider_keys[{}].priority must be greater than zero",
+                index
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+struct ProviderValidationInput<'a> {
+    provider: &'a LlmProvider,
+    api_key: &'a str,
+    provider_keys: &'a [ProviderKeyConfig],
+    endpoint: &'a str,
+    model: &'a str,
+    azure_deployment_id: &'a str,
+    azure_api_version: &'a str,
+    context: &'a str,
+}
+
+fn validate_single_provider_config(input: ProviderValidationInput<'_>) -> anyhow::Result<()> {
+    if input.model.trim().is_empty() {
+        return Err(anyhow::anyhow!("{} model must not be empty", input.context));
+    }
+
+    validate_provider_key_configs(input.provider_keys, input.context)?;
+
+    let effective_keys = effective_provider_keys(input.api_key, input.provider_keys);
+
+    if provider_requires_api_key(input.provider) && effective_keys.is_empty() {
         return Err(anyhow::anyhow!(
-            "GitHub Copilot selected but no GitHub token configured. Set ISARTOR__EXTERNAL_LLM_API_KEY to a GitHub token with Copilot access, or run `isartor connect claude-copilot`."
+            "{} API key is required for provider '{}' (configure external_llm_api_key or provider_keys)",
+            input.context,
+            input.provider.as_str()
         ));
     }
 
-    if cfg.llm_provider == LlmProvider::Azure {
-        if cfg.external_llm_api_key.trim().is_empty() {
+    if *input.provider == LlmProvider::Copilot && input.api_key.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "{} GitHub token is required for GitHub Copilot access",
+            input.context
+        ));
+    }
+
+    if *input.provider == LlmProvider::Azure {
+        if input.endpoint.trim().is_empty() {
             return Err(anyhow::anyhow!(
-                "Azure OpenAI selected but no API key configured. Set ISARTOR__EXTERNAL_LLM_API_KEY or ISARTOR__EXTERNAL_LLM_API_KEY_FILE"
+                "{} Azure endpoint is empty (expected: https://<resource>.openai.azure.com)",
+                input.context
             ));
         }
 
-        let endpoint = cfg.external_llm_url.trim();
-        if endpoint.is_empty() {
+        if input.endpoint.contains("api.openai.com") {
             return Err(anyhow::anyhow!(
-                "Azure OpenAI selected but ISARTOR__EXTERNAL_LLM_URL is empty (expected: https://<resource>.openai.azure.com)"
+                "{} Azure endpoint points to api.openai.com; use your Azure resource endpoint instead",
+                input.context
             ));
         }
 
-        // Common misconfiguration: leaving the OpenAI default URL in place.
-        if endpoint.contains("api.openai.com") {
-            return Err(anyhow::anyhow!(
-                "Azure OpenAI selected but ISARTOR__EXTERNAL_LLM_URL points to api.openai.com. Use your Azure OpenAI resource endpoint from Azure Portal → 'Keys and Endpoint', e.g. https://<resource>.openai.azure.com"
-            ));
-        }
-
-        // Another common misconfiguration: providing the full REST path.
-        if endpoint.contains("/openai/")
-            || endpoint.contains("/deployments/")
-            || endpoint.contains("chat/completions")
-            || endpoint.contains("api-version=")
+        if input.endpoint.contains("/openai/")
+            || input.endpoint.contains("/deployments/")
+            || input.endpoint.contains("chat/completions")
+            || input.endpoint.contains("api-version=")
         {
             return Err(anyhow::anyhow!(
-                "Azure OpenAI selected but ISARTOR__EXTERNAL_LLM_URL looks like a full REST URL. Provide only the base endpoint (no path/query), e.g. https://<resource>.openai.azure.com"
+                "{} Azure endpoint looks like a full REST URL; provide only the base endpoint",
+                input.context
             ));
         }
 
-        // Allow public, gov, and cn domains. (We just sanity-check; rig-core appends the REST path.)
-        if !(endpoint.contains("openai.azure.com")
-            || endpoint.contains("openai.azure.us")
-            || endpoint.contains("openai.azure.cn")
-            || endpoint.contains("cognitiveservices.azure.com"))
+        if !(input.endpoint.contains("openai.azure.com")
+            || input.endpoint.contains("openai.azure.us")
+            || input.endpoint.contains("openai.azure.cn")
+            || input.endpoint.contains("cognitiveservices.azure.com"))
         {
             return Err(anyhow::anyhow!(
-                "Azure OpenAI selected but ISARTOR__EXTERNAL_LLM_URL does not look like an Azure endpoint: '{endpoint}'. Expected: https://<resource>.openai.azure.com"
+                "{} Azure endpoint does not look like an Azure OpenAI endpoint: '{}'",
+                input.context,
+                input.endpoint
             ));
         }
 
-        if cfg.azure_deployment_id.trim().is_empty() {
+        if input.azure_deployment_id.trim().is_empty() {
             return Err(anyhow::anyhow!(
-                "Azure OpenAI selected but ISARTOR__AZURE_DEPLOYMENT_ID is empty (this is your Azure deployment name, not the model name)"
+                "{} Azure deployment ID is required",
+                input.context
             ));
         }
-        if cfg.azure_api_version.trim().is_empty() {
+
+        if input.azure_api_version.trim().is_empty() {
             return Err(anyhow::anyhow!(
-                "Azure OpenAI selected but ISARTOR__AZURE_API_VERSION is empty"
+                "{} Azure API version is required",
+                input.context
             ));
         }
+    }
+
+    Ok(())
+}
+
+fn validate_provider_config(cfg: &AppConfig) -> anyhow::Result<()> {
+    validate_single_provider_config(ProviderValidationInput {
+        provider: &cfg.llm_provider,
+        api_key: &cfg.external_llm_api_key,
+        provider_keys: &cfg.provider_keys,
+        endpoint: &cfg.external_llm_url,
+        model: &cfg.external_llm_model,
+        azure_deployment_id: &cfg.azure_deployment_id,
+        azure_api_version: &cfg.azure_api_version,
+        context: "primary provider",
+    })?;
+
+    for (index, provider) in cfg.fallback_providers.iter().enumerate() {
+        validate_single_provider_config(ProviderValidationInput {
+            provider: &provider.provider,
+            api_key: &provider.api_key,
+            provider_keys: &provider.provider_keys,
+            endpoint: &provider.url,
+            model: &provider.model,
+            azure_deployment_id: &provider.azure_deployment_id,
+            azure_api_version: &provider.azure_api_version,
+            context: &format!("fallback provider #{}", index + 1),
+        })?;
     }
 
     for (alias, target) in &cfg.model_aliases {
@@ -681,6 +1003,53 @@ fn validate_provider_config(cfg: &AppConfig) -> anyhow::Result<()> {
         return Err(anyhow::anyhow!(
             "request logging is enabled but request_log_path is empty"
         ));
+    }
+
+    if cfg.key_cooldown_secs == 0 {
+        return Err(anyhow::anyhow!(
+            "key_cooldown_secs must be greater than zero when key rotation is enabled"
+        ));
+    }
+
+    for (provider, quota) in &cfg.quota {
+        if !(0.0..1.0).contains(&quota.warning_threshold_ratio) {
+            return Err(anyhow::anyhow!(
+                "quota.{provider}.warning_threshold_ratio must be between 0.0 and 1.0"
+            ));
+        }
+
+        for (field, limit) in [
+            ("daily_token_limit", quota.daily_token_limit),
+            ("weekly_token_limit", quota.weekly_token_limit),
+            ("monthly_token_limit", quota.monthly_token_limit),
+        ] {
+            if limit.is_some_and(|value| value == 0) {
+                return Err(anyhow::anyhow!(
+                    "quota.{provider}.{field} must be greater than zero"
+                ));
+            }
+        }
+
+        for (field, limit) in [
+            ("daily_cost_limit_usd", quota.daily_cost_limit_usd),
+            ("weekly_cost_limit_usd", quota.weekly_cost_limit_usd),
+            ("monthly_cost_limit_usd", quota.monthly_cost_limit_usd),
+        ] {
+            if limit.is_some_and(|value| value <= 0.0) {
+                return Err(anyhow::anyhow!(
+                    "quota.{provider}.{field} must be greater than zero"
+                ));
+            }
+        }
+    }
+
+    for (index, provider) in cfg.fallback_providers.iter().enumerate() {
+        if provider.key_cooldown_secs == 0 {
+            return Err(anyhow::anyhow!(
+                "fallback provider #{} key_cooldown_secs must be greater than zero",
+                index + 1
+            ));
+        }
     }
 
     Ok(())

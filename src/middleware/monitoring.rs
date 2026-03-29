@@ -9,6 +9,7 @@ use axum::response::IntoResponse;
 use tracing::Instrument;
 
 use crate::core::request_logger::{LoggingBody, RequestLogContext, RequestLogExchange};
+use crate::core::usage::resolved_usage_model;
 use crate::metrics;
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::FinalLayer;
@@ -144,14 +145,20 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
         FinalLayer::ExactCache | FinalLayer::SemanticCache | FinalLayer::Slm
     );
     if resolved_early && should_record_prompt_stats {
-        // Estimate using prompt size or a conservative default.
-        let estimated_tokens = if content_length > 0 {
-            metrics::estimate_tokens(
-                &"x".repeat(content_length as usize), // rough char-count proxy
-            )
-        } else {
-            256 // conservative default
-        };
+        let estimated_tokens = request_body
+            .as_ref()
+            .map(|body| metrics::estimate_prompt_tokens(&crate::core::prompt::extract_prompt(body)))
+            .filter(|tokens| *tokens > 0)
+            .or_else(|| {
+                if content_length > 0 {
+                    Some(metrics::estimate_prompt_tokens(
+                        &"x".repeat(content_length as usize),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(256);
         metrics::record_tokens_saved_with_tool(
             layer_label,
             estimated_tokens,
@@ -160,6 +167,20 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
             endpoint_family,
             tool,
         );
+        if let Some(state) = state_opt.as_ref() {
+            let resolved_model = request_body
+                .as_deref()
+                .map(|body| resolved_usage_model(&state.config, &path, body))
+                .unwrap_or_else(|| state.config.configured_model_id());
+            if let Err(error) = state.usage_tracker.record_deflection(
+                state.primary_provider().provider_name(),
+                &resolved_model,
+                estimated_tokens,
+                layer_label,
+            ) {
+                tracing::warn!(error = %error, provider = %state.primary_provider().provider_name(), model = %resolved_model, "Failed to record deflected usage event");
+            }
+        }
     }
 
     if should_record_prompt_stats {
@@ -250,6 +271,7 @@ mod tests {
     use crate::clients::slm::SlmClient;
     use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
     use crate::core::context_compress::InstructionCache;
+    use crate::core::usage::UsageTracker;
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::models::ChatResponse;
@@ -311,6 +333,10 @@ mod tests {
             external_llm_model: "test".into(),
             model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            fallback_providers: Vec::new(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
@@ -319,6 +345,11 @@ mod tests {
             otel_exporter_endpoint: "http://localhost:4317".into(),
             enable_request_logs,
             request_log_path: request_log_path.into(),
+            usage_log_path: "~/.isartor".into(),
+            usage_retention_days: 30,
+            usage_window_hours: 24,
+            usage_pricing: std::collections::HashMap::new(),
+            quota: std::collections::HashMap::new(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -330,11 +361,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
             vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(MockAgent),
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,

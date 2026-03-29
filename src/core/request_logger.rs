@@ -430,6 +430,7 @@ fn should_redact_body_key(key: &str) -> bool {
             | "api_key"
             | "apikey"
             | "external_llm_api_key"
+            | "provider_keys"
             | "token"
             | "access_token"
     )
@@ -475,6 +476,10 @@ mod tests {
             external_llm_model: "gpt-4o-mini".into(),
             model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            fallback_providers: Vec::new(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
@@ -486,6 +491,11 @@ mod tests {
             otel_exporter_endpoint: "http://localhost:4317".into(),
             enable_request_logs: true,
             request_log_path: path.to_string(),
+            usage_log_path: "~/.isartor".into(),
+            usage_retention_days: 30,
+            usage_window_hours: 24,
+            usage_pricing: std::collections::HashMap::new(),
+            quota: std::collections::HashMap::new(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
         }
@@ -500,6 +510,15 @@ mod tests {
         assert!(body.contains("\"api_key\":\"[REDACTED]\""));
         assert!(body.contains("\"authorization\":\"[REDACTED]\""));
         assert!(!body.contains("secret"));
+    }
+
+    #[test]
+    fn sanitize_body_redacts_provider_key_arrays() {
+        let (body, truncated) =
+            sanitize_body(br#"{"provider_keys":[{"key":"sk-secret","label":"team"}]}"#);
+        assert!(!truncated);
+        assert!(body.contains("\"provider_keys\":\"[REDACTED]\""));
+        assert!(!body.contains("sk-secret"));
     }
 
     #[test]

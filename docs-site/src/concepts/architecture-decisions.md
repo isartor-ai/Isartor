@@ -490,4 +490,127 @@ The tracker is updated by real Layer 3 request outcomes and resets when the proc
 
 ---
 
+## ADR-017: Use an Ordered Layer 3 Provider Chain with Per-Provider Retry Budgets
+
+**Date:** 2026 · **Status:** Accepted
+
+### Context
+
+Operators want Isartor to remain deflection-first while becoming more resilient to upstream provider outages, rate limits, and quota exhaustion. The previous Layer 3 path retried inside a single provider only, so once that provider stayed unavailable the request failed even when a healthy backup provider/model pair was available.
+
+### Decision
+
+Keep the existing top-level `llm_provider` and `external_llm_*` settings as the primary Layer 3 backend, and add an ordered `fallback_providers` chain for optional backups. Each provider gets its own retry budget. When the current provider exhausts retries with a retry-safe upstream error (for example `429`, `5xx`, timeout, or quota-style failure), Isartor advances to the next configured provider. Bad-request style failures do not cascade.
+
+Successful Layer 3 responses now include an `x-isartor-provider` response header naming the provider that actually answered. `isartor check` and the provider-health views also expose the full configured chain rather than only the primary provider.
+
+### Consequences
+
+- **Positive:** Isartor can keep serving complex prompts through a backup provider without changing Layer 1 / Layer 2 behavior.
+- **Positive:** Operators can express resilient provider/model combos directly in config while preserving backward compatibility for single-provider setups.
+- **Positive:** The cache remains provider-agnostic, so a prompt answered by a backup provider still populates the same exact-cache path for future hits.
+- **Negative:** Layer 3 routing is more complex because retry policy and failover policy are now separate concerns.
+- **Negative:** Fallback chains can hide provider drift if operators do not watch `x-isartor-provider` or the provider-status surfaces.
+
+---
+
+## ADR-018: Support Per-Provider Multi-Key Rotation with Cooldown
+
+**Date:** 2026 · **Status:** Accepted
+
+### Context
+
+Some operators hold multiple credentials for the same upstream provider: personal keys, team-shared keys, or separate quota buckets. A single-key model makes Isartor brittle under rate limits because the request fails even when another valid key for the same provider/model is available.
+
+### Decision
+
+Allow each Layer 3 provider entry to define a `provider_keys` pool alongside the legacy single `external_llm_api_key` / `api_key` field. Keep single-key config backward compatible by treating the legacy key as an implicit pool member. Within a provider, Isartor now supports `round_robin` and `priority` selection plus a per-provider cooldown window after `429` or quota-style upstream failures.
+
+Provider failover and key rotation are separate layers:
+
+- retry within a provider can rotate to another key
+- provider failover still happens only after that provider exhausts retries or hits a cascade-safe terminal error
+
+Expose masked key-pool state through `isartor check` and the provider-status surfaces so operators can see which keys are configured and whether any are cooling down.
+
+### Consequences
+
+- **Positive:** Isartor can survive provider-side throttling without immediately changing providers or failing the request.
+- **Positive:** Existing single-key configs continue to work unchanged.
+- **Positive:** Operators gain visibility into key-pool strategy and cooldown state without logging raw secrets.
+- **Negative:** Runtime state is more complex because provider health and key health are now separate but related views.
+- **Negative:** Cooldown state remains process-local and resets on restart.
+
+---
+
+## ADR-019: Accept Gemini-Native Inbound API Traffic at the Gateway Boundary
+
+**Date:** 2026 · **Status:** Accepted
+
+### Context
+
+Isartor already accepted native, OpenAI-compatible, and Anthropic-compatible client traffic, while Gemini support existed only as an upstream Layer 3 provider. That forced Gemini-native clients to rely on compatibility shims even when they naturally speak `generateContent` / `streamGenerateContent`.
+
+### Decision
+
+Add Gemini-native inbound routes at the HTTP boundary:
+
+- `POST /v1beta/models/{model}:generateContent`
+- `POST /v1beta/models/{model}:streamGenerateContent`
+
+These routes reuse the same Layer 1 / Layer 2 / Layer 3 stack as the other surfaces, but keep their own `gemini` cache namespace so response shapes never cross-pollinate with native, OpenAI, or Anthropic cache entries. The model embedded in the request path becomes the canonical request model for alias resolution and cache-key generation when the body does not already provide one.
+
+Successful non-streaming responses are returned in Gemini `GenerateContentResponse` JSON shape. Successful streaming responses are framed as Gemini-style SSE at the boundary while cached state remains canonical JSON.
+
+### Consequences
+
+- **Positive:** Gemini-native tools can point at Isartor directly without an OpenAI compatibility shim.
+- **Positive:** Request caching and model-alias normalization stay consistent with the existing boundary design.
+- **Positive:** Streaming and non-streaming Gemini traffic share one canonical cache representation, reducing duplicate logic.
+- **Negative:** The gateway boundary now has another protocol surface to preserve and regression-test.
+- **Negative:** Gemini tool/function semantics are not yet a separate passthrough path the way OpenAI tool calls are.
+
+---
+
 *← Back to [Architecture](architecture.md)*
+
+
+## ADR-020: Persist provider/model usage analytics
+
+- Status: Accepted
+- Date: 2026-03-29
+
+### Context
+
+Operators need a lightweight way to understand actual L3 spend, deflection savings, and recent request volume by provider/model without adding an external billing pipeline.
+
+### Decision
+
+Persist append-only usage events to `usage.jsonl`, aggregate them in-process with retention pruning, and expose summaries through the authenticated debug API and `isartor stats --usage`. Deflected requests are recorded as saved cost against the configured primary provider/model, while actual cloud calls record estimated prompt/completion usage against the provider/model that served the request.
+
+### Consequences
+
+- Operators get simple local cost visibility with no extra services.
+- Estimates remain heuristic when upstream providers do not return token counts.
+- The usage log becomes part of the local operator surface and should be treated as operational data.
+
+---
+
+## ADR-021: Reuse the persisted usage tracker for provider quota enforcement
+
+- Status: Accepted
+- Date: 2026-03-29
+
+### Context
+
+Operators need quota guardrails per Layer 3 provider, including warning thresholds, hard blocks, and the ability to spill over to the next configured fallback provider. Creating a second persistence layer for quotas would risk drift between what Isartor reports as spend and what it enforces at request time.
+
+### Decision
+
+Use the persisted usage tracker as the source of truth for quota enforcement. Providers can define `[quota.<provider>]` policies with daily, weekly, and monthly token and/or cost limits, a `warning_threshold_ratio`, and an `action_on_limit` of `warn`, `block`, or `fallback`. Quota evaluation happens before Layer 3 dispatch using current-period usage plus projected request usage, and period windows reset on UTC boundaries.
+
+### Consequences
+
+- Usage reporting and quota enforcement stay aligned because both read the same event history.
+- `fallback` quota actions integrate naturally with the existing ordered Layer 3 provider chain.
+- Projected token/cost enforcement remains heuristic when upstream usage metadata is unavailable before the request is sent.

@@ -43,12 +43,19 @@ isartor init
 | external_llm_model       | ISARTOR__EXTERNAL_LLM_MODEL     | string   | gpt-4o-mini            | Model name to request from the provider          |
 | model_aliases.<name>     | ISARTOR__MODEL_ALIASES__<NAME>  | string   | (none)                 | Request-time alias that resolves to a real model ID |
 | external_llm_api_key     | ISARTOR__EXTERNAL_LLM_API_KEY   | string   | (none)                 | API key for the configured LLM provider (not needed for ollama) |
+| provider_keys            | ISARTOR__PROVIDER_KEYS          | JSON array | []                   | Optional multi-key pool for the primary provider |
+| key_rotation_strategy    | ISARTOR__KEY_ROTATION_STRATEGY  | string   | round_robin            | Multi-key selection strategy: `round_robin` or `priority` |
+| key_cooldown_secs        | ISARTOR__KEY_COOLDOWN_SECS      | u64      | 60                     | Cooldown applied after a key hits rate limits or quota exhaustion |
 | l3_timeout_secs          | ISARTOR__L3_TIMEOUT_SECS        | u64      | 120                    | HTTP timeout applied to all Layer 3 provider requests |
 | enable_context_optimizer | ISARTOR__ENABLE_CONTEXT_OPTIMIZER | bool   | true                   | Master switch for L2.5 context optimiser             |
 | context_optimizer_dedup  | ISARTOR__CONTEXT_OPTIMIZER_DEDUP | bool    | true                   | Enable cross-turn instruction deduplication          |
 | context_optimizer_minify | ISARTOR__CONTEXT_OPTIMIZER_MINIFY | bool   | true                   | Enable static minification (comments, rules, blanks) |
 | enable_request_logs      | ISARTOR__ENABLE_REQUEST_LOGS     | bool    | false                  | Opt-in request/response debug logging with redaction |
 | request_log_path         | ISARTOR__REQUEST_LOG_PATH        | string  | ~/.isartor/request_logs | Directory for rotating JSONL request logs            |
+| usage_log_path           | ISARTOR__USAGE_LOG_PATH          | string  | ~/.isartor             | Directory that stores `usage.jsonl` for usage stats and quotas |
+| usage_retention_days     | ISARTOR__USAGE_RETENTION_DAYS    | u64     | 30                     | Retention window for persisted usage events          |
+| usage_window_hours       | ISARTOR__USAGE_WINDOW_HOURS      | u64     | 24                     | Default reporting window for `isartor stats --usage` |
+| quota.<provider>.*       | ISARTOR__QUOTA__<PROVIDER>__*    | mixed   | (none)                 | Per-provider token/cost quota policy and action      |
 
 ---
 
@@ -118,15 +125,42 @@ Important behavior:
 - Many OpenAI-compatible providers ship with built-in default endpoints now, so `set-key`, `setup`, and `check` work directly for providers such as Cerebras, Nebius, SiliconFlow, Fireworks, NVIDIA, and Chutes.
 - `model_aliases`: Optional map of friendly names to real model IDs. Alias resolution happens at the HTTP boundary before L1 cache keys are built, so `model="fast"` and the resolved real model share the same canonical cache behavior.
 - `external_llm_api_key`: API key for the configured provider (not needed for `ollama`)
+- `provider_keys`: Optional array-of-tables or `ISARTOR__PROVIDER_KEYS` JSON array for multiple credentials on the same provider. Each entry supports `key`, `priority`, and optional `label`.
+- `key_rotation_strategy`: `round_robin` (default) or `priority`
+- `key_cooldown_secs`: Cooldown window, in seconds, after a key hits `429` / quota-style upstream failures
 - `l3_timeout_secs`: Shared timeout, in seconds, for all Layer 3 provider HTTP calls
+- `fallback_providers`: Optional ordered backup chain. Keep the current top-level provider as the primary, then add `[[fallback_providers]]` entries with `provider`, `model`, `api_key`, `provider_keys`, `key_rotation_strategy`, and `url`. Azure fallbacks can also set `azure_deployment_id` and `azure_api_version`.
+- `ISARTOR__FALLBACK_PROVIDERS`: Environment override for the same chain as a JSON array of provider objects. Example:
+
+```bash
+export ISARTOR__FALLBACK_PROVIDERS='[
+  {"provider":"nvidia","model":"meta/llama-3.1-8b-instruct","api_key":"nvapi-...","url":"https://integrate.api.nvidia.com/v1/chat/completions"},
+  {"provider":"openrouter","model":"openai/gpt-4o-mini","api_key":"sk-or-...","url":"https://openrouter.ai/api/v1/chat/completions"}
+]'
+```
+
+- Failover happens only after the current provider exhausts its own retry budget, and only for provider-side errors that are safe to cascade (for example `429`, `5xx`, timeouts, and quota-style failures). Invalid request / bad request errors do **not** move to the next provider.
+- Successful Layer 3 responses include an `x-isartor-provider` header naming the upstream that actually answered.
 
 ### Provider status / health
 
-Isartor keeps an in-memory status tracker for the currently configured Layer 3 provider. It is intentionally process-local and resets on restart.
+Isartor keeps an in-memory status tracker for the configured Layer 3 chain. It is intentionally process-local and resets on restart.
 
-- `GET /debug/providers`: Authenticated debug endpoint that returns the active provider, configured model and endpoint, request/error counts, and the last-known success/error timestamps and message.
+- `GET /debug/providers`: Authenticated debug endpoint that returns the active provider plus every configured primary/fallback entry, including model, endpoint, request/error counts, and the last-known success/error timestamps and message.
+- Provider status now also includes masked key-pool entries, their strategy, request counts, rate-limit counts, and cooldown state.
 - `isartor providers`: CLI view that reads `/debug/providers` when the gateway is reachable and falls back to local config inspection when it is not.
 - The tracker is updated only by real Layer 3 request outcomes. It does not persist across restarts and does not write to Redis or other storage.
+
+### Supported inbound API surfaces
+
+Isartor currently accepts four user-facing request formats at the gateway boundary:
+
+- Native Isartor: `POST /api/chat` and `POST /api/v1/chat`
+- OpenAI-compatible: `POST /v1/chat/completions`
+- Anthropic-compatible: `POST /v1/messages`
+- Gemini-native: `POST /v1beta/models/{model}:generateContent` and `POST /v1beta/models/{model}:streamGenerateContent`
+
+Gemini-native requests use the model embedded in the URL path as the canonical request model when the body omits a `model` field. Cache entries stay namespaced by API surface, so Gemini JSON responses never collide with native, OpenAI, or Anthropic cache entries even when the underlying prompt text is identical.
 
 ### Model aliases
 
@@ -183,10 +217,29 @@ provider = "embedded"         # "embedded" or "vllm"
 
 # llm_provider = "openai"
 # external_llm_model = "gpt-4o-mini"
+# external_llm_api_key = "sk-..."
+# key_rotation_strategy = "round_robin"
+# key_cooldown_secs = 60
+#
+# [[provider_keys]]
+# key = "sk-primary"
+# priority = 1
+# label = "primary"
+#
+# [[provider_keys]]
+# key = "sk-team-shared"
+# priority = 2
+# label = "team-shared"
+#
+# [[fallback_providers]]
+# provider = "nvidia"
+# model = "meta/llama-3.1-8b-instruct"
+# api_key = "nvapi-..."
+# url = "https://integrate.api.nvidia.com/v1/chat/completions"
+#
 # [model_aliases]
 # fast = "gpt-4o-mini"
 # smart = "gpt-4o"
-# external_llm_api_key = "sk-..."
 ```
 
 ---
@@ -274,3 +327,39 @@ This writes the key to `isartor.toml` or the appropriate env file.
 ---
 
 *See also: [Architecture](../concepts/architecture.md) · [Metrics & Tracing](../observability/metrics-tracing.md) · [Troubleshooting](../development/troubleshooting.md)*
+
+
+## Usage analytics
+
+Isartor can persist provider/model usage events to `~/.isartor/usage.jsonl` and expose aggregated summaries through `GET /debug/usage` and `isartor stats --usage`. Configure `usage_log_path`, `usage_retention_days`, `usage_window_hours`, and `usage_pricing.<provider>.{input_cost_per_million_usd,output_cost_per_million_usd}` via `ISARTOR__...` environment variables or `isartor.toml`.
+
+## Provider quotas
+
+Quota policies reuse the same persisted usage tracker instead of introducing a second accounting store. Define a policy per provider with `[quota.<provider>]`, then set any mix of token and cost ceilings:
+
+- `daily_token_limit`, `weekly_token_limit`, `monthly_token_limit`
+- `daily_cost_limit_usd`, `weekly_cost_limit_usd`, `monthly_cost_limit_usd`
+- `warning_threshold_ratio` (default `0.8`)
+- `action_on_limit` = `warn`, `block`, or `fallback`
+
+Behavior notes:
+
+- warnings are emitted when projected usage for the in-flight request crosses the configured threshold
+- `block` returns HTTP `429`
+- `fallback` skips the current provider and continues down the existing Layer 3 provider chain
+- quota windows reset on UTC boundaries: daily at midnight, weekly on Monday 00:00, monthly on the first day of the month
+- `isartor check` prints the current quota window status for each configured provider target
+
+Example:
+
+```toml
+[quota.openai]
+daily_token_limit = 500000
+monthly_cost_limit_usd = 25.0
+warning_threshold_ratio = 0.8
+action_on_limit = "fallback"
+
+[quota.anthropic]
+daily_cost_limit_usd = 10.0
+action_on_limit = "block"
+```

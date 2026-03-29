@@ -25,10 +25,13 @@ use crate::core::cache_scope::{
     build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
 };
 use crate::core::prompt::{
-    extract_prompt, extract_request_model, has_tooling, override_request_model,
+    extract_prompt, extract_request_model, extract_route_model, has_tooling,
+    is_gemini_streaming_path, override_request_model,
 };
+use crate::core::quota::evaluate_provider_quota;
 use crate::core::retry::{RetryConfig, execute_with_retry};
 use crate::errors::GatewayError;
+use crate::gemini_sse;
 use crate::mcp::{self, ToolExecutor};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{
@@ -36,7 +39,7 @@ use crate::models::{
     OpenAiMessage, OpenAiMessageContent, OpenAiModel, OpenAiModelList,
 };
 use crate::providers::copilot::exchange_copilot_session_token;
-use crate::state::AppState;
+use crate::state::{AppState, ResolvedProviderConfig};
 use crate::visibility;
 
 fn configured_openai_models(state: &AppState) -> OpenAiModelList {
@@ -76,18 +79,41 @@ fn configured_openai_model_id(state: &AppState) -> String {
     state.config.configured_model_id()
 }
 
-fn resolved_request_model(state: &AppState, body_bytes: &[u8]) -> String {
+fn resolved_request_model_for_path(state: &AppState, body_bytes: &[u8], path: &str) -> String {
     extract_request_model(body_bytes)
+        .or_else(|| extract_route_model(path))
         .map(|model| state.config.resolve_model_alias(&model))
         .unwrap_or_else(|| configured_openai_model_id(state))
 }
 
-fn canonicalize_request_body_model(state: &AppState, body_bytes: &[u8]) -> (Vec<u8>, String) {
-    let resolved_model = resolved_request_model(state, body_bytes);
+fn canonicalize_request_body_model(
+    state: &AppState,
+    body_bytes: &[u8],
+    path: &str,
+) -> (Vec<u8>, String) {
+    let resolved_model = resolved_request_model_for_path(state, body_bytes, path);
     (
         override_request_model(body_bytes, &resolved_model),
         resolved_model,
     )
+}
+
+fn gemini_error_response(status: StatusCode, message: String) -> Response {
+    (
+        status,
+        Json(serde_json::json!({
+            "error": {
+                "code": status.as_u16(),
+                "message": message,
+                "status": status
+                    .canonical_reason()
+                    .unwrap_or("UNKNOWN")
+                    .to_ascii_uppercase()
+                    .replace(' ', "_")
+            }
+        })),
+    )
+        .into_response()
 }
 
 fn request_tool(request: &Request, traffic_surface: &str) -> &'static str {
@@ -100,12 +126,16 @@ fn request_tool(request: &Request, traffic_surface: &str) -> &'static str {
     )
 }
 
-fn record_provider_success(state: &AppState) {
-    state.record_provider_success();
+fn record_provider_success(state: &AppState, provider: &ResolvedProviderConfig) {
+    state.record_provider_success(provider);
 }
 
-fn record_provider_failure(state: &AppState, error: &impl std::fmt::Display) {
-    state.record_provider_failure(&error.to_string());
+fn record_provider_failure(
+    state: &AppState,
+    provider: &ResolvedProviderConfig,
+    error: &impl std::fmt::Display,
+) {
+    state.record_provider_failure(provider, &error.to_string());
 }
 
 fn supports_openai_passthrough(provider: &LlmProvider) -> bool {
@@ -133,25 +163,25 @@ fn supports_openai_passthrough(provider: &LlmProvider) -> bool {
     )
 }
 
-fn provider_chat_completions_url(state: &AppState) -> Option<String> {
-    match &state.config.llm_provider {
+fn provider_chat_completions_url(provider: &ResolvedProviderConfig) -> Option<String> {
+    match &provider.provider {
         LlmProvider::Azure => Some(format!(
             "{}/openai/deployments/{}/chat/completions?api-version={}",
-            state.config.external_llm_url.trim_end_matches('/'),
-            state.config.azure_deployment_id,
-            state.config.azure_api_version
+            provider.endpoint.trim_end_matches('/'),
+            provider.azure_deployment_id,
+            provider.azure_api_version
         )),
-        LlmProvider::Copilot => Some(if state.config.external_llm_url.trim().is_empty() {
+        LlmProvider::Copilot => Some(if provider.endpoint.trim().is_empty() {
             "https://api.githubcopilot.com/chat/completions".to_string()
         } else {
-            state.config.external_llm_url.clone()
+            provider.endpoint.clone()
         }),
-        provider if supports_openai_passthrough(provider) => {
-            let configured_url = state.config.external_llm_url.trim();
-            let default_url = default_chat_completions_url(provider)?;
+        provider_kind if supports_openai_passthrough(provider_kind) => {
+            let configured_url = provider.endpoint.trim();
+            let default_url = default_chat_completions_url(provider_kind)?;
 
             if configured_url.is_empty()
-                || (*provider != LlmProvider::Openai
+                || (*provider_kind != LlmProvider::Openai
                     && configured_url == DEFAULT_OPENAI_CHAT_COMPLETIONS_URL)
             {
                 Some(default_url.to_string())
@@ -165,12 +195,16 @@ fn provider_chat_completions_url(state: &AppState) -> Option<String> {
 
 async fn send_openai_passthrough_request(
     state: &AppState,
+    provider: &ResolvedProviderConfig,
     request: &OpenAiChatRequest,
 ) -> anyhow::Result<String> {
-    let Some(url) = provider_chat_completions_url(state) else {
+    let selected_key = state.provider_key_pools.acquire(provider)?;
+    let execution_provider = provider.with_api_key(selected_key.api_key.clone());
+
+    let Some(url) = provider_chat_completions_url(&execution_provider) else {
         anyhow::bail!(
             "provider {} does not support OpenAI tool passthrough",
-            state.config.llm_provider
+            provider.provider_name()
         );
     };
 
@@ -185,16 +219,14 @@ async fn send_openai_passthrough_request(
         .header(ACCEPT, "application/json")
         .header(CONTENT_TYPE, "application/json");
 
-    match state.config.llm_provider {
+    match execution_provider.provider {
         LlmProvider::Azure => {
-            request_builder = request_builder.header("api-key", &state.config.external_llm_api_key);
+            request_builder = request_builder.header("api-key", &execution_provider.api_key);
         }
         LlmProvider::Copilot => {
-            let copilot_token = exchange_copilot_session_token(
-                &state.http_client,
-                &state.config.external_llm_api_key,
-            )
-            .await?;
+            let copilot_token =
+                exchange_copilot_session_token(&state.http_client, &execution_provider.api_key)
+                    .await?;
             request_builder = request_builder
                 .header(AUTHORIZATION, format!("Bearer {copilot_token}"))
                 .header("User-Agent", "GitHubCopilotChat/0.29.1")
@@ -206,7 +238,7 @@ async fn send_openai_passthrough_request(
         _ => {
             request_builder = request_builder.header(
                 AUTHORIZATION,
-                format!("Bearer {}", state.config.external_llm_api_key),
+                format!("Bearer {}", execution_provider.api_key),
             );
         }
     }
@@ -216,10 +248,237 @@ async fn send_openai_passthrough_request(
     let body = response.text().await?;
 
     if !status.is_success() {
+        state.provider_key_pools.record_result(
+            provider,
+            &execution_provider.api_key,
+            Some(&format!("HTTP {status}: {body}")),
+        );
         anyhow::bail!("HTTP {status}: {body}");
     }
 
+    state
+        .provider_key_pools
+        .record_result(provider, &execution_provider.api_key, None);
+
     Ok(body)
+}
+
+struct ProviderExecutionResult {
+    provider: ResolvedProviderConfig,
+    model: String,
+    body: String,
+}
+
+fn gateway_error_status(error: &GatewayError) -> StatusCode {
+    match error {
+        GatewayError::Quota { .. } => StatusCode::TOO_MANY_REQUESTS,
+        _ => StatusCode::BAD_GATEWAY,
+    }
+}
+
+fn add_provider_header(response: &mut Response, provider: &ResolvedProviderConfig) {
+    if let Ok(value) = HeaderValue::from_str(provider.provider_name()) {
+        response.headers_mut().insert("x-isartor-provider", value);
+    }
+}
+
+async fn execute_prompt_provider_chain(
+    state: Arc<AppState>,
+    prompt: String,
+    primary_model: String,
+    operation: &'static str,
+    tool: &'static str,
+) -> Result<ProviderExecutionResult, GatewayError> {
+    let mut last_error = None;
+    let projected_total_tokens = crate::metrics::estimate_tokens(&prompt);
+    let projected_prompt_tokens = crate::metrics::estimate_prompt_tokens(&prompt);
+    let projected_completion_tokens =
+        projected_total_tokens.saturating_sub(projected_prompt_tokens);
+
+    for provider in state.provider_chain.iter() {
+        let provider_name = provider.provider_name().to_string();
+        let model = if provider.active {
+            primary_model.clone()
+        } else {
+            provider.configured_model_id().to_string()
+        };
+        let projected_cost_usd = crate::core::usage::estimate_event_cost_usd(
+            &state.config,
+            provider.provider_name(),
+            projected_prompt_tokens,
+            projected_completion_tokens,
+        );
+        if let Some(quota_decision) = evaluate_provider_quota(
+            &state.config,
+            &state.usage_tracker,
+            provider.provider_name(),
+            projected_total_tokens,
+            projected_cost_usd,
+            chrono::Utc::now(),
+        ) {
+            for warning in quota_decision.warning_messages {
+                tracing::warn!(
+                    provider = %provider_name,
+                    action = ?quota_decision.action,
+                    "{warning}"
+                );
+            }
+
+            if let Some(limit_message) = quota_decision.limit_message {
+                let quota_error = GatewayError::Quota {
+                    provider: provider_name.clone(),
+                    message: limit_message,
+                    fallback_allowed: quota_decision.action
+                        == crate::config::QuotaLimitAction::Fallback,
+                };
+                record_provider_failure(&state, provider, &quota_error);
+                if quota_error.should_fallback_to_next_provider() {
+                    last_error = Some(quota_error);
+                    continue;
+                }
+                return Err(quota_error);
+            }
+        }
+        let retry_cfg = RetryConfig::cloud_llm();
+        let state_for_retry = state.clone();
+        let prompt_for_retry = prompt.clone();
+        let provider_for_retry = provider.clone();
+        let model_for_retry = model.clone();
+        let result = execute_with_retry(&retry_cfg, operation, tool, move || {
+            let state = state_for_retry.clone();
+            let prompt = prompt_for_retry.clone();
+            let provider = provider_for_retry.clone();
+            let model = model_for_retry.clone();
+            let provider_name = provider_name.clone();
+            async move {
+                state
+                    .chat_with_provider(&provider, &prompt, Some(&model))
+                    .await
+                    .map_err(|e| GatewayError::from_llm_error(&provider_name, &e))
+            }
+        })
+        .await;
+
+        match result {
+            Ok(body) => {
+                return Ok(ProviderExecutionResult {
+                    provider: provider.clone(),
+                    model,
+                    body,
+                });
+            }
+            Err(error) => {
+                record_provider_failure(&state, provider, &error);
+                if error.should_fallback_to_next_provider() {
+                    last_error = Some(error);
+                    continue;
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| GatewayError::Configuration {
+        message: "no Layer 3 providers configured".to_string(),
+    }))
+}
+
+async fn execute_passthrough_provider_chain(
+    state: Arc<AppState>,
+    request: OpenAiChatRequest,
+    tool: &'static str,
+) -> Result<ProviderExecutionResult, GatewayError> {
+    let mut last_error = None;
+    let request_body = serde_json::to_vec(&request).unwrap_or_default();
+    let passthrough_prompt = extract_prompt(&request_body);
+    let projected_total_tokens = crate::metrics::estimate_tokens(&passthrough_prompt);
+    let projected_prompt_tokens = crate::metrics::estimate_prompt_tokens(&passthrough_prompt);
+    let projected_completion_tokens =
+        projected_total_tokens.saturating_sub(projected_prompt_tokens);
+
+    for provider in state.provider_chain.iter() {
+        if !supports_openai_passthrough(&provider.provider) {
+            continue;
+        }
+        let projected_cost_usd = crate::core::usage::estimate_event_cost_usd(
+            &state.config,
+            provider.provider_name(),
+            projected_prompt_tokens,
+            projected_completion_tokens,
+        );
+        if let Some(quota_decision) = evaluate_provider_quota(
+            &state.config,
+            &state.usage_tracker,
+            provider.provider_name(),
+            projected_total_tokens,
+            projected_cost_usd,
+            chrono::Utc::now(),
+        ) {
+            for warning in quota_decision.warning_messages {
+                tracing::warn!(
+                    provider = %provider.provider_name(),
+                    action = ?quota_decision.action,
+                    "{warning}"
+                );
+            }
+
+            if let Some(limit_message) = quota_decision.limit_message {
+                let quota_error = GatewayError::Quota {
+                    provider: provider.provider_name().to_string(),
+                    message: limit_message,
+                    fallback_allowed: quota_decision.action
+                        == crate::config::QuotaLimitAction::Fallback,
+                };
+                record_provider_failure(&state, provider, &quota_error);
+                if quota_error.should_fallback_to_next_provider() {
+                    last_error = Some(quota_error);
+                    continue;
+                }
+                return Err(quota_error);
+            }
+        }
+
+        let retry_cfg = RetryConfig::cloud_llm();
+        let state_for_retry = state.clone();
+        let request_for_retry = request.clone();
+        let provider_for_retry = provider.clone();
+        let provider_name = provider.provider_name().to_string();
+        let model = provider.configured_model_id().to_string();
+        let result = execute_with_retry(&retry_cfg, "L3_OpenAIToolPassthrough", tool, move || {
+            let state = state_for_retry.clone();
+            let request = request_for_retry.clone();
+            let provider = provider_for_retry.clone();
+            let provider_name = provider_name.clone();
+            async move {
+                send_openai_passthrough_request(&state, &provider, &request)
+                    .await
+                    .map_err(|e| GatewayError::from_llm_error(&provider_name, &e))
+            }
+        })
+        .await;
+
+        match result {
+            Ok(body) => {
+                return Ok(ProviderExecutionResult {
+                    provider: provider.clone(),
+                    model,
+                    body,
+                });
+            }
+            Err(error) => {
+                record_provider_failure(&state, provider, &error);
+                if error.should_fallback_to_next_provider() {
+                    last_error = Some(error);
+                    continue;
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| GatewayError::Configuration {
+        message: "no Layer 3 providers support OpenAI tool passthrough".to_string(),
+    }))
 }
 
 /// Layer 3 — Fallback handler.
@@ -298,44 +557,30 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
             }
         };
 
-        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes);
+        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
         let session_cache_scope = extract_session_cache_scope(request.headers(), &canonical_body);
         let prompt = extract_prompt(&canonical_body);
         let cache_key_material = crate::core::prompt::extract_cache_key(&canonical_body);
 
         tracing::Span::current().record("ai.prompt.length_bytes", prompt.len() as u64);
 
-        let provider_name = state.llm_agent.provider_name();
+        let provider_name = state.primary_provider().provider_name();
         tracing::Span::current().record("provider.name", provider_name);
         tracing::Span::current().record("model", resolved_model.as_str());
         tracing::info!(prompt = %prompt, provider = provider_name, "Layer 3: Forwarding to LLM via Rig");
 
-        // ------------------------------------------------------------------
-        // 2. Dispatch to the configured rig-core Agent — with retry.
-        // ------------------------------------------------------------------
-        let retry_cfg = RetryConfig::cloud_llm();
-        let provider_for_err = provider_name.to_string();
-        let prompt_for_retry = prompt.clone();
-        let state_for_retry = state.clone();
-        let model_for_retry = resolved_model.clone();
-
-        let result = execute_with_retry(&retry_cfg, "L3_Cloud_LLM", tool, || {
-            let state = state_for_retry.clone();
-            let prompt = prompt_for_retry.clone();
-            let provider = provider_for_err.clone();
-            let model = model_for_retry.clone();
-            async move {
-                state
-                    .chat_with_model(&prompt, &model)
-                    .await
-                    .map_err(|e| GatewayError::from_llm_error(&provider, &e))
-            }
-        })
+        let result = execute_prompt_provider_chain(
+            state.clone(),
+            prompt.clone(),
+            resolved_model.clone(),
+            "L3_Cloud_LLM",
+            tool,
+        )
         .await;
 
         match result {
-            Ok(text) => {
-                record_provider_success(&state);
+            Ok(result) => {
+                record_provider_success(&state, &result.provider);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -345,16 +590,16 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
                     StatusCode::OK,
                         Json(ChatResponse {
                             layer: 3,
-                            message: text,
-                            model: Some(resolved_model.clone()),
+                            message: result.body,
+                            model: Some(result.model),
                         }),
                 )
                     .into_response();
+                add_provider_header(&mut response, &result.provider);
                 response.extensions_mut().insert(FinalLayer::Cloud);
                 response
             }
             Err(gw_err) => {
-                record_provider_failure(&state, &gw_err);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -417,7 +662,7 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
                 }
 
                 let mut response = (
-                    StatusCode::BAD_GATEWAY,
+                    gateway_error_status(&gw_err),
                     Json(ChatResponse {
                         layer: 3,
                         message: format!("[{provider_name}] {gw_err}"),
@@ -478,8 +723,9 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             }
         };
 
-        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes);
-        let provider_name = state.llm_agent.provider_name();
+        let (canonical_body, resolved_model) =
+            canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
+        let provider_name = state.primary_provider().provider_name();
         tracing::info!(provider = provider_name, "OpenAI compat: forwarding to LLM");
 
         if has_tooling(&canonical_body) {
@@ -498,37 +744,27 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                 }
             };
 
-            let retry_cfg = RetryConfig::cloud_llm();
-            let provider_for_err = provider_name.to_string();
-            let state_for_retry = state.clone();
-            let request_for_retry = request.clone();
-            let result = execute_with_retry(&retry_cfg, "L3_OpenAIToolPassthrough", tool, || {
-                let state = state_for_retry.clone();
-                let request = request_for_retry.clone();
-                let provider = provider_for_err.clone();
-                async move {
-                    send_openai_passthrough_request(&state, &request)
-                        .await
-                        .map_err(|e| GatewayError::from_llm_error(&provider, &e))
-                }
-            })
-            .await;
+            let result = execute_passthrough_provider_chain(state.clone(), request, tool).await;
 
             match result {
-                Ok(body) => {
-                    record_provider_success(&state);
+                Ok(result) => {
+                    record_provider_success(&state, &result.provider);
                     crate::metrics::record_layer_duration_with_tool(
                         "L3_Cloud",
                         layer_start.elapsed(),
                         tool,
                     );
-                    let mut resp = (StatusCode::OK, [(CONTENT_TYPE, "application/json")], body)
+                    let mut resp = (
+                        StatusCode::OK,
+                        [(CONTENT_TYPE, "application/json")],
+                        result.body,
+                    )
                         .into_response();
+                    add_provider_header(&mut resp, &result.provider);
                     resp.extensions_mut().insert(FinalLayer::Cloud);
                     return resp;
                 }
                 Err(gw_err) => {
-                    record_provider_failure(&state, &gw_err);
                     crate::metrics::record_layer_duration_with_tool(
                         "L3_Cloud",
                         layer_start.elapsed(),
@@ -545,7 +781,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                     );
                     crate::visibility::record_agent_error(tool);
                     let mut resp = (
-                        StatusCode::BAD_GATEWAY,
+                        gateway_error_status(&gw_err),
                         Json(serde_json::json!({
                             "error": {"message": format!("[{provider_name}] {gw_err}")}
                         })),
@@ -559,29 +795,18 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
 
         let prompt = extract_prompt(&canonical_body);
 
-        let retry_cfg = RetryConfig::cloud_llm();
-        let provider_for_err = provider_name.to_string();
-        let prompt_for_retry = prompt.clone();
-        let state_for_retry = state.clone();
-        let model_for_retry = resolved_model.clone();
-
-        let result = execute_with_retry(&retry_cfg, "L3_OpenAICompat", tool, || {
-            let state = state_for_retry.clone();
-            let prompt = prompt_for_retry.clone();
-            let provider = provider_for_err.clone();
-            let model = model_for_retry.clone();
-            async move {
-                state
-                    .chat_with_model(&prompt, &model)
-                    .await
-                    .map_err(|e| GatewayError::from_llm_error(&provider, &e))
-            }
-        })
+        let result = execute_prompt_provider_chain(
+            state.clone(),
+            prompt.clone(),
+            resolved_model.clone(),
+            "L3_OpenAICompat",
+            tool,
+        )
         .await;
 
         match result {
-            Ok(text) => {
-                record_provider_success(&state);
+            Ok(result) => {
+                record_provider_success(&state, &result.provider);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -592,7 +817,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                     choices: vec![OpenAiChatChoice {
                         message: OpenAiMessage {
                             role: "assistant".to_string(),
-                            content: Some(OpenAiMessageContent::text(text)),
+                            content: Some(OpenAiMessageContent::text(result.body)),
                             name: None,
                             tool_call_id: None,
                             tool_calls: None,
@@ -601,15 +826,15 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                         index: 0,
                         finish_reason: Some("stop".to_string()),
                     }],
-                    model: Some(resolved_model.clone()),
+                    model: Some(result.model),
                 };
 
                 let mut resp = (StatusCode::OK, Json(response)).into_response();
+                add_provider_header(&mut resp, &result.provider);
                 resp.extensions_mut().insert(FinalLayer::Cloud);
                 resp
             }
             Err(gw_err) => {
-                record_provider_failure(&state, &gw_err);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -626,7 +851,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                 );
                 crate::visibility::record_agent_error(tool);
                 let mut resp = (
-                    StatusCode::BAD_GATEWAY,
+                    gateway_error_status(&gw_err),
                     Json(serde_json::json!({
                         "error": {"message": format!("[{provider_name}] {gw_err}")}
                     })),
@@ -676,6 +901,108 @@ pub async fn provider_status_handler(request: Request) -> impl IntoResponse {
     (StatusCode::OK, Json(state.provider_status())).into_response()
 }
 
+/// Gemini-native GenerateContent endpoints.
+pub async fn gemini_generate_content_handler(request: Request) -> impl IntoResponse {
+    let span = info_span!("gemini_generate_content");
+    async move {
+        let layer_start = Instant::now();
+        let tool = request_tool(&request, "gateway");
+        let state = match request.extensions().get::<Arc<AppState>>() {
+            Some(s) => s.clone(),
+            None => {
+                return gemini_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "missing application state".to_string(),
+                );
+            }
+        };
+
+        if state.config.offline_mode {
+            return gemini_error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "offline mode active".to_string(),
+            );
+        }
+
+        let body_bytes = match request.extensions().get::<BufferedBody>() {
+            Some(buf) => buf.0.clone(),
+            None => {
+                return gemini_error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "missing buffered body".to_string(),
+                );
+            }
+        };
+
+        let (canonical_body, resolved_model) =
+            canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
+        let prompt = extract_prompt(&canonical_body);
+        let provider_name = state.primary_provider().provider_name();
+        let is_streaming = is_gemini_streaming_path(request.uri().path());
+
+        let result = execute_prompt_provider_chain(
+            state.clone(),
+            prompt,
+            resolved_model.clone(),
+            if is_streaming {
+                "L3_GeminiStreamCompat"
+            } else {
+                "L3_GeminiCompat"
+            },
+            tool,
+        )
+        .await;
+
+        match result {
+            Ok(result) => {
+                record_provider_success(&state, &result.provider);
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
+                let mut response = if is_streaming {
+                    gemini_sse::build_sse_response(&result.body, &result.model)
+                } else {
+                    (
+                        StatusCode::OK,
+                        Json(gemini_sse::build_json_response(&result.body, &result.model)),
+                    )
+                        .into_response()
+                };
+                add_provider_header(&mut response, &result.provider);
+                response.extensions_mut().insert(FinalLayer::Cloud);
+                response
+            }
+            Err(gw_err) => {
+                crate::metrics::record_layer_duration_with_tool(
+                    "L3_Cloud",
+                    layer_start.elapsed(),
+                    tool,
+                );
+                crate::metrics::record_error_with_tool(
+                    gw_err.layer_label(),
+                    if gw_err.is_retryable() {
+                        "retryable"
+                    } else {
+                        "fatal"
+                    },
+                    tool,
+                );
+                crate::visibility::record_agent_error(tool);
+                let mut response = gemini_error_response(
+                    gateway_error_status(&gw_err),
+                    format!("[{provider_name}] {gw_err}"),
+                );
+                response.extensions_mut().insert(FinalLayer::Cloud);
+                response
+            }
+        }
+    }
+    .instrument(span)
+    .await
+}
+
 /// Anthropic Messages endpoint — `POST /v1/messages`.
 ///
 /// Used by Claude Code and other Anthropic-compatible clients.
@@ -720,38 +1047,28 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
             }
         };
 
-        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes);
+        let (canonical_body, resolved_model) =
+            canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
         let prompt = extract_prompt(&canonical_body);
 
-        let provider_name = state.llm_agent.provider_name();
+        let provider_name = state.primary_provider().provider_name();
         tracing::info!(
             provider = provider_name,
             "Anthropic compat: forwarding to LLM"
         );
 
-        let retry_cfg = RetryConfig::cloud_llm();
-        let provider_for_err = provider_name.to_string();
-        let prompt_for_retry = prompt.clone();
-        let state_for_retry = state.clone();
-        let model_for_retry = resolved_model.clone();
-
-        let result = execute_with_retry(&retry_cfg, "L3_AnthropicCompat", tool, || {
-            let state = state_for_retry.clone();
-            let prompt = prompt_for_retry.clone();
-            let provider = provider_for_err.clone();
-            let model = model_for_retry.clone();
-            async move {
-                state
-                    .chat_with_model(&prompt, &model)
-                    .await
-                    .map_err(|e| GatewayError::from_llm_error(&provider, &e))
-            }
-        })
+        let result = execute_prompt_provider_chain(
+            state.clone(),
+            prompt.clone(),
+            resolved_model.clone(),
+            "L3_AnthropicCompat",
+            tool,
+        )
         .await;
 
         match result {
-            Ok(text) => {
-                record_provider_success(&state);
+            Ok(result) => {
+                record_provider_success(&state, &result.provider);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -759,14 +1076,17 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
                 );
                 let mut resp = (
                     StatusCode::OK,
-                    Json(anthropic_sse::build_json_response(&text, &resolved_model)),
+                    Json(anthropic_sse::build_json_response(
+                        &result.body,
+                        &result.model,
+                    )),
                 )
                     .into_response();
+                add_provider_header(&mut resp, &result.provider);
                 resp.extensions_mut().insert(FinalLayer::Cloud);
                 resp
             }
             Err(gw_err) => {
-                record_provider_failure(&state, &gw_err);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -783,7 +1103,7 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
                 );
                 crate::visibility::record_agent_error(tool);
                 let mut resp = (
-                    StatusCode::BAD_GATEWAY,
+                    gateway_error_status(&gw_err),
                     Json(serde_json::json!({
                         "type": "error",
                         "error": {
@@ -1386,8 +1706,12 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::clients::slm::SlmClient;
-    use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
+    use crate::config::{
+        AppConfig, CacheMode, EmbeddingSidecarSettings, FallbackProviderConfig, Layer2Settings,
+        ProviderQuotaConfig, QuotaLimitAction,
+    };
     use crate::core::context_compress::InstructionCache;
+    use crate::core::usage::UsageTracker;
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::middleware::body_buffer::buffer_body_middleware;
@@ -1454,6 +1778,10 @@ mod tests {
             external_llm_model: "gpt-4o-mini".into(),
             model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            fallback_providers: Vec::new(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
@@ -1462,6 +1790,11 @@ mod tests {
             otel_exporter_endpoint: "http://localhost:4317".into(),
             enable_request_logs: false,
             request_log_path: "~/.isartor/request_logs".into(),
+            usage_log_path: "~/.isartor".into(),
+            usage_retention_days: 30,
+            usage_window_hours: 24,
+            usage_pricing: std::collections::HashMap::new(),
+            quota: std::collections::HashMap::new(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -1473,11 +1806,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
             vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: agent,
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1490,6 +1830,10 @@ mod tests {
             .route(
                 "/v1/chat/completions",
                 post(openai_chat_completions_handler),
+            )
+            .route(
+                "/v1beta/models/{*rest}",
+                post(gemini_generate_content_handler),
             )
             .route("/v1/models", get(openai_models_handler))
             .route("/debug/providers", get(provider_status_handler))
@@ -1625,11 +1969,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: state.exact_cache.clone(),
             vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(SuccessAgent),
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1660,6 +2011,109 @@ mod tests {
         );
         assert_eq!(json["choices"][0]["finish_reason"], "stop");
         assert_eq!(json["model"], "gpt-4o-mini");
+    }
+
+    #[tokio::test]
+    async fn gemini_generate_content_returns_gemini_shape() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config.external_llm_model = "gemini-2.0-flash".into();
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+        let app = handler_app(state);
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "contents": [{"role": "user", "parts": [{"text": "hello gemini"}]}]
+        }))
+        .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1beta/models/gemini-2.0-flash:generateContent")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(
+            json["candidates"][0]["content"]["parts"][0]["text"],
+            "Reply to: user: hello gemini"
+        );
+        assert_eq!(json["modelVersion"], "gemini-2.0-flash");
+    }
+
+    #[tokio::test]
+    async fn gemini_stream_generate_content_returns_sse() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config.external_llm_model = "gemini-2.0-flash".into();
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+        let app = handler_app(state);
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "contents": [{"role": "user", "parts": [{"text": "hello gemini"}]}]
+        }))
+        .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get("content-type").unwrap(),
+            "text/event-stream"
+        );
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body_bytes.to_vec()).unwrap();
+        assert!(text.contains("\"candidates\""));
+        assert!(text.contains("\"text\":\"Reply to: user: hello gemini\""));
     }
 
     #[tokio::test]
@@ -1723,11 +2177,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: state.exact_cache.clone(),
             vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(SuccessAgent),
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1843,11 +2304,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: state.exact_cache.clone(),
             vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(SuccessAgent),
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1902,20 +2370,388 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: state.exact_cache.clone(),
             vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(SuccessAgent),
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
 
         assert_eq!(
-            provider_chat_completions_url(&state).as_deref(),
+            provider_chat_completions_url(state.primary_provider()).as_deref(),
             Some("https://api.groq.com/openai/v1/chat/completions")
         );
+    }
+
+    #[tokio::test]
+    async fn retryable_primary_failure_falls_back_to_next_provider() {
+        use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+
+        let primary = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(429).set_body_string("rate limit"))
+            .mount(&primary)
+            .await;
+
+        let fallback = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "resp_fallback",
+                "object": "response",
+                "created_at": 1,
+                "status": "completed",
+                "error": null,
+                "incomplete_details": null,
+                "instructions": null,
+                "max_output_tokens": null,
+                "model": "meta/llama-3.1-8b-instruct"
+                ,
+                "output": [{
+                    "type": "message",
+                    "id": "msg_fallback",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "Recovered from fallback"
+                    }]
+                }],
+                "tools": []
+            })))
+            .mount(&fallback)
+            .await;
+
+        let mut config = (*test_state(Arc::new(SuccessAgent)).config).clone();
+        config.llm_provider = LlmProvider::Cerebras;
+        config.external_llm_model = "llama-3.3-70b".into();
+        config.external_llm_api_key = "primary-key".into();
+        config.external_llm_url = format!("{}/v1/chat/completions", primary.uri());
+        config.fallback_providers = vec![FallbackProviderConfig {
+            provider: LlmProvider::Nvidia,
+            model: "meta/llama-3.1-8b-instruct".into(),
+            api_key: "fallback-key".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            url: format!("{}/v1/chat/completions", fallback.uri()),
+            azure_deployment_id: String::new(),
+            azure_api_version: "2024-08-01-preview".into(),
+        }];
+
+        let app = handler_app(Arc::new(AppState::new(
+            Arc::new(config),
+            shared_test_embedder(),
+        )));
+
+        let body = serde_json::to_vec(&serde_json::json!({ "prompt": "hello" })).unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        let status = resp.status();
+        let provider_header = resp
+            .headers()
+            .get("x-isartor-provider")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(status, StatusCode::OK, "unexpected response: {json}");
+        assert_eq!(provider_header.as_deref(), Some("nvidia"));
+        assert_eq!(json["message"], "Recovered from fallback");
+        assert_eq!(json["model"], "meta/llama-3.1-8b-instruct");
+    }
+
+    #[tokio::test]
+    async fn quota_fallback_skips_primary_and_uses_next_provider() {
+        use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+
+        let primary = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("should not be used"))
+            .expect(0)
+            .mount(&primary)
+            .await;
+
+        let fallback = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "resp_quota_fallback",
+                "object": "response",
+                "created_at": 1,
+                "status": "completed",
+                "error": null,
+                "incomplete_details": null,
+                "instructions": null,
+                "max_output_tokens": null,
+                "model": "meta/llama-3.1-8b-instruct",
+                "output": [{
+                    "type": "message",
+                    "id": "msg_quota_fallback",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "Recovered from quota fallback"
+                    }]
+                }],
+                "tools": []
+            })))
+            .mount(&fallback)
+            .await;
+
+        let mut config = (*test_state(Arc::new(SuccessAgent)).config).clone();
+        config.llm_provider = LlmProvider::Cerebras;
+        config.external_llm_model = "llama-3.3-70b".into();
+        config.external_llm_api_key = "primary-key".into();
+        config.external_llm_url = format!("{}/v1/chat/completions", primary.uri());
+        config.quota.insert(
+            "cerebras".into(),
+            ProviderQuotaConfig {
+                daily_token_limit: Some(1),
+                action_on_limit: QuotaLimitAction::Fallback,
+                ..ProviderQuotaConfig::default()
+            },
+        );
+        config.fallback_providers = vec![FallbackProviderConfig {
+            provider: LlmProvider::Nvidia,
+            model: "meta/llama-3.1-8b-instruct".into(),
+            api_key: "fallback-key".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            url: format!("{}/v1/chat/completions", fallback.uri()),
+            azure_deployment_id: String::new(),
+            azure_api_version: "2024-08-01-preview".into(),
+        }];
+
+        let app = handler_app(Arc::new(AppState::new(
+            Arc::new(config),
+            shared_test_embedder(),
+        )));
+
+        let body = serde_json::to_vec(&serde_json::json!({ "prompt": "hello" })).unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        let provider_header = resp
+            .headers()
+            .get("x-isartor-provider")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert_eq!(provider_header.as_deref(), Some("nvidia"));
+        assert_eq!(json["message"], "Recovered from quota fallback");
+    }
+
+    #[tokio::test]
+    async fn quota_block_returns_429_without_calling_fallback() {
+        use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+
+        let primary = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("should not be used"))
+            .expect(0)
+            .mount(&primary)
+            .await;
+
+        let fallback = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("should not be used"))
+            .expect(0)
+            .mount(&fallback)
+            .await;
+
+        let mut config = (*test_state(Arc::new(SuccessAgent)).config).clone();
+        config.llm_provider = LlmProvider::Cerebras;
+        config.external_llm_model = "llama-3.3-70b".into();
+        config.external_llm_api_key = "primary-key".into();
+        config.external_llm_url = format!("{}/v1/chat/completions", primary.uri());
+        config.quota.insert(
+            "cerebras".into(),
+            ProviderQuotaConfig {
+                daily_token_limit: Some(1),
+                action_on_limit: QuotaLimitAction::Block,
+                ..ProviderQuotaConfig::default()
+            },
+        );
+        config.fallback_providers = vec![FallbackProviderConfig {
+            provider: LlmProvider::Nvidia,
+            model: "meta/llama-3.1-8b-instruct".into(),
+            api_key: "fallback-key".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            url: format!("{}/v1/chat/completions", fallback.uri()),
+            azure_deployment_id: String::new(),
+            azure_api_version: "2024-08-01-preview".into(),
+        }];
+
+        let app = handler_app(Arc::new(AppState::new(
+            Arc::new(config),
+            shared_test_embedder(),
+        )));
+
+        let body = serde_json::to_vec(&serde_json::json!({ "prompt": "hello" })).unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(json["message"].as_str().unwrap().contains("quota exceeded"));
+    }
+
+    #[tokio::test]
+    async fn bad_request_does_not_fall_back_to_next_provider() {
+        use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+
+        let primary = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400).set_body_string("invalid request"))
+            .mount(&primary)
+            .await;
+
+        let fallback = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "resp_unused",
+                "object": "response",
+                "created_at": 1,
+                "status": "completed",
+                "error": null,
+                "incomplete_details": null,
+                "instructions": null,
+                "max_output_tokens": null,
+                "model": "meta/llama-3.1-8b-instruct",
+                "output": [{
+                    "type": "message",
+                    "id": "msg_unused",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "should not run"
+                    }]
+                }],
+                "tools": []
+            })))
+            .expect(0)
+            .mount(&fallback)
+            .await;
+
+        let mut config = (*test_state(Arc::new(SuccessAgent)).config).clone();
+        config.llm_provider = LlmProvider::Cerebras;
+        config.external_llm_model = "llama-3.3-70b".into();
+        config.external_llm_api_key = "primary-key".into();
+        config.external_llm_url = format!("{}/v1/chat/completions", primary.uri());
+        config.fallback_providers = vec![FallbackProviderConfig {
+            provider: LlmProvider::Nvidia,
+            model: "meta/llama-3.1-8b-instruct".into(),
+            api_key: "fallback-key".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            url: format!("{}/v1/chat/completions", fallback.uri()),
+            azure_deployment_id: String::new(),
+            azure_api_version: "2024-08-01-preview".into(),
+        }];
+
+        let app = handler_app(Arc::new(AppState::new(
+            Arc::new(config),
+            shared_test_embedder(),
+        )));
+
+        let body = serde_json::to_vec(&serde_json::json!({ "prompt": "hello" })).unwrap();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert!(
+            json["message"]
+                .as_str()
+                .unwrap()
+                .contains("invalid request")
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_status_reports_primary_and_fallback_entries() {
+        let mut config = (*test_state(Arc::new(SuccessAgent)).config).clone();
+        config.llm_provider = LlmProvider::Cerebras;
+        config.external_llm_model = "llama-3.3-70b".into();
+        config.external_llm_api_key = "primary-key".into();
+        config.external_llm_url = "https://api.cerebras.ai/v1/chat/completions".into();
+        config.fallback_providers = vec![FallbackProviderConfig {
+            provider: LlmProvider::Nvidia,
+            model: "meta/llama-3.1-8b-instruct".into(),
+            api_key: "fallback-key".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            url: "https://integrate.api.nvidia.com/v1/chat/completions".into(),
+            azure_deployment_id: String::new(),
+            azure_api_version: "2024-08-01-preview".into(),
+        }];
+
+        let app = handler_app(Arc::new(AppState::new(
+            Arc::new(config),
+            shared_test_embedder(),
+        )));
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/debug/providers")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["active_provider"], "cerebras");
+        assert_eq!(json["providers"].as_array().unwrap().len(), 2);
+        assert_eq!(json["providers"][0]["name"], "cerebras");
+        assert_eq!(json["providers"][0]["active"], true);
+        assert_eq!(json["providers"][1]["name"], "nvidia");
+        assert_eq!(json["providers"][1]["active"], false);
     }
 
     #[tokio::test]
@@ -1952,11 +2788,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: state.exact_cache.clone(),
             vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(SuccessAgent),
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1991,11 +2834,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: state.exact_cache.clone(),
             vector_cache: state.vector_cache.clone(),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(SuccessAgent),
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,

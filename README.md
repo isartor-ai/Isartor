@@ -62,9 +62,15 @@ You can also define request-time model aliases like `fast`, `smart`, or `code` t
 
 For provider troubleshooting, Isartor also supports opt-in request/response debug logging. Set `ISARTOR__ENABLE_REQUEST_LOGS=true`, reproduce the issue, and inspect the separate JSONL stream with `isartor logs --requests`. Auth headers are redacted automatically, but prompt bodies may still contain sensitive data, so leave it off unless you need it.
 
-For a fast Layer 3 status snapshot, run `isartor providers` or query the authenticated `GET /debug/providers` endpoint. It reports the active provider, configured model and endpoint, plus the last-known in-memory success/error state for upstream traffic since the current process started.
+For a fast Layer 3 status snapshot, run `isartor providers` or query the authenticated `GET /debug/providers` endpoint. It reports the active provider, configured model and endpoint, plus the last-known in-memory success/error state for upstream traffic since the current process started, including masked key-pool entries and cooldown state when multi-key rotation is configured.
 
 The provider registry also includes a broader set of OpenAI-compatible backends out of the box, including `cerebras`, `nebius`, `siliconflow`, `fireworks`, `nvidia`, and `chutes`, so `isartor set-key -p <provider>` and `isartor setup` can configure them without manual endpoint lookup.
+
+Isartor can also run an ordered Layer 3 fallback chain now. Keep your primary `llm_provider` settings as-is, then add `[[fallback_providers]]` entries in `isartor.toml` (or set `ISARTOR__FALLBACK_PROVIDERS` to a JSON array) to fail over on retry-safe upstream errors like `429`, `5xx`, timeouts, and quota exhaustion. Each provider can also define a `provider_keys` pool with `round_robin` or `priority` rotation plus cooldown after rate-limit / quota failures. Successful Layer 3 responses now include an `x-isartor-provider` header so clients can see which upstream actually served the request, and `isartor check` / `isartor providers` show the whole chain instead of only the primary provider.
+
+The HTTP boundary now also accepts Gemini-native inbound traffic alongside the existing native, OpenAI-compatible, and Anthropic-compatible surfaces. Gemini clients can call `POST /v1beta/models/{model}:generateContent` or `POST /v1beta/models/{model}:streamGenerateContent` against Isartor directly, and the same Layer 1/L2/L3 stack still applies with Gemini-specific cache namespacing and streaming response framing.
+
+Operators can now also define per-provider quota policies under `[quota.<provider>]` with daily, weekly, and monthly token or cost limits. Quota decisions reuse the persisted usage tracker, warn when projected usage crosses the configured threshold, and can either `warn`, `block`, or `fallback` to the next provider in the Layer 3 chain. `isartor check` surfaces the current quota window status for each configured provider target.
 
 ## See Isartor in the Terminal
 
@@ -158,7 +164,7 @@ Request ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM 
 | **L1b** Semantic Cache | Catches paraphrases ("Price?" ≈ "Cost?") | Cosine similarity via pure-Rust `candle` embeddings | 1–5 ms |
 | **L2** SLM Router | Resolves simple queries locally | Embedded Small Language Model (Qwen-1.5B via `candle` GGUF) | 50–200 ms |
 | **L2.5** Context Optimiser | Compresses repeated instructions per session | Dedup + minify (CLAUDE.md, copilot-instructions) | < 1 ms |
-| **L3** Cloud Logic | Routes complex prompts to OpenAI / Anthropic / Azure | Load balancing with retry and fallback | Network-bound |
+| **L3** Cloud Logic | Routes complex prompts to OpenAI / Anthropic / Azure | Ordered multi-provider fallback plus per-provider key rotation/cooldown | Network-bound |
 
 ### Benchmark results
 
@@ -186,7 +192,7 @@ One command connects your favourite tool. No proxy, no MITM, no CA certificates.
 | **Claude Code + Copilot** | `isartor connect claude-copilot` | Claude base URL + Copilot-backed L3 |
 | **Cursor IDE** | `isartor connect cursor` | Base URL + MCP registration at `/mcp/` |
 | **OpenAI Codex CLI** | `isartor connect codex` | `OPENAI_BASE_URL` override |
-| **Gemini CLI** | `isartor connect gemini` | `GEMINI_API_BASE_URL` override |
+| **Gemini CLI** | `isartor connect gemini` | `GEMINI_API_BASE_URL` override to Gemini-native `/v1beta/models/*` routes |
 | **OpenCode** | `isartor connect opencode` | Global provider + auth config |
 | **Any OpenAI-compatible tool** | `isartor connect generic` | Configurable env var override |
 

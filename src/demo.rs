@@ -491,8 +491,7 @@ fn live_showcase_skip_reason(config: &AppConfig) -> Option<String> {
         return Some("offline mode is active".to_string());
     }
 
-    if provider_requires_key(&config.llm_provider) && config.external_llm_api_key.trim().is_empty()
-    {
+    if provider_requires_key(&config.llm_provider) && !config.has_primary_provider_key() {
         return Some(format!(
             "no {} API key configured — run `isartor set-key -p {}` to unlock the live showcase",
             config.llm_provider, config.llm_provider

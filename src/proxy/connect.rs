@@ -24,6 +24,7 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::config::CacheMode;
 use crate::core::prompt::{extract_cache_key, extract_prompt, has_tooling};
+use crate::core::usage::resolved_usage_model;
 use crate::metrics;
 use crate::middleware::slm_triage::answer_quality_ok;
 use crate::models::{
@@ -310,6 +311,8 @@ async fn handle_mitm(
                 tls_stream.write_all(resp.as_bytes()).await?;
                 tls_stream.flush().await?;
                 emit_proxy_decision(ProxyDecisionContext {
+                    state: &state,
+                    body: &body,
                     proxy_client,
                     hostname,
                     path: &path,
@@ -332,6 +335,8 @@ async fn handle_mitm(
                 tls_stream.write_all(resp.as_bytes()).await?;
                 tls_stream.flush().await?;
                 emit_proxy_decision(ProxyDecisionContext {
+                    state: &state,
+                    body: &body,
                     proxy_client,
                     hostname,
                     path: &path,
@@ -351,7 +356,24 @@ async fn handle_mitm(
                 let upstream_response =
                     forward_to_upstream(hostname, port, &method, &path, &headers, &body).await?;
                 cache_response(&body, &path, &upstream_response, &state).await;
+                if let Some(body_start) =
+                    String::from_utf8_lossy(&upstream_response).find("\r\n\r\n")
+                {
+                    let response_body =
+                        String::from_utf8_lossy(&upstream_response[body_start + 4..]).to_string();
+                    let resolved_model = resolved_usage_model(&state.config, &path, &body);
+                    if let Err(error) = state.usage_tracker.record_cloud_usage(
+                        state.primary_provider().provider_name(),
+                        &resolved_model,
+                        &prompt,
+                        &response_body,
+                    ) {
+                        tracing::warn!(error = %error, provider = %state.primary_provider().provider_name(), model = %resolved_model, "Failed to record proxied cloud usage event");
+                    }
+                }
                 emit_proxy_decision(ProxyDecisionContext {
+                    state: &state,
+                    body: &body,
                     proxy_client,
                     hostname,
                     path: &path,
@@ -651,6 +673,8 @@ async fn try_proxy_slm_resolution(
 }
 
 struct ProxyDecisionContext<'a> {
+    state: &'a Arc<AppState>,
+    body: &'a [u8],
     proxy_client: Option<ProxyClient>,
     hostname: &'a str,
     path: &'a str,
@@ -664,6 +688,8 @@ struct ProxyDecisionContext<'a> {
 
 fn emit_proxy_decision(context: ProxyDecisionContext<'_>) {
     let ProxyDecisionContext {
+        state,
+        body,
         proxy_client,
         hostname,
         path,
@@ -705,14 +731,24 @@ fn emit_proxy_decision(context: ProxyDecisionContext<'_>) {
         &client,
     );
     if final_layer.is_deflected() {
+        let prompt_tokens = estimated_tokens.unwrap_or(256);
         metrics::record_tokens_saved_with_tool(
             final_layer.as_str(),
-            estimated_tokens.unwrap_or(256),
+            prompt_tokens,
             "proxy",
             &client,
             &endpoint_family,
             &client,
         );
+        let resolved_model = resolved_usage_model(&state.config, path, body);
+        if let Err(error) = state.usage_tracker.record_deflection(
+            state.primary_provider().provider_name(),
+            &resolved_model,
+            prompt_tokens,
+            final_layer.as_str(),
+        ) {
+            tracing::warn!(error = %error, provider = %state.primary_provider().provider_name(), model = %resolved_model, "Failed to record deflected proxy usage event");
+        }
     }
 
     tracing::info!(
@@ -958,6 +994,7 @@ mod tests {
         Layer2Settings, RouterBackend,
     };
     use crate::core::context_compress::InstructionCache;
+    use crate::core::usage::UsageTracker;
     use crate::layer1::embeddings::shared_test_embedder;
     use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::state::{AppLlmAgent, AppState};
@@ -1013,6 +1050,10 @@ mod tests {
             external_llm_model: "gpt-4o-mini".into(),
             model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            fallback_providers: Vec::new(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
@@ -1021,6 +1062,11 @@ mod tests {
             otel_exporter_endpoint: "http://localhost:4317".into(),
             enable_request_logs: false,
             request_log_path: "~/.isartor/request_logs".into(),
+            usage_log_path: "~/.isartor".into(),
+            usage_retention_days: 30,
+            usage_window_hours: 24,
+            usage_pricing: std::collections::HashMap::new(),
+            quota: std::collections::HashMap::new(),
             offline_mode,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -1036,11 +1082,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
             vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(PanicAgent),
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         })
@@ -1285,7 +1338,10 @@ mod tests {
     #[test]
     fn recent_proxy_decisions_are_recorded() {
         clear_recent_proxy_decisions();
+        let state = test_state("http://127.0.0.1:18081", false, false);
         emit_proxy_decision(ProxyDecisionContext {
+            state: &state,
+            body: br#"{"messages":[{"role":"user","content":"hello"}]}"#,
             proxy_client: Some(ProxyClient::Copilot),
             hostname: "copilot-proxy.githubusercontent.com",
             path: "/v1/chat/completions",

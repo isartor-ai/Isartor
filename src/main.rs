@@ -17,9 +17,12 @@ use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::json;
 
 use isartor::config::{AppConfig, LlmProvider};
+use isartor::core::quota::current_quota_status_lines;
+use isartor::core::usage::UsageTracker;
 use isartor::handler;
 use isartor::health::{self, DemoModeFlag};
 use isartor::middleware;
+use isartor::state::{ResolvedProviderConfig, resolved_provider_chain};
 
 #[derive(Parser)]
 #[command(
@@ -300,6 +303,10 @@ async fn main() -> anyhow::Result<()> {
             post(handler::openai_chat_completions_handler),
         )
         .route("/v1/messages", post(handler::anthropic_messages_handler))
+        .route(
+            "/v1beta/models/{*rest}",
+            post(handler::gemini_generate_content_handler),
+        )
         // Layer 2.5 – Context Optimizer (innermost, runs just before handler).
         .layer(axum_mw::from_fn(
             middleware::context_optimizer::context_optimizer_middleware,
@@ -638,9 +645,11 @@ async fn run_standalone_demo() -> anyhow::Result<()> {
 /// external connections before deploying to an air-gapped environment.
 async fn run_connectivity_check() -> anyhow::Result<()> {
     let config = AppConfig::load()?;
-    let l3_target = l3_connectivity_target(&config);
+    let l3_targets = l3_connectivity_targets(&config);
+    let usage_tracker = UsageTracker::new(config.clone())?;
+    let now = chrono::Utc::now();
 
-    let l3_configured = l3_target.is_configured();
+    let l3_configured = l3_targets.iter().any(L3ConnectivityTarget::is_configured);
 
     let redis_configured = config.cache_backend == isartor::config::CacheBackend::Redis;
     let is_redis_internal = isartor::core::is_internal_endpoint(&config.redis_url);
@@ -653,21 +662,49 @@ async fn run_connectivity_check() -> anyhow::Result<()> {
 
     // L3 — cloud LLM endpoints
     println!("Required (L3 cloud routing):");
-    let status = if l3_configured {
-        "[CONFIGURED]"
-    } else {
-        "[NOT CONFIGURED]"
-    };
-    println!("  Provider:   {}  {}", l3_target.provider, status);
-    println!("  Model:      {}", l3_target.model);
-    println!("  API key:    {}", l3_target.masked_key);
-    println!("  Endpoint:   {}", l3_target.endpoint);
-    println!(
-        "  Ping:       {}",
-        ping_l3_provider(&config, &l3_target).await
-    );
-    if config.offline_mode {
-        println!("    (BLOCKED — offline mode active)");
+    for (index, l3_target) in l3_targets.iter().enumerate() {
+        let status = if l3_target.is_configured() {
+            "[CONFIGURED]"
+        } else {
+            "[NOT CONFIGURED]"
+        };
+        let label = if index == 0 { "Primary" } else { "Fallback" };
+        println!("  {label}:    {}  {}", l3_target.provider, status);
+        println!("  Model:      {}", l3_target.model);
+        println!("  API key:    {}", l3_target.masked_key);
+        if !l3_target.masked_keys.is_empty() {
+            println!(
+                "  Key pool:   {} ({} keys, cooldown {}s)",
+                l3_target.key_rotation_strategy,
+                l3_target.masked_keys.len(),
+                l3_target.key_cooldown_secs
+            );
+            for masked_key in &l3_target.masked_keys {
+                println!("    - {} [available]", masked_key);
+            }
+        }
+        if let Some((action, quota_lines)) =
+            current_quota_status_lines(&config, &usage_tracker, &l3_target.provider, now)
+        {
+            println!(
+                "  Quota:      action={}",
+                format!("{action:?}").to_lowercase()
+            );
+            for quota_line in quota_lines {
+                println!("    - {quota_line}");
+            }
+        }
+        println!("  Endpoint:   {}", l3_target.endpoint);
+        println!(
+            "  Ping:       {}",
+            ping_l3_provider(&config, l3_target).await
+        );
+        if config.offline_mode {
+            println!("    (BLOCKED — offline mode active)");
+        }
+        if index + 1 < l3_targets.len() {
+            println!();
+        }
     }
 
     // OTel — observability endpoint
@@ -733,9 +770,13 @@ async fn run_connectivity_check() -> anyhow::Result<()> {
 }
 
 struct L3ConnectivityTarget {
-    provider: &'static str,
+    provider: String,
     model: String,
+    api_key: String,
     masked_key: String,
+    masked_keys: Vec<String>,
+    key_rotation_strategy: String,
+    key_cooldown_secs: u64,
     endpoint: String,
     external: bool,
     ping_kind: L3PingKind,
@@ -760,87 +801,146 @@ impl L3ConnectivityTarget {
     }
 }
 
-fn l3_connectivity_target(config: &AppConfig) -> L3ConnectivityTarget {
-    let model = match config.llm_provider {
-        LlmProvider::Azure if !config.azure_deployment_id.trim().is_empty() => {
+fn l3_connectivity_targets(config: &AppConfig) -> Vec<L3ConnectivityTarget> {
+    resolved_provider_chain(config)
+        .into_iter()
+        .map(|provider| l3_connectivity_target(&provider))
+        .collect()
+}
+
+fn l3_connectivity_target(provider: &ResolvedProviderConfig) -> L3ConnectivityTarget {
+    let model = match provider.provider {
+        LlmProvider::Azure if !provider.azure_deployment_id.trim().is_empty() => {
             format!(
                 "{} (deployment; model {})",
-                config.azure_deployment_id, config.external_llm_model
+                provider.azure_deployment_id, provider.model
             )
         }
-        _ => config.external_llm_model.clone(),
+        _ => provider.model.clone(),
     };
 
-    match config.llm_provider {
+    match provider.provider {
         LlmProvider::Azure => L3ConnectivityTarget {
-            provider: "azure",
+            provider: "azure".to_string(),
             model,
-            masked_key: mask_secret(&config.external_llm_api_key),
+            api_key: provider.api_key.clone(),
+            masked_key: mask_secret(&provider.api_key),
+            masked_keys: provider
+                .provider_keys
+                .iter()
+                .map(|entry| mask_secret(&entry.key))
+                .collect(),
+            key_rotation_strategy: key_rotation_strategy_label(&provider.key_rotation_strategy),
+            key_cooldown_secs: provider.key_cooldown_secs,
             endpoint: format!(
                 "{}/openai/deployments/{}/chat/completions?api-version={}",
-                config.external_llm_url.trim_end_matches('/'),
-                config.azure_deployment_id,
-                config.azure_api_version
+                provider.endpoint.trim_end_matches('/'),
+                provider.azure_deployment_id,
+                provider.azure_api_version
             ),
-            external: !isartor::core::is_internal_endpoint(&config.external_llm_url),
+            external: !isartor::core::is_internal_endpoint(&provider.endpoint),
             ping_kind: L3PingKind::AzureChatCompletions,
             requires_api_key: true,
         },
         LlmProvider::Anthropic => L3ConnectivityTarget {
-            provider: "anthropic",
+            provider: "anthropic".to_string(),
             model,
-            masked_key: mask_secret(&config.external_llm_api_key),
+            api_key: provider.api_key.clone(),
+            masked_key: mask_secret(&provider.api_key),
+            masked_keys: provider
+                .provider_keys
+                .iter()
+                .map(|entry| mask_secret(&entry.key))
+                .collect(),
+            key_rotation_strategy: key_rotation_strategy_label(&provider.key_rotation_strategy),
+            key_cooldown_secs: provider.key_cooldown_secs,
             endpoint: "https://api.anthropic.com/v1/messages".to_string(),
             external: true,
             ping_kind: L3PingKind::AnthropicMessages,
             requires_api_key: true,
         },
         LlmProvider::Copilot => L3ConnectivityTarget {
-            provider: "copilot",
+            provider: "copilot".to_string(),
             model,
-            masked_key: mask_secret(&config.external_llm_api_key),
+            api_key: provider.api_key.clone(),
+            masked_key: mask_secret(&provider.api_key),
+            masked_keys: provider
+                .provider_keys
+                .iter()
+                .map(|entry| mask_secret(&entry.key))
+                .collect(),
+            key_rotation_strategy: key_rotation_strategy_label(&provider.key_rotation_strategy),
+            key_cooldown_secs: provider.key_cooldown_secs,
             endpoint: isartor::providers::copilot::COPILOT_TOKEN_URL.to_string(),
             external: true,
             ping_kind: L3PingKind::CopilotSessionToken,
             requires_api_key: true,
         },
         LlmProvider::Gemini => L3ConnectivityTarget {
-            provider: "gemini",
-            model: config.external_llm_model.clone(),
-            masked_key: mask_secret(&config.external_llm_api_key),
+            provider: "gemini".to_string(),
+            model: provider.model.clone(),
+            api_key: provider.api_key.clone(),
+            masked_key: mask_secret(&provider.api_key),
+            masked_keys: provider
+                .provider_keys
+                .iter()
+                .map(|entry| mask_secret(&entry.key))
+                .collect(),
+            key_rotation_strategy: key_rotation_strategy_label(&provider.key_rotation_strategy),
+            key_cooldown_secs: provider.key_cooldown_secs,
             endpoint: format!(
                 "https://generativelanguage.googleapis.com/v1beta/models/{}",
-                config.external_llm_model
+                provider.model
             ),
             external: true,
             ping_kind: L3PingKind::GeminiModelInfo,
             requires_api_key: true,
         },
         LlmProvider::Ollama => L3ConnectivityTarget {
-            provider: "ollama",
+            provider: "ollama".to_string(),
             model,
+            api_key: String::new(),
             masked_key: "(not required)".to_string(),
-            endpoint: format!("{}/api/tags", config.external_llm_url.trim_end_matches('/')),
-            external: !isartor::core::is_internal_endpoint(&config.external_llm_url),
+            masked_keys: Vec::new(),
+            key_rotation_strategy: key_rotation_strategy_label(&provider.key_rotation_strategy),
+            key_cooldown_secs: provider.key_cooldown_secs,
+            endpoint: format!("{}/api/tags", provider.endpoint.trim_end_matches('/')),
+            external: !isartor::core::is_internal_endpoint(&provider.endpoint),
             ping_kind: L3PingKind::OllamaTags,
             requires_api_key: false,
         },
         LlmProvider::Cohere => L3ConnectivityTarget {
-            provider: "cohere",
+            provider: "cohere".to_string(),
             model,
-            masked_key: mask_secret(&config.external_llm_api_key),
+            api_key: provider.api_key.clone(),
+            masked_key: mask_secret(&provider.api_key),
+            masked_keys: provider
+                .provider_keys
+                .iter()
+                .map(|entry| mask_secret(&entry.key))
+                .collect(),
+            key_rotation_strategy: key_rotation_strategy_label(&provider.key_rotation_strategy),
+            key_cooldown_secs: provider.key_cooldown_secs,
             endpoint: "https://api.cohere.ai/v1/models".to_string(),
             external: true,
             ping_kind: L3PingKind::CohereModels,
             requires_api_key: true,
         },
         LlmProvider::Huggingface => L3ConnectivityTarget {
-            provider: "huggingface",
-            model: config.external_llm_model.clone(),
-            masked_key: mask_secret(&config.external_llm_api_key),
+            provider: "huggingface".to_string(),
+            model: provider.model.clone(),
+            api_key: provider.api_key.clone(),
+            masked_key: mask_secret(&provider.api_key),
+            masked_keys: provider
+                .provider_keys
+                .iter()
+                .map(|entry| mask_secret(&entry.key))
+                .collect(),
+            key_rotation_strategy: key_rotation_strategy_label(&provider.key_rotation_strategy),
+            key_cooldown_secs: provider.key_cooldown_secs,
             endpoint: format!(
                 "https://api-inference.huggingface.co/models/{}",
-                config.external_llm_model
+                provider.model
             ),
             external: true,
             ping_kind: L3PingKind::HuggingFaceModelInfo,
@@ -849,109 +949,163 @@ fn l3_connectivity_target(config: &AppConfig) -> L3ConnectivityTarget {
         LlmProvider::Openai => openai_models_target(
             "openai",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.openai.com/v1/models",
         ),
         LlmProvider::Xai => openai_models_target(
             "xai",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.x.ai/v1/models",
         ),
         LlmProvider::Mistral => openai_models_target(
             "mistral",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.mistral.ai/v1/models",
         ),
         LlmProvider::Groq => openai_models_target(
             "groq",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.groq.com/openai/v1/models",
         ),
         LlmProvider::Cerebras => openai_models_target(
             "cerebras",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.cerebras.ai/v1/models",
         ),
         LlmProvider::Nebius => openai_models_target(
             "nebius",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.studio.nebius.ai/v1/models",
         ),
         LlmProvider::Siliconflow => openai_models_target(
             "siliconflow",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.siliconflow.cn/v1/models",
         ),
         LlmProvider::Fireworks => openai_models_target(
             "fireworks",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.fireworks.ai/inference/v1/models",
         ),
         LlmProvider::Nvidia => openai_models_target(
             "nvidia",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://integrate.api.nvidia.com/v1/models",
         ),
         LlmProvider::Chutes => openai_models_target(
             "chutes",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://llm.chutes.ai/v1/models",
         ),
         LlmProvider::Deepseek => openai_models_target(
             "deepseek",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.deepseek.com/models",
         ),
         LlmProvider::Galadriel => openai_models_target(
             "galadriel",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.galadriel.com/v1/models",
         ),
         LlmProvider::Hyperbolic => openai_models_target(
             "hyperbolic",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.hyperbolic.xyz/v1/models",
         ),
         LlmProvider::Mira => openai_models_target(
             "mira",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.mira.network/v1/models",
         ),
         LlmProvider::Moonshot => openai_models_target(
             "moonshot",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.moonshot.cn/v1/models",
         ),
         LlmProvider::Openrouter => openai_models_target(
             "openrouter",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://openrouter.ai/api/v1/models",
         ),
         LlmProvider::Perplexity => openai_models_target(
             "perplexity",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.perplexity.ai/models",
         ),
         LlmProvider::Together => openai_models_target(
             "together",
             model,
-            &config.external_llm_api_key,
+            &provider.api_key,
+            &provider.provider_keys,
+            &provider.key_rotation_strategy,
+            provider.key_cooldown_secs,
             "https://api.together.xyz/v1/models",
         ),
     }
@@ -961,16 +1115,33 @@ fn openai_models_target(
     provider: &'static str,
     model: String,
     api_key: &str,
+    provider_keys: &[isartor::config::ProviderKeyConfig],
+    strategy: &isartor::config::KeyRotationStrategy,
+    cooldown_secs: u64,
     endpoint: &str,
 ) -> L3ConnectivityTarget {
     L3ConnectivityTarget {
-        provider,
+        provider: provider.to_string(),
         model,
+        api_key: api_key.to_string(),
         masked_key: mask_secret(api_key),
+        masked_keys: provider_keys
+            .iter()
+            .map(|entry| mask_secret(&entry.key))
+            .collect(),
+        key_rotation_strategy: key_rotation_strategy_label(strategy),
+        key_cooldown_secs: cooldown_secs,
         endpoint: endpoint.to_string(),
         external: true,
         ping_kind: L3PingKind::OpenAiModels,
         requires_api_key: true,
+    }
+}
+
+fn key_rotation_strategy_label(strategy: &isartor::config::KeyRotationStrategy) -> String {
+    match strategy {
+        isartor::config::KeyRotationStrategy::RoundRobin => "round_robin".to_string(),
+        isartor::config::KeyRotationStrategy::Priority => "priority".to_string(),
     }
 }
 
@@ -989,7 +1160,7 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
     if config.offline_mode && target.external {
         return "SKIPPED — offline mode blocks external egress".to_string();
     }
-    if target.requires_api_key && config.external_llm_api_key.trim().is_empty() {
+    if target.requires_api_key && target.api_key.trim().is_empty() {
         return "SKIPPED — API key not configured".to_string();
     }
 
@@ -1005,10 +1176,7 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
     let result = match target.ping_kind {
         L3PingKind::OpenAiModels => client
             .get(&target.endpoint)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", config.external_llm_api_key),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", target.api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await
@@ -1016,7 +1184,7 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
             .and_then(summarize_ping_response),
         L3PingKind::AzureChatCompletions => client
             .post(&target.endpoint)
-            .header("api-key", &config.external_llm_api_key)
+            .header("api-key", &target.api_key)
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
             .json(&json!({
@@ -1029,11 +1197,11 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
             .and_then(summarize_ping_response),
         L3PingKind::AnthropicMessages => client
             .post(&target.endpoint)
-            .header("x-api-key", &config.external_llm_api_key)
+            .header("x-api-key", &target.api_key)
             .header("anthropic-version", "2023-06-01")
             .header(CONTENT_TYPE, "application/json")
             .json(&json!({
-                "model": config.external_llm_model,
+                "model": target.model,
                 "max_tokens": 1,
                 "messages": [{"role": "user", "content": "ping"}]
             }))
@@ -1042,10 +1210,7 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
             .map_err(anyhow::Error::from)
             .and_then(summarize_ping_response),
         L3PingKind::GeminiModelInfo => client
-            .get(format!(
-                "{}?key={}",
-                target.endpoint, config.external_llm_api_key
-            ))
+            .get(format!("{}?key={}", target.endpoint, target.api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await
@@ -1054,7 +1219,7 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
         L3PingKind::CopilotSessionToken => {
             match isartor::providers::copilot::exchange_copilot_session_token(
                 &client,
-                &config.external_llm_api_key,
+                &target.api_key,
             )
             .await
             {
@@ -1071,10 +1236,7 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
             .and_then(summarize_ping_response),
         L3PingKind::CohereModels => client
             .get(&target.endpoint)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", config.external_llm_api_key),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", target.api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await
@@ -1082,10 +1244,7 @@ async fn ping_l3_provider(config: &AppConfig, target: &L3ConnectivityTarget) -> 
             .and_then(summarize_ping_response),
         L3PingKind::HuggingFaceModelInfo => client
             .get(&target.endpoint)
-            .header(
-                AUTHORIZATION,
-                format!("Bearer {}", config.external_llm_api_key),
-            )
+            .header(AUTHORIZATION, format!("Bearer {}", target.api_key))
             .header(ACCEPT, "application/json")
             .send()
             .await
@@ -1135,7 +1294,7 @@ mod tests {
         config.external_llm_model = "llama-3.1-8b-instant".into();
         config.external_llm_api_key = "gsk_testkey12345678".into();
 
-        let target = l3_connectivity_target(&config);
+        let target = l3_connectivity_targets(&config).remove(0);
         assert_eq!(target.provider, "groq");
         assert_eq!(target.model, "llama-3.1-8b-instant");
         assert_eq!(target.masked_key, "gsk_…5678");
@@ -1149,7 +1308,7 @@ mod tests {
         config.external_llm_model = "llama-3.3-70b".into();
         config.external_llm_api_key = "cb_testkey12345678".into();
 
-        let target = l3_connectivity_target(&config);
+        let target = l3_connectivity_targets(&config).remove(0);
         assert_eq!(target.provider, "cerebras");
         assert_eq!(target.model, "llama-3.3-70b");
         assert_eq!(target.endpoint, "https://api.cerebras.ai/v1/models");
@@ -1165,7 +1324,7 @@ mod tests {
         config.external_llm_model = "gpt-4o-mini".into();
         config.external_llm_api_key = "azure-secret-key".into();
 
-        let target = l3_connectivity_target(&config);
+        let target = l3_connectivity_targets(&config).remove(0);
         assert_eq!(target.provider, "azure");
         assert_eq!(target.model, "gpt-4o-mini (deployment; model gpt-4o-mini)");
         assert_eq!(

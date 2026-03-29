@@ -88,6 +88,7 @@ mod tests {
     use crate::clients::slm::SlmClient;
     use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
     use crate::core::context_compress::InstructionCache;
+    use crate::core::usage::UsageTracker;
     use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::state::AppLlmAgent;
     use crate::vector_cache::VectorCache;
@@ -143,6 +144,10 @@ mod tests {
             external_llm_model: "test".into(),
             model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            fallback_providers: Vec::new(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
@@ -151,6 +156,11 @@ mod tests {
             otel_exporter_endpoint: "http://localhost:4317".into(),
             enable_request_logs: false,
             request_log_path: "~/.isartor/request_logs".into(),
+            usage_log_path: "~/.isartor".into(),
+            usage_retention_days: 30,
+            usage_window_hours: 24,
+            usage_pricing: std::collections::HashMap::new(),
+            quota: std::collections::HashMap::new(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -162,11 +172,18 @@ mod tests {
             http_client: reqwest::Client::new(),
             exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
             vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
+            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
             llm_agent: Arc::new(MockAgent),
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(
+                crate::state::ProviderKeyPoolManager::from_provider_chain(
+                    crate::state::resolved_provider_chain(&config).as_slice(),
+                ),
+            ),
             config,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,

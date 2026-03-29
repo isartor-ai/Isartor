@@ -1,8 +1,8 @@
 use clap::Parser;
 
 use crate::config::AppConfig;
-use crate::models::{ProviderHealthStatus, ProviderStatusResponse};
-use crate::state::ProviderHealthTracker;
+use crate::models::{ProviderHealthStatus, ProviderKeyHealthStatus, ProviderStatusResponse};
+use crate::state::{ProviderHealthTracker, resolved_provider_chain};
 
 #[derive(Parser, Debug, Clone)]
 pub struct ProvidersArgs {
@@ -29,7 +29,8 @@ pub async fn handle_providers(args: ProvidersArgs) -> anyhow::Result<()> {
         (status, ProviderStatusSource::Gateway)
     } else if let Ok(config) = AppConfig::load() {
         (
-            ProviderHealthTracker::from_config(&config).snapshot(),
+            ProviderHealthTracker::from_provider_chain(&resolved_provider_chain(&config))
+                .snapshot(),
             ProviderStatusSource::LocalConfig,
         )
     } else {
@@ -42,7 +43,7 @@ pub async fn handle_providers(args: ProvidersArgs) -> anyhow::Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "source": source.as_str(),
+                "source": ProviderStatusSource::as_str(source),
                 "status": status,
             }))
             .unwrap_or_default()
@@ -144,6 +145,33 @@ fn render_provider_report(
         .ok();
         writeln!(
             &mut output,
+            "    Key pool:   strategy={}, cooldown={}s",
+            entry.key_rotation_strategy, entry.key_cooldown_secs
+        )
+        .ok();
+        for key in &entry.keys {
+            writeln!(
+                &mut output,
+                "      - {} ({}, priority {}, reqs {}, rate_limits {})",
+                key.masked_key,
+                key_status_label(key.status),
+                key.priority,
+                key.requests_total,
+                key.rate_limit_total
+            )
+            .ok();
+            if !key.label.is_empty() {
+                writeln!(&mut output, "        label: {}", key.label).ok();
+            }
+            if let Some(last_used) = &key.last_used {
+                writeln!(&mut output, "        last used: {}", last_used).ok();
+            }
+            if let Some(cooldown_until) = &key.cooldown_until {
+                writeln!(&mut output, "        cooldown until: {}", cooldown_until).ok();
+            }
+        }
+        writeln!(
+            &mut output,
             "    Last ok:    {}",
             entry.last_success.as_deref().unwrap_or("never")
         )
@@ -168,6 +196,14 @@ fn status_label(status: ProviderHealthStatus) -> &'static str {
         ProviderHealthStatus::Healthy => "healthy",
         ProviderHealthStatus::Failing => "failing",
         ProviderHealthStatus::Unknown => "unknown",
+    }
+}
+
+fn key_status_label(status: ProviderKeyHealthStatus) -> &'static str {
+    match status {
+        ProviderKeyHealthStatus::Available => "available",
+        ProviderKeyHealthStatus::CoolingDown => "cooling_down",
+        ProviderKeyHealthStatus::Unknown => "unknown",
     }
 }
 
@@ -208,6 +244,9 @@ mod tests {
                     endpoint_configured: true,
                     requests_total: 142,
                     errors_total: 2,
+                    key_rotation_strategy: "round_robin".into(),
+                    key_cooldown_secs: 60,
+                    keys: Vec::new(),
                     last_success: Some("2026-03-29T12:00:00Z".into()),
                     last_error: None,
                     last_error_message: None,
@@ -240,6 +279,9 @@ mod tests {
                         endpoint_configured: true,
                         requests_total: 3,
                         errors_total: 1,
+                        key_rotation_strategy: "round_robin".into(),
+                        key_cooldown_secs: 60,
+                        keys: Vec::new(),
                         last_success: Some("2026-03-29T12:00:00Z".into()),
                         last_error: Some("2026-03-29T12:05:00Z".into()),
                         last_error_message: Some("provider timeout".into()),

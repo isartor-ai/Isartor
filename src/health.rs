@@ -86,10 +86,10 @@ pub async fn health_handler(
 
     let l2_status = "active"; // SLM sidecar assumed reachable if configured
 
-    let l3_status = if config.external_llm_api_key.is_empty() {
-        "no_api_key"
-    } else {
+    let l3_status = if config.has_primary_provider_key() {
         "active"
+    } else {
+        "no_api_key"
     };
 
     Json(HealthResponse {

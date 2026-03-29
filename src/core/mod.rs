@@ -2,8 +2,10 @@ pub mod cache_scope;
 pub mod context_compress;
 pub mod ports;
 pub mod prompt;
+pub mod quota;
 pub mod request_logger;
 pub mod retry;
+pub mod usage;
 
 // ── Network utility helpers ───────────────────────────────────────────
 
