@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.12] - 2026-03-29
+
+### Added
+- **Ordered Layer 3 fallback chain**: added chain-aware provider execution with per-provider retry budgets, `x-isartor-provider` response headers, and fallback-aware `isartor check` output so the gateway can move predictably across multiple providers.
+- **Per-provider multi-key rotation**: added configurable `round_robin` / `priority` key selection, cooldown after `429` and quota-style failures, and masked key-pool visibility in provider status output.
+- **Gemini-native inbound compatibility**: added support for `POST /v1beta/models/{model}:generateContent` and `:streamGenerateContent`, Gemini-specific cache namespacing, request-shape prompt/model extraction, and SSE boundary conversion.
+- **Usage analytics and quota policies**: added persisted provider/model usage tracking, authenticated `GET /debug/usage`, `isartor stats --usage`, estimated token/cost/savings reporting, and pre-L3 warn/block/fallback quota enforcement with `429` responses for hard quota blocks.
+
+### Changed
+- **Architecture documentation refresh**: rewrote the architecture and deflection-stack docs to reflect the current Layer 0, Layer 1a, Layer 1b, Layer 2, Layer 2.5, and Layer 3 flow, plus the CONNECT proxy, MCP server, provider chain, compression pipeline, and usage analytics.
+- **Internal maintainability refactor**: consolidated repeated test fixtures behind shared helpers, deduplicated provider-chain logic in `handler.rs`, removed an unused pipeline module, and cleaned up redundant clones without changing runtime behavior.
+
 ## [2026.3.11] - 2026-03-29
 
 ### Added
