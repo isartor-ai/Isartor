@@ -4,6 +4,8 @@
 
 Each ADR follows a lightweight format: Context → Decision → Consequences.
 
+Maintenance policy: when an implementation changes Isartor's lasting system structure, request flow, API surfaces, routing strategy, cache behavior, deployment model, or other architectural trade-offs, update this ADR file in the same change. If that implementation also changes user-visible capabilities, keep the feature list in `README.md`, supplementary docs in `docs/`, and published docs in `docs-site/src/` aligned as part of the same ticket.
+
 ---
 
 ## ADR-001: Multi-Layer Deflection Stack Architecture
@@ -348,6 +350,144 @@ The **same binary** serves all three deployment tiers; the runtime behaviour is 
 - **Positive:** Extensibility — adding a new backend (e.g., Memcached, Triton) requires only a new adapter implementing the trait.
 - **Negative:** Minor runtime overhead from `dyn Trait` dynamic dispatch (single vtable lookup per call — negligible vs. network I/O).
 - **Negative:** `EmbeddedCandleRouter` remains a skeleton; full candle-based classification requires the `embedded-inference` feature flag to be completed.
+
+---
+
+## ADR-013: Resolve Model Aliases Before Routing and Cache Key Generation
+
+| | |
+| --- | --- |
+| **Status** | Accepted |
+| **Date** | 2026-03 |
+| **Deciders** | Core team |
+| **Relates to** | ADR-001 (Deflection Stack), ADR-006 (rig-core), ADR-012 (Hexagonal Architecture) |
+
+### Context
+
+Users increasingly connect heterogeneous tools and SDKs to Isartor, but raw provider model IDs are verbose and change over time. Operators want stable names such as `fast`, `smart`, or `code` without fragmenting cache behavior or forcing every client to know the real provider model identifier.
+
+### Decision
+
+Add a `model_aliases` configuration map in `AppConfig` and resolve aliases at the HTTP boundary before:
+
+- request routing to Layer 3
+- exact-cache key generation
+- semantic-cache input generation
+- OpenAI-compatible `GET /v1/models` discovery output
+
+Aliases currently resolve within the already-configured provider. They do not yet switch providers; multi-provider named routing remains a follow-on roadmap item.
+
+### Consequences
+
+- **Positive:** Clients can use stable, human-friendly model names without changing provider-specific IDs everywhere.
+- **Positive:** Alias traffic and canonical model traffic share the same cache behavior because cache inputs are normalized first.
+- **Positive:** `GET /v1/models` can advertise both real model IDs and operator-defined aliases.
+- **Negative:** This introduces another routing indirection layer that operators must document clearly.
+- **Negative:** Provider switching by alias is intentionally out of scope for this ADR and remains future work.
+
+---
+
+## ADR-014: Keep Request/Response Debug Logging Separate from Telemetry
+
+| | |
+| --- | --- |
+| **Status** | Accepted |
+| **Date** | 2026-03 |
+| **Deciders** | Core team |
+| **Relates to** | ADR-001 (Deflection Stack), ADR-010 (OpenTelemetry for Observability) |
+
+### Context
+
+Operators sometimes need to inspect the exact request and response payloads Isartor handled when debugging provider integrations, auth failures, or client compatibility issues. Existing OpenTelemetry spans record request metadata and routing outcomes, but intentionally do not include raw bodies because prompts often contain sensitive data and large payloads.
+
+### Decision
+
+Add a separate, opt-in request logging mode controlled by:
+
+- `enable_request_logs = true|false`
+- `request_log_path = "~/.isartor/request_logs"`
+
+When enabled, the outer monitoring middleware writes one JSONL record per request/response exchange to rotating files under `request_log_path`. Sensitive headers such as `Authorization`, `api-key`, and `x-api-key` are redacted automatically, and body logging stays out of the normal `isartor.log` / OpenTelemetry stream. The CLI exposes these logs via `isartor logs --requests`.
+
+### Consequences
+
+- **Positive:** Troubleshooting provider and client integration issues becomes much faster because operators can inspect exact payloads.
+- **Positive:** Normal operational logs and telemetry remain privacy-safer by default because body logging is opt-in and stored separately.
+- **Positive:** The `logs` CLI can tail request debug logs without mixing them into startup/runtime logs.
+- **Negative:** Even with redaction, request logs can contain sensitive prompt content, so access controls and retention need operator attention.
+- **Negative:** Request logging adds some I/O overhead when enabled and should not be the default steady-state mode.
+
+---
+
+## ADR-015: Treat Additional OpenAI-Compatible Vendors as Registry Entries, Not Unique Protocols
+
+| | |
+| --- | --- |
+| **Status** | Accepted |
+| **Date** | 2026-03 |
+| **Deciders** | Core team |
+| **Relates to** | ADR-006 (rig-core for Multi-Provider LLM Client), ADR-013 (Resolve Model Aliases Before Routing and Cache Key Generation) |
+
+### Context
+
+More providers now expose OpenAI-compatible chat-completions APIs. Adding each of them as a bespoke protocol integration would create repetitive code across configuration, runtime routing, setup flows, and connectivity checks even when the wire format is effectively the same.
+
+### Decision
+
+Add new vendors such as Cerebras, Nebius, SiliconFlow, Fireworks, NVIDIA, and Chutes as named entries in Isartor's provider registry with:
+
+- a stable `llm_provider` enum variant
+- a default OpenAI-compatible endpoint
+- default model suggestions for CLI/setup
+- connectivity checks that probe each vendor's model-list endpoint
+- runtime Layer 3 routing that reuses the OpenAI-compatible Rig client with a provider-specific base URL
+
+### Consequences
+
+- **Positive:** Users get first-class provider names in `set-key`, `setup`, and `check` without manually discovering endpoints.
+- **Positive:** Runtime behavior stays simple because OpenAI-compatible providers share one implementation path where practical.
+- **Positive:** Future provider additions become mostly registry work instead of bespoke transport work.
+- **Negative:** Operators may assume every provider has identical semantics just because the protocol is OpenAI-compatible; model naming and auth policies still vary by vendor.
+
+---
+
+## ADR-016: Keep Provider Health Status In-Memory and Expose It Through Debug/CLI Views
+
+| | |
+| --- | --- |
+| **Status** | Accepted |
+| **Date** | 2026-03 |
+| **Deciders** | Core team |
+| **Relates to** | ADR-001 (Deflection Stack), ADR-010 (OpenTelemetry for Observability), ADR-015 (OpenAI-Compatible Provider Registry) |
+
+### Context
+
+Operators need a fast way to confirm which Layer 3 provider Isartor is using right now and whether recent upstream requests have been succeeding or failing. Existing `isartor check` output is a point-in-time connectivity probe, while prompt/agent stats focus on traffic history rather than the currently configured provider's health state.
+
+### Decision
+
+Track provider health in memory on `AppState` for the active provider only. The tracker records:
+
+- configured provider name, model, and effective endpoint summary
+- whether an API key / endpoint is configured
+- request count and error count
+- last-known success timestamp
+- last-known error timestamp and compact error message
+
+Expose that snapshot through two surfaces:
+
+- authenticated `GET /debug/providers`
+- `isartor providers` CLI output (with local-config fallback when the endpoint is unavailable)
+
+The tracker is updated by real Layer 3 request outcomes and resets when the process restarts. It is not persisted to Redis, telemetry backends, or disk.
+
+### Consequences
+
+- **Positive:** Operators get a fast "what provider is active and is it healthy?" answer without tailing logs.
+- **Positive:** The health view stays tightly aligned with the running process because it is updated directly from Layer 3 success/failure paths.
+- **Positive:** Debug output remains lightweight and privacy-safer than request-body logging because it stores compact status metadata only.
+- **Negative:** Health state is process-local, so multi-replica deployments must query each instance (or aggregate externally) if they want a fleet-wide view.
+- **Negative:** Restarting Isartor clears the counters and timestamps by design.
 
 ---
 

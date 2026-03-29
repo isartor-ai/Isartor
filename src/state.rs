@@ -3,6 +3,8 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
+use parking_lot::Mutex;
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::client::Nothing;
@@ -13,10 +15,13 @@ use rig::providers::{
 };
 
 use crate::clients::slm::SlmClient;
-use crate::config::AppConfig;
+use crate::config::{
+    AppConfig, DEFAULT_OPENAI_CHAT_COMPLETIONS_URL, LlmProvider, default_chat_completions_url,
+};
 use crate::core::context_compress::InstructionCache;
 use crate::layer1::embeddings::TextEmbedder;
 use crate::layer1::layer1a_cache::ExactMatchCache;
+use crate::models::{ProviderHealthStatus, ProviderStatusEntry, ProviderStatusResponse};
 use crate::providers::copilot::CopilotAgent;
 use crate::vector_cache::VectorCache;
 
@@ -33,6 +38,95 @@ pub struct RigAgent<M: rig::completion::CompletionModel> {
     pub agent: Agent<M>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+enum LastProviderOutcome {
+    Healthy,
+    Failing,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Default)]
+struct ProviderHealthState {
+    requests_total: u64,
+    errors_total: u64,
+    last_success: Option<String>,
+    last_error: Option<String>,
+    last_error_message: Option<String>,
+    last_outcome: LastProviderOutcome,
+}
+
+#[derive(Debug)]
+pub struct ProviderHealthTracker {
+    provider_name: String,
+    configured_model: String,
+    endpoint: String,
+    api_key_configured: bool,
+    endpoint_configured: bool,
+    state: Mutex<ProviderHealthState>,
+}
+
+impl ProviderHealthTracker {
+    pub fn from_config(config: &AppConfig) -> Self {
+        let endpoint = provider_status_endpoint(config);
+        let requires_api_key = !matches!(config.llm_provider, LlmProvider::Ollama);
+
+        Self {
+            provider_name: config.llm_provider.as_str().to_string(),
+            configured_model: config.configured_model_id(),
+            endpoint_configured: !endpoint.trim().is_empty(),
+            api_key_configured: !requires_api_key || !config.external_llm_api_key.trim().is_empty(),
+            endpoint,
+            state: Mutex::new(ProviderHealthState::default()),
+        }
+    }
+
+    pub fn record_success(&self) {
+        let mut state = self.state.lock();
+        state.requests_total += 1;
+        state.last_success = Some(Utc::now().to_rfc3339());
+        state.last_outcome = LastProviderOutcome::Healthy;
+    }
+
+    pub fn record_failure(&self, error: &str) {
+        let mut state = self.state.lock();
+        state.requests_total += 1;
+        state.errors_total += 1;
+        state.last_error = Some(Utc::now().to_rfc3339());
+        state.last_error_message = Some(compact_provider_error(error));
+        state.last_outcome = LastProviderOutcome::Failing;
+    }
+
+    pub fn snapshot(&self) -> ProviderStatusResponse {
+        ProviderStatusResponse {
+            active_provider: self.provider_name.clone(),
+            providers: vec![self.snapshot_entry()],
+        }
+    }
+
+    fn snapshot_entry(&self) -> ProviderStatusEntry {
+        let state = self.state.lock();
+        ProviderStatusEntry {
+            name: self.provider_name.clone(),
+            active: true,
+            status: match state.last_outcome {
+                LastProviderOutcome::Healthy => ProviderHealthStatus::Healthy,
+                LastProviderOutcome::Failing => ProviderHealthStatus::Failing,
+                LastProviderOutcome::Unknown => ProviderHealthStatus::Unknown,
+            },
+            model: self.configured_model.clone(),
+            endpoint: self.endpoint.clone(),
+            api_key_configured: self.api_key_configured,
+            endpoint_configured: self.endpoint_configured,
+            requests_total: state.requests_total,
+            errors_total: state.errors_total,
+            last_success: state.last_success.clone(),
+            last_error: state.last_error.clone(),
+            last_error_message: state.last_error_message.clone(),
+        }
+    }
+}
+
 macro_rules! build_rig_agent {
     ($name:literal, $client:path, $api_key:expr, $model:expr, $http_client:expr) => {{
         let client = <$client>::builder()
@@ -45,6 +139,111 @@ macro_rules! build_rig_agent {
             agent: client.agent($model).build(),
         })
     }};
+}
+
+fn is_openai_compatible_runtime_provider(provider: &str) -> bool {
+    matches!(
+        provider,
+        "openai" | "cerebras" | "nebius" | "siliconflow" | "fireworks" | "nvidia" | "chutes"
+    )
+}
+
+fn openai_compatible_base_url(endpoint: &str) -> String {
+    endpoint
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches("/chat/completions")
+        .to_string()
+}
+
+fn provider_status_endpoint(config: &AppConfig) -> String {
+    match &config.llm_provider {
+        LlmProvider::Azure => {
+            if config.external_llm_url.trim().is_empty()
+                || config.azure_deployment_id.trim().is_empty()
+                || config.azure_api_version.trim().is_empty()
+            {
+                config.external_llm_url.trim().to_string()
+            } else {
+                format!(
+                    "{}/openai/deployments/{}/chat/completions?api-version={}",
+                    config.external_llm_url.trim_end_matches('/'),
+                    config.azure_deployment_id,
+                    config.azure_api_version
+                )
+            }
+        }
+        LlmProvider::Anthropic => "https://api.anthropic.com/v1/messages".to_string(),
+        LlmProvider::Copilot => {
+            let configured = config.external_llm_url.trim();
+            if configured.is_empty() {
+                "https://api.githubcopilot.com/chat/completions".to_string()
+            } else {
+                configured.to_string()
+            }
+        }
+        LlmProvider::Gemini => format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}",
+            config.external_llm_model
+        ),
+        LlmProvider::Ollama => {
+            let configured = config.external_llm_url.trim();
+            if configured.is_empty() {
+                "http://localhost:11434".to_string()
+            } else {
+                configured.to_string()
+            }
+        }
+        LlmProvider::Cohere => "https://api.cohere.ai/v1/chat".to_string(),
+        LlmProvider::Huggingface => format!(
+            "https://api-inference.huggingface.co/models/{}",
+            config.external_llm_model
+        ),
+        provider => {
+            let configured = config.external_llm_url.trim();
+            if let Some(default_url) = default_chat_completions_url(provider) {
+                if configured.is_empty()
+                    || (*provider != LlmProvider::Openai
+                        && configured == DEFAULT_OPENAI_CHAT_COMPLETIONS_URL)
+                {
+                    default_url.to_string()
+                } else {
+                    configured.to_string()
+                }
+            } else {
+                configured.to_string()
+            }
+        }
+    }
+}
+
+fn compact_provider_error(error: &str) -> String {
+    let single_line = error.split_whitespace().collect::<Vec<_>>().join(" ");
+    const MAX_LEN: usize = 240;
+    if single_line.len() <= MAX_LEN {
+        single_line
+    } else {
+        format!("{}...", &single_line[..MAX_LEN - 3])
+    }
+}
+
+fn build_openai_compatible_rig_agent(
+    name: &'static str,
+    api_key: &str,
+    model: &str,
+    endpoint: &str,
+    http_client: rig::http_client::ReqwestClient,
+) -> Arc<dyn AppLlmAgent> {
+    let client = openai::Client::builder()
+        .api_key(api_key)
+        .base_url(openai_compatible_base_url(endpoint))
+        .http_client(http_client)
+        .build()
+        .expect("Failed to initialize OpenAI-compatible client");
+    Arc::new(RigAgent {
+        name,
+        agent: client.agent(model).build(),
+    })
 }
 
 #[async_trait::async_trait]
@@ -72,6 +271,7 @@ pub struct AppState {
     pub http_client: reqwest::Client,
     pub exact_cache: Arc<ExactMatchCache>,
     pub vector_cache: Arc<VectorCache>,
+    pub provider_health: Arc<ProviderHealthTracker>,
 
     /// Rig AI Agent encapsulating the configured Layer 3 provider.
     pub llm_agent: Arc<dyn AppLlmAgent>,
@@ -290,6 +490,15 @@ impl AppState {
                     rig_http_client
                 )
             }
+            provider if is_openai_compatible_runtime_provider(provider) => {
+                build_openai_compatible_rig_agent(
+                    provider,
+                    &config.external_llm_api_key,
+                    &config.external_llm_model,
+                    &config.external_llm_url,
+                    rig_http_client,
+                )
+            }
             _ => {
                 build_rig_agent!(
                     "openai",
@@ -332,10 +541,11 @@ impl AppState {
             };
 
         Self {
-            config,
+            config: config.clone(),
             http_client,
             exact_cache,
             vector_cache,
+            provider_health: Arc::new(ProviderHealthTracker::from_config(&config)),
             llm_agent: agent,
             slm_client,
             text_embedder,
@@ -343,6 +553,296 @@ impl AppState {
             #[cfg(feature = "embedded-inference")]
             embedded_classifier,
         }
+    }
+
+    pub async fn chat_with_model(&self, prompt: &str, model: &str) -> anyhow::Result<String> {
+        if model == self.config.configured_model_id() {
+            return self.llm_agent.chat(prompt).await;
+        }
+
+        let l3_timeout = Duration::from_secs(self.config.l3_timeout_secs);
+        let rig_http_client = rig::http_client::ReqwestClient::builder()
+            .timeout(l3_timeout)
+            .build()
+            .expect("failed to build rig reqwest client");
+
+        match self.config.llm_provider.as_str() {
+            "azure" => {
+                let client: azure::Client = azure::Client::builder()
+                    .api_key(self.config.external_llm_api_key.as_str())
+                    .http_client(rig_http_client)
+                    .azure_endpoint(self.config.external_llm_url.clone())
+                    .api_version(&self.config.azure_api_version)
+                    .build()
+                    .expect("Failed to initialize Azure OpenAI client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "anthropic" => {
+                let client = anthropic::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize anthropic client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "copilot" => {
+                CopilotAgent::chat_with_model(
+                    &self.http_client,
+                    &self.config.external_llm_api_key,
+                    model,
+                    l3_timeout,
+                    prompt,
+                )
+                .await
+            }
+            "xai" => {
+                let client = xai::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize xai client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "gemini" => {
+                let client = gemini::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize gemini client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "mistral" => {
+                let client = mistral::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize mistral client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "groq" => {
+                let client = groq::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize groq client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "deepseek" => {
+                let client = deepseek::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize deepseek client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "cohere" => {
+                let client = cohere::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize cohere client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "galadriel" => {
+                let client = galadriel::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize galadriel client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "hyperbolic" => {
+                let client = hyperbolic::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize hyperbolic client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "huggingface" => {
+                let client = huggingface::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize huggingface client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "mira" => {
+                let client = mira::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize mira client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "moonshot" => {
+                let client = moonshot::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize moonshot client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "ollama" => {
+                unsafe {
+                    env::set_var("OLLAMA_HOST", &self.config.external_llm_url);
+                }
+                let client = ollama::Client::builder()
+                    .api_key(Nothing)
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize Ollama client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "openrouter" => {
+                let client = openrouter::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize openrouter client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "perplexity" => {
+                let client = perplexity::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize perplexity client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            "together" => {
+                let client = together::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize together client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            provider if is_openai_compatible_runtime_provider(provider) => {
+                let client = openai::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .base_url(openai_compatible_base_url(&self.config.external_llm_url))
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize OpenAI-compatible client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+            _ => {
+                let client = openai::Client::builder()
+                    .api_key(self.config.external_llm_api_key.clone())
+                    .http_client(rig_http_client)
+                    .build()
+                    .expect("Failed to initialize openai client");
+                client
+                    .agent(model)
+                    .build()
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))
+            }
+        }
+    }
+
+    pub fn record_provider_success(&self) {
+        self.provider_health.record_success();
+    }
+
+    pub fn record_provider_failure(&self, error: &str) {
+        self.provider_health.record_failure(error);
+    }
+
+    pub fn provider_status(&self) -> ProviderStatusResponse {
+        self.provider_health.snapshot()
     }
 }
 
@@ -390,6 +890,7 @@ mod tests {
             external_llm_url: "https://api.openai.com".into(),
             external_llm_api_key: "sk-test".into(),
             external_llm_model: "gpt-4o-mini".into(),
+            model_aliases: std::collections::HashMap::new(),
             l3_timeout_secs: 120,
             azure_api_version: "2024-02-15-preview".into(),
             azure_deployment_id: "my-deployment".into(),
@@ -406,6 +907,8 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: false,
             otel_exporter_endpoint: String::new(),
+            enable_request_logs: false,
+            request_log_path: "~/.isartor/request_logs".into(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             local_slm_url: "http://localhost:11434/api/generate".into(),
@@ -476,6 +979,14 @@ mod tests {
     async fn app_state_new_groq_provider() {
         let state = AppState::new(make_test_config("groq"), shared_test_embedder());
         assert_eq!(state.llm_agent.provider_name(), "groq");
+    }
+
+    #[tokio::test]
+    async fn app_state_new_cerebras_provider() {
+        let mut config = (*make_test_config("cerebras")).clone();
+        config.external_llm_url = "https://api.cerebras.ai/v1/chat/completions".into();
+        let state = AppState::new(Arc::new(config), shared_test_embedder());
+        assert_eq!(state.llm_agent.provider_name(), "cerebras");
     }
 
     #[tokio::test]

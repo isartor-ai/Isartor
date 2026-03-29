@@ -20,7 +20,17 @@
   - `make benchmark-dry-run`
   - `python3 benchmarks/run.py --url http://localhost:8080 --input benchmarks/fixtures/faq_loop.jsonl --requests 500`
 - Development setup in `CONTRIBUTING.md` expects Rust 1.75+ and notes Docker for integration-test workflows.
-
+- Update tests in `tests/`, targeting the owning integration-test binary (`unit_suite`, `integration_suite`, `scenario_suite`, or `integration_test`) rather than assuming per-file test targets.
+- Treat `README.md` as the public feature list and top-level product entry point.
+- For any implementation ticket that changes behavior, capabilities, supported providers/tools, CLI/API surfaces, configuration, or UX, update the affected documentation in the same change:
+  - `README.md` feature list and user-facing capability callouts
+  - supplementary docs in `docs/`
+  - published docs in `docs-site/src/`
+- If the implementation changes system structure, request flow, supported surfaces, deployment model, routing strategy, cache semantics, or other lasting technical trade-offs, also update:
+  - `docs/architecture-decisions.md`
+  - `docs-site/src/concepts/architecture-decisions.md`
+  - `docs-site/src/concepts/architecture.md`
+- Do not defer these documentation or architecture updates to a follow-up ticket when the implementation itself is shipping now.
 ## High-level architecture
 
 - `src/main.rs` is the real boot sequence. It loads `AppConfig`, initializes telemetry, eagerly loads the in-process sentence embedder, builds a shared `AppState`, starts the Axum API gateway, starts a separate CONNECT proxy, and optionally runs the first-run demo.

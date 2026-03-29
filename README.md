@@ -36,9 +36,11 @@ isartor setup
 
 # Or configure manually (example: Groq)
 # isartor set-key -p groq
+# isartor set-alias --alias fast --model gpt-4o-mini
 
 # Verify the provider and run the post-install showcase
 isartor check
+isartor providers
 isartor demo
 
 # Connect your AI tool (pick one)
@@ -55,6 +57,14 @@ isartor connect claude-copilot   # Claude Code + GitHub Copilot
 ```
 
 The best first-run path is now: **install → `isartor setup` → demo → connect tool**. If you prefer the old explicit flow, `set-key`, `check`, and `connect` still work exactly as before. `isartor demo` still works without an API key, but with a configured provider it now also shows a live upstream round-trip before the cache replay.
+
+You can also define request-time model aliases like `fast`, `smart`, or `code` that resolve to real provider model IDs before routing and cache-key generation.
+
+For provider troubleshooting, Isartor also supports opt-in request/response debug logging. Set `ISARTOR__ENABLE_REQUEST_LOGS=true`, reproduce the issue, and inspect the separate JSONL stream with `isartor logs --requests`. Auth headers are redacted automatically, but prompt bodies may still contain sensitive data, so leave it off unless you need it.
+
+For a fast Layer 3 status snapshot, run `isartor providers` or query the authenticated `GET /debug/providers` endpoint. It reports the active provider, configured model and endpoint, plus the last-known in-memory success/error state for upstream traffic since the current process started.
+
+The provider registry also includes a broader set of OpenAI-compatible backends out of the box, including `cerebras`, `nebius`, `siliconflow`, `fireworks`, `nvidia`, and `chutes`, so `isartor set-key -p <provider>` and `isartor setup` can configure them without manual endpoint lookup.
 
 ## See Isartor in the Terminal
 
@@ -233,6 +243,16 @@ response = client.chat.completions.create(
 
 Works with the official Python/Node SDKs, LangChain, LlamaIndex, AutoGen, CrewAI, OpenClaw, or any OpenAI-compatible client.
 
+If you prefer friendly names over provider model IDs, add aliases in `isartor.toml`:
+
+```toml
+[model_aliases]
+fast = "gpt-4o-mini"
+smart = "gpt-4o"
+```
+
+Then clients can send `model="fast"` and Isartor will route it as `gpt-4o-mini`.
+
 ---
 
 ## Scales from Laptop to Cluster
@@ -297,6 +317,7 @@ isartor stop                   Stop a running instance
 isartor demo                   Run the post-install showcase (cache-only or live + cache)
 isartor init                   Generate a commented config scaffold
 isartor set-key -p openai      Configure your LLM provider API key
+isartor providers             Show active provider config + in-memory health
 isartor stats                  Prompt totals, layer hits, routing history
 isartor stats --by-tool        Per-tool cache hits, latency, errors
 isartor update                 Self-update to the latest release

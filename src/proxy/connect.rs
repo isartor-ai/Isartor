@@ -1011,6 +1011,7 @@ mod tests {
             llm_provider: "openai".into(),
             external_llm_url: "https://api.openai.com/v1/chat/completions".into(),
             external_llm_model: "gpt-4o-mini".into(),
+            model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
@@ -1018,6 +1019,8 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router,
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            enable_request_logs: false,
+            request_log_path: "~/.isartor/request_logs".into(),
             offline_mode,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -1037,6 +1040,7 @@ mod tests {
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         })

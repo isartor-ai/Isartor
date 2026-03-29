@@ -62,6 +62,8 @@ impl FinalLayer {
 #[allow(dead_code)]
 pub struct ChatRequest {
     pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// Unified response envelope returned by any layer.
@@ -142,6 +144,40 @@ pub struct AgentStatsEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct AgentStatsResponse {
     pub agents: BTreeMap<String, AgentStatsEntry>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderHealthStatus {
+    Healthy,
+    Failing,
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ProviderStatusEntry {
+    pub name: String,
+    pub active: bool,
+    pub status: ProviderHealthStatus,
+    pub model: String,
+    pub endpoint: String,
+    pub api_key_configured: bool,
+    pub endpoint_configured: bool,
+    pub requests_total: u64,
+    pub errors_total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_success: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ProviderStatusResponse {
+    pub active_provider: String,
+    pub providers: Vec<ProviderStatusEntry>,
 }
 
 // ── Legacy Ollama — Generation (v1 middleware compat) ─────────────────
@@ -350,6 +386,7 @@ mod tests {
     fn chat_request_serialize_roundtrip() {
         let req = ChatRequest {
             prompt: "test".into(),
+            model: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let back: ChatRequest = serde_json::from_str(&json).unwrap();

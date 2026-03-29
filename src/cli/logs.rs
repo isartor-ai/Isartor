@@ -15,10 +15,18 @@ pub struct LogsArgs {
     /// Follow appended log lines in real time.
     #[arg(long, default_value_t = false)]
     pub follow: bool,
+
+    /// Show or follow request/response debug logs instead of the main startup log.
+    #[arg(long, default_value_t = false)]
+    pub requests: bool,
 }
 
 pub fn handle_logs(args: LogsArgs) -> Result<()> {
-    let path = crate::cli::up::startup_log_path()?;
+    let path = if args.requests {
+        crate::core::request_logger::configured_request_log_file_path()?
+    } else {
+        crate::cli::up::startup_log_path()?
+    };
     let stdout = std::io::stdout();
     let mut lock = stdout.lock();
     handle_logs_at_path(&path, &args, &mut lock)
@@ -26,13 +34,27 @@ pub fn handle_logs(args: LogsArgs) -> Result<()> {
 
 fn handle_logs_at_path(path: &Path, args: &LogsArgs, out: &mut dyn Write) -> Result<()> {
     if !path.exists() {
+        if args.requests {
+            bail!(
+                "No request log file found at {}. Enable request logging first with ISARTOR__ENABLE_REQUEST_LOGS=true.",
+                path.display()
+            );
+        }
         bail!(
             "No log file found at {}. Start Isartor with `isartor up --detach` first.",
             path.display()
         );
     }
 
-    writeln!(out, "Isartor Logs")?;
+    writeln!(
+        out,
+        "{}",
+        if args.requests {
+            "Isartor Request Logs"
+        } else {
+            "Isartor Logs"
+        }
+    )?;
     writeln!(out, "  Path: {}", path.display())?;
     writeln!(
         out,
@@ -138,7 +160,15 @@ mod tests {
         let temp = tempdir().unwrap();
         let path = temp.path().join("missing.log");
         let mut output = Vec::new();
-        let err = handle_logs_at_path(&path, &LogsArgs { follow: false }, &mut output).unwrap_err();
+        let err = handle_logs_at_path(
+            &path,
+            &LogsArgs {
+                follow: false,
+                requests: false,
+            },
+            &mut output,
+        )
+        .unwrap_err();
         assert!(
             err.to_string()
                 .contains("Start Isartor with `isartor up --detach` first")
@@ -152,12 +182,42 @@ mod tests {
         std::fs::write(&path, "alpha\nbeta\n").unwrap();
 
         let mut output = Vec::new();
-        handle_logs_at_path(&path, &LogsArgs { follow: false }, &mut output).unwrap();
+        handle_logs_at_path(
+            &path,
+            &LogsArgs {
+                follow: false,
+                requests: false,
+            },
+            &mut output,
+        )
+        .unwrap();
 
         let rendered = String::from_utf8(output).unwrap();
         assert!(rendered.contains("Isartor Logs"));
         assert!(rendered.contains("snapshot"));
         assert!(rendered.contains("alpha\nbeta"));
+    }
+
+    #[test]
+    fn handle_logs_at_path_uses_request_header_when_requested() {
+        let temp = tempdir().unwrap();
+        let path = temp.path().join("requests.log");
+        std::fs::write(&path, "{\"path\":\"/api/chat\"}\n").unwrap();
+
+        let mut output = Vec::new();
+        handle_logs_at_path(
+            &path,
+            &LogsArgs {
+                follow: false,
+                requests: true,
+            },
+            &mut output,
+        )
+        .unwrap();
+
+        let rendered = String::from_utf8(output).unwrap();
+        assert!(rendered.contains("Isartor Request Logs"));
+        assert!(rendered.contains("{\"path\":\"/api/chat\"}"));
     }
 
     #[test]

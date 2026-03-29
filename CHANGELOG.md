@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.11] - 2026-03-29
+
+### Added
+- **Request-time model aliases**: added `isartor set-alias`, alias-aware `/v1/models` output, and canonical model resolution before Layer 3 routing and cache-key generation so friendly names like `fast` and `smart` share the same runtime/cache path as the real provider model.
+- **Opt-in request/response debug logging**: added `enable_request_logs`, `request_log_path`, rotating redacted JSONL request logs, startup warnings, and `isartor logs --requests` for troubleshooting provider/client integration issues without mixing payloads into normal telemetry.
+- **Provider status endpoint and CLI**: added authenticated `GET /debug/providers` and `isartor providers` to show the active Layer 3 provider, configured model/endpoint, and last-known in-memory success/error state.
+
+### Changed
+- **OpenAI-compatible provider registry expansion**: added first-class provider entries for `cerebras`, `nebius`, `siliconflow`, `fireworks`, `nvidia`, and `chutes` across config, setup, `set-key`, connectivity checks, and shared OpenAI-compatible runtime routing.
+- **Release documentation and architecture records**: refreshed README, docs-site configuration reference, architecture docs, and ADRs to document model aliases, request logging, provider registry growth, and provider health visibility together.
+
 ## [2026.3.10] - 2026-03-28
 
 ### Added

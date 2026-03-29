@@ -1,6 +1,7 @@
 pub mod connect;
 pub mod logs;
 pub mod mcp;
+pub mod providers;
 pub mod set_key;
 pub mod setup;
 pub mod stats;

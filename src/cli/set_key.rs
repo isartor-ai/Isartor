@@ -35,6 +35,26 @@ pub struct SetKeyArgs {
     pub env_file: bool,
 }
 
+/// Set or update a user-facing model alias in `isartor.toml`.
+#[derive(Parser, Debug, Clone)]
+pub struct SetAliasArgs {
+    /// Alias name clients can send as the request model (for example: fast).
+    #[arg(long)]
+    pub alias: String,
+
+    /// Real provider model identifier that the alias resolves to.
+    #[arg(short, long)]
+    pub model: String,
+
+    /// Path to isartor.toml config file.
+    #[arg(long, default_value = "./isartor.toml")]
+    pub config_path: PathBuf,
+
+    /// Print what would be written without modifying any files.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 /// All known LLM provider names (must match LlmProvider enum variants).
 const KNOWN_PROVIDERS: &[&str] = &[
     "openai",
@@ -45,6 +65,12 @@ const KNOWN_PROVIDERS: &[&str] = &[
     "gemini",
     "mistral",
     "groq",
+    "cerebras",
+    "nebius",
+    "siliconflow",
+    "fireworks",
+    "nvidia",
+    "chutes",
     "deepseek",
     "cohere",
     "galadriel",
@@ -69,6 +95,12 @@ pub fn default_model(provider: &LlmProvider) -> &'static str {
         LlmProvider::Gemini => "gemini-2.0-flash",
         LlmProvider::Mistral => "mistral-small-latest",
         LlmProvider::Groq => "llama-3.1-8b-instant",
+        LlmProvider::Cerebras => "llama-3.3-70b",
+        LlmProvider::Nebius => "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        LlmProvider::Siliconflow => "Qwen/Qwen2.5-72B-Instruct",
+        LlmProvider::Fireworks => "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        LlmProvider::Nvidia => "meta/llama-3.1-8b-instruct",
+        LlmProvider::Chutes => "deepseek-ai/DeepSeek-V3-0324",
         LlmProvider::Deepseek => "deepseek-chat",
         LlmProvider::Cohere => "command-r",
         LlmProvider::Ollama => "llama3.2",
@@ -133,6 +165,43 @@ pub fn write_provider_config(
         .with_context(|| format!("Failed to parse {}", config_path.display()))?;
 
     apply_provider_config(&mut doc, provider, model, api_key);
+
+    let output = doc.to_string();
+    if dry_run {
+        return Ok(output);
+    }
+
+    std::fs::write(config_path, &output)
+        .with_context(|| format!("Failed to write {}", config_path.display()))?;
+
+    Ok(output)
+}
+
+pub fn apply_model_alias(doc: &mut DocumentMut, alias: &str, model: &str) {
+    if doc.get("model_aliases").is_none() {
+        doc["model_aliases"] = toml_edit::table();
+    }
+    doc["model_aliases"][alias] = toml_edit::value(model);
+}
+
+pub fn write_model_alias_config(
+    config_path: &Path,
+    alias: &str,
+    model: &str,
+    dry_run: bool,
+) -> Result<String> {
+    let existing = if config_path.exists() {
+        std::fs::read_to_string(config_path)
+            .with_context(|| format!("Failed to read {}", config_path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut doc = existing
+        .parse::<DocumentMut>()
+        .with_context(|| format!("Failed to parse {}", config_path.display()))?;
+
+    apply_model_alias(&mut doc, alias, model);
 
     let output = doc.to_string();
     if dry_run {
@@ -235,6 +304,33 @@ pub async fn handle_set_key(args: SetKeyArgs) -> Result<()> {
     Ok(())
 }
 
+pub async fn handle_set_alias(args: SetAliasArgs) -> Result<()> {
+    let alias = args.alias.trim();
+    let model = args.model.trim();
+
+    if alias.is_empty() {
+        bail!("Alias name must not be empty");
+    }
+    if model.is_empty() {
+        bail!("Alias target model must not be empty");
+    }
+
+    let output = write_model_alias_config(&args.config_path, alias, model, args.dry_run)?;
+
+    if args.dry_run {
+        eprintln!("[dry-run] Would write to {}:", args.config_path.display());
+        eprintln!("{output}");
+        return Ok(());
+    }
+
+    eprintln!();
+    eprintln!("  ✓ Alias:     {}", alias);
+    eprintln!("  ✓ Resolves:  {}", model);
+    eprintln!("  ✓ Written:   {}", args.config_path.display());
+    eprintln!();
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +356,7 @@ mod tests {
         assert!(validate_provider("OpenAI").is_ok());
         assert!(validate_provider("ANTHROPIC").is_ok());
         assert!(validate_provider("ollama").is_ok());
+        assert!(validate_provider("cerebras").is_ok());
     }
 
     #[test]
@@ -280,6 +377,7 @@ mod tests {
             default_model(&LlmProvider::Together),
             "meta-llama/Meta-Llama-3.1-8B-Instruct"
         );
+        assert_eq!(default_model(&LlmProvider::Cerebras), "llama-3.3-70b");
     }
 
     #[tokio::test]
@@ -382,6 +480,21 @@ mod tests {
         assert!(content.contains("llm_provider = \"ollama\""));
         assert!(content.contains("external_llm_model = \"llama3.2\""));
         assert!(content.contains("external_llm_api_key = \"\""));
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_write_model_alias_config() {
+        let tmp = std::env::temp_dir().join("isartor_test_set_alias.toml");
+        let _ = std::fs::remove_file(&tmp);
+
+        let output = write_model_alias_config(&tmp, "fast", "gpt-4o-mini", false).unwrap();
+        assert!(output.contains("[model_aliases]"));
+        assert!(output.contains("fast = \"gpt-4o-mini\""));
+
+        let content = std::fs::read_to_string(&tmp).unwrap();
+        assert!(content.contains("fast = \"gpt-4o-mini\""));
 
         let _ = std::fs::remove_file(&tmp);
     }

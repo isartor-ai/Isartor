@@ -1,12 +1,14 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use axum::body::Body;
 use axum::extract::Request;
 use axum::http::HeaderValue;
 use axum::middleware::Next;
 use axum::response::IntoResponse;
 use tracing::Instrument;
 
+use crate::core::request_logger::{LoggingBody, RequestLogContext, RequestLogExchange};
 use crate::metrics;
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::FinalLayer;
@@ -39,6 +41,11 @@ fn endpoint_family_for_path(path: &str) -> (&'static str, &'static str) {
 pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl IntoResponse {
     let method = request.method().clone();
     let path = request.uri().path().to_string();
+    let request_headers = request.headers().clone();
+    let request_body = request
+        .extensions()
+        .get::<BufferedBody>()
+        .map(|buf| buf.0.clone());
     let client_addr = request
         .headers()
         .get("x-forwarded-for")
@@ -203,6 +210,31 @@ pub async fn root_monitoring_middleware(request: Request, next: Next) -> impl In
         HeaderValue::from_static(deflected_header_value),
     );
 
+    if let Some(state) = state_opt
+        && state.config.enable_request_logs
+    {
+        let response_headers = response.headers().clone();
+        let context = RequestLogContext::from_exchange(RequestLogExchange {
+            config: &state.config,
+            method: method.as_str(),
+            path: &path,
+            endpoint_family,
+            client: client_name,
+            tool,
+            request_headers: &request_headers,
+            request_body: request_body.as_deref().unwrap_or_default(),
+            response_status: status_code,
+            response_headers: &response_headers,
+            latency_ms: elapsed.as_millis() as u64,
+            final_layer: layer_label,
+        });
+        let (parts, body) = response.into_parts();
+        return axum::response::Response::from_parts(
+            parts,
+            Body::new(LoggingBody::new(body, state.config.clone(), context)),
+        );
+    }
+
     response
 }
 
@@ -212,6 +244,7 @@ mod tests {
     use axum::http::StatusCode;
     use axum::{Json, Router, body::Body, middleware as axum_mw, routing::post};
     use http_body_util::BodyExt;
+    use tempfile::tempdir;
     use tower::ServiceExt;
 
     use crate::clients::slm::SlmClient;
@@ -237,6 +270,14 @@ mod tests {
     }
 
     fn test_state(enable_monitoring: bool) -> Arc<AppState> {
+        test_state_with_request_logs(enable_monitoring, false, "~/.isartor/request_logs")
+    }
+
+    fn test_state_with_request_logs(
+        enable_monitoring: bool,
+        enable_request_logs: bool,
+        request_log_path: &str,
+    ) -> Arc<AppState> {
         let config = Arc::new(AppConfig {
             host_port: "127.0.0.1:0".into(),
             inference_engine: crate::config::InferenceEngineMode::Sidecar,
@@ -268,6 +309,7 @@ mod tests {
             llm_provider: "openai".into(),
             external_llm_url: "http://localhost".into(),
             external_llm_model: "test".into(),
+            model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
@@ -275,6 +317,8 @@ mod tests {
             enable_monitoring,
             enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            enable_request_logs,
+            request_log_path: request_log_path.into(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -290,6 +334,7 @@ mod tests {
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             config,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -312,6 +357,9 @@ mod tests {
                 }),
             )
             .layer(axum_mw::from_fn(root_monitoring_middleware))
+            .layer(axum_mw::from_fn(
+                crate::middleware::body_buffer::buffer_body_middleware,
+            ))
             .layer(axum_mw::from_fn(
                 move |mut req: axum::extract::Request, next: axum_mw::Next| {
                     let st = state.clone();
@@ -367,6 +415,9 @@ mod tests {
             )
             .layer(axum_mw::from_fn(root_monitoring_middleware))
             .layer(axum_mw::from_fn(
+                crate::middleware::body_buffer::buffer_body_middleware,
+            ))
+            .layer(axum_mw::from_fn(
                 move |mut req: axum::extract::Request, next: axum_mw::Next| {
                     let st = state.clone();
                     async move {
@@ -384,5 +435,39 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn request_logging_writes_redacted_request_log() {
+        let temp = tempdir().unwrap();
+        let state = test_state_with_request_logs(false, true, temp.path().to_str().unwrap());
+        let app = monitoring_app(state);
+
+        let req = axum::extract::Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .header("authorization", "Bearer secret-token")
+            .body(Body::from(
+                br#"{"prompt":"hello","api_key":"top-secret"}"#.to_vec(),
+            ))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let _ = resp.into_body().collect().await.unwrap();
+
+        let contents = std::fs::read_to_string(temp.path().join("requests.log")).unwrap();
+        let entry: serde_json::Value =
+            serde_json::from_str(contents.lines().next().unwrap()).unwrap();
+        assert_eq!(entry["path"], "/api/chat");
+        assert_eq!(entry["request_headers"]["authorization"], "[REDACTED]");
+        assert_eq!(
+            entry["request_body"],
+            "{\"api_key\":\"[REDACTED]\",\"prompt\":\"hello\"}"
+        );
+        assert_eq!(entry["response_body"], "{\"layer\":3,\"message\":\"ok\"}");
+        assert!(!contents.contains("secret-token"));
+        assert!(!contents.contains("top-secret"));
     }
 }

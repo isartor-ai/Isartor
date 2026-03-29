@@ -562,6 +562,12 @@ fn provider_options() -> Vec<(LlmProvider, &'static str)> {
         (LlmProvider::Openai, "OpenAI"),
         (LlmProvider::Anthropic, "Anthropic"),
         (LlmProvider::Groq, "Groq"),
+        (LlmProvider::Cerebras, "Cerebras"),
+        (LlmProvider::Nebius, "Nebius"),
+        (LlmProvider::Siliconflow, "SiliconFlow"),
+        (LlmProvider::Fireworks, "Fireworks"),
+        (LlmProvider::Nvidia, "NVIDIA NIM"),
+        (LlmProvider::Chutes, "Chutes"),
         (LlmProvider::Gemini, "Google Gemini"),
         (LlmProvider::Xai, "xAI"),
         (LlmProvider::Mistral, "Mistral"),
@@ -875,6 +881,22 @@ fn l3_connectivity_target(config: &AppConfig) -> L3ConnectivityTarget {
         LlmProvider::Xai => openai_models_target("xai", "https://api.x.ai/v1/models"),
         LlmProvider::Mistral => openai_models_target("mistral", "https://api.mistral.ai/v1/models"),
         LlmProvider::Groq => openai_models_target("groq", "https://api.groq.com/openai/v1/models"),
+        LlmProvider::Cerebras => {
+            openai_models_target("cerebras", "https://api.cerebras.ai/v1/models")
+        }
+        LlmProvider::Nebius => {
+            openai_models_target("nebius", "https://api.studio.nebius.ai/v1/models")
+        }
+        LlmProvider::Siliconflow => {
+            openai_models_target("siliconflow", "https://api.siliconflow.cn/v1/models")
+        }
+        LlmProvider::Fireworks => {
+            openai_models_target("fireworks", "https://api.fireworks.ai/inference/v1/models")
+        }
+        LlmProvider::Nvidia => {
+            openai_models_target("nvidia", "https://integrate.api.nvidia.com/v1/models")
+        }
+        LlmProvider::Chutes => openai_models_target("chutes", "https://llm.chutes.ai/v1/models"),
         LlmProvider::Deepseek => {
             openai_models_target("deepseek", "https://api.deepseek.com/models")
         }

@@ -154,11 +154,15 @@ const SCAFFOLD_TOML: &str = r#"# ═══════════════�
 
 # ── Layer 3 — External LLM ───────────────────────────────────────────
 # llm_provider       = "openai"      # "openai", "azure", "anthropic", "copilot", "xai", "gemini", "mistral",
-#                                    # "groq", "deepseek", "cohere", "galadriel", "hyperbolic",
+#                                    # "groq", "cerebras", "nebius", "siliconflow", "fireworks", "nvidia", "chutes",
+#                                    # "deepseek", "cohere", "galadriel", "hyperbolic",
 #                                    # "huggingface", "mira", "moonshot", "ollama", "openrouter",
 #                                    # "perplexity", "together"
 # external_llm_url   = "https://api.openai.com/v1/chat/completions"
 # external_llm_model = "gpt-4o-mini"
+# [model_aliases]
+# fast = "gpt-4o-mini"
+# smart = "gpt-4o"
 # external_llm_api_key = ""          # ← Set this or use ISARTOR__EXTERNAL_LLM_API_KEY
 # l3_timeout_secs    = 120           # Shared timeout for all Layer 3 providers
 
@@ -169,6 +173,8 @@ const SCAFFOLD_TOML: &str = r#"# ═══════════════�
 # ── Observability ────────────────────────────────────────────────────
 # enable_monitoring        = false
 # otel_exporter_endpoint   = "http://localhost:4317"
+# enable_request_logs      = false
+# request_log_path         = "~/.isartor/request_logs"
 "#;
 
 /// Write a commented `isartor.toml` scaffold to the current directory.
@@ -199,6 +205,7 @@ mod tests {
         assert!(SCAFFOLD_TOML.contains("llm_provider"));
         assert!(SCAFFOLD_TOML.contains("[layer2]"));
         assert!(SCAFFOLD_TOML.contains("[embedding_sidecar]"));
+        assert!(SCAFFOLD_TOML.contains("enable_request_logs"));
     }
 
     #[test]

@@ -271,7 +271,14 @@ Ask:
 2. Does it change cache keys or cache safety?
 3. Does it preserve response format by endpoint?
 4. Does it require tests in `unit_suite`, `integration_suite`, or `scenario_suite`?
-5. Does it need docs updates in `README.md` or docs-site?
+5. Does it require updates to the public feature list in `README.md`?
+6. Which supplementary docs in `docs/` and published docs in `docs-site/src/` need to change in the same patch?
+7. Does it change system structure, request flow, supported surfaces, deployment shape, routing strategy, or another lasting design decision that should update:
+   - `docs/architecture-decisions.md`
+   - `docs-site/src/concepts/architecture-decisions.md`
+   - `docs-site/src/concepts/architecture.md`
+
+For implementation tickets, treat these documentation and architecture updates as part of done-ness, not follow-up work.
 
 ## If you are debugging a bug
 

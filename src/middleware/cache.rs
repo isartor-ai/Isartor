@@ -16,7 +16,10 @@ use crate::config::CacheMode;
 use crate::core::cache_scope::{
     build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
 };
-use crate::core::prompt::{extract_cache_key, extract_semantic_key, has_tooling};
+use crate::core::prompt::{
+    extract_cache_key, extract_request_model, extract_semantic_key, has_tooling,
+    override_request_model,
+};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{ChatResponse, FinalLayer};
 use crate::openai_sse;
@@ -95,14 +98,21 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         }
     };
 
-    let cache_key_material = extract_cache_key(body_bytes.as_ref());
-    let has_tooling = has_tooling(body_bytes.as_ref());
-    let session_cache_scope = extract_session_cache_scope(request.headers(), body_bytes.as_ref());
+    let resolved_model = extract_request_model(body_bytes.as_ref())
+        .map(|model| state.config.resolve_model_alias(&model))
+        .unwrap_or_else(|| state.config.configured_model_id());
+    let canonical_body = override_request_model(body_bytes.as_ref(), &resolved_model);
+    let cache_key_material = extract_cache_key(&canonical_body);
+    let has_tooling = has_tooling(&canonical_body);
+    let session_cache_scope = extract_session_cache_scope(request.headers(), &canonical_body);
 
     // For semantic matching, use only the last user message so the embedding
     // captures the actual question rather than a large system prompt that
     // dominates the vector and causes unrelated questions to match.
-    let semantic_prompt = extract_semantic_key(body_bytes.as_ref());
+    let semantic_prompt = format!(
+        "model: {resolved_model}\n{}",
+        extract_semantic_key(&canonical_body)
+    );
 
     // Keep cache entries separate per response format to avoid cross-format cache hits.
     // (e.g., OpenAI-compatible endpoints should not return native ChatResponse bodies.)
@@ -116,8 +126,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
 
     // Detect if the client expects an SSE stream (Claude Code sends stream: true).
     let is_streaming = match cache_ns {
-        "anthropic" => anthropic_sse::is_streaming_request(body_bytes.as_ref()),
-        "openai" => openai_sse::is_streaming_request(body_bytes.as_ref()),
+        "anthropic" => anthropic_sse::is_streaming_request(&canonical_body),
+        "openai" => openai_sse::is_streaming_request(&canonical_body),
         _ => false,
     };
 
@@ -154,15 +164,14 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             crate::visibility::record_agent_cache_event(tool, "l1a", "hit");
             crate::visibility::record_agent_cache_event(tool, "l1", "hit");
             let mut response = if is_streaming {
-                streaming_cache_response(cache_ns, &cached, &state.config.external_llm_model)
-                    .unwrap_or_else(|| {
-                        (
-                            StatusCode::OK,
-                            [(axum::http::header::CONTENT_TYPE, "application/json")],
-                            cached.clone(),
-                        )
-                            .into_response()
-                    })
+                streaming_cache_response(cache_ns, &cached, &resolved_model).unwrap_or_else(|| {
+                    (
+                        StatusCode::OK,
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        cached.clone(),
+                    )
+                        .into_response()
+                })
             } else {
                 (
                     StatusCode::OK,
@@ -243,15 +252,14 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
             crate::visibility::record_agent_cache_event(tool, "l1b", "hit");
             crate::visibility::record_agent_cache_event(tool, "l1", "hit");
             let mut response = if is_streaming {
-                streaming_cache_response(cache_ns, &cached, &state.config.external_llm_model)
-                    .unwrap_or_else(|| {
-                        (
-                            StatusCode::OK,
-                            [(axum::http::header::CONTENT_TYPE, "application/json")],
-                            cached.clone(),
-                        )
-                            .into_response()
-                    })
+                streaming_cache_response(cache_ns, &cached, &resolved_model).unwrap_or_else(|| {
+                    (
+                        StatusCode::OK,
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        cached.clone(),
+                    )
+                        .into_response()
+                })
             } else {
                 (
                     StatusCode::OK,
@@ -319,7 +327,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         if is_streaming
             && resp_parts.status.is_success()
             && let Some(mut sse_resp) =
-                streaming_cache_response(cache_ns, &resp_string, &state.config.external_llm_model)
+                streaming_cache_response(cache_ns, &resp_string, &resolved_model)
         {
             // Preserve extensions (FinalLayer, etc.) from the downstream response.
             *sse_resp.extensions_mut() = resp_parts.extensions;
@@ -406,6 +414,7 @@ mod tests {
             llm_provider: "openai".into(),
             external_llm_url: "http://localhost".into(),
             external_llm_model: "test".into(),
+            model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
@@ -413,6 +422,8 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            enable_request_logs: false,
+            request_log_path: "~/.isartor/request_logs".into(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -433,6 +444,7 @@ mod tests {
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             config,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -587,7 +599,7 @@ mod tests {
         assert_eq!(json["layer"], 3);
 
         // The response should now be in the exact cache (normalized to layer 1).
-        let key = hex::encode(sha2::Sha256::digest(b"native|hello"));
+        let key = hex::encode(sha2::Sha256::digest(b"native|hello\nmodel: test"));
         let cached = state.exact_cache.get(&key);
         assert!(cached.is_some(), "Response should be cached after miss");
         let cached_json: serde_json::Value = serde_json::from_str(&cached.unwrap()).unwrap();
@@ -637,7 +649,7 @@ mod tests {
         let state = test_state(CacheMode::Both);
 
         // Pre-populate the exact cache.
-        let key = hex::encode(sha2::Sha256::digest(b"native|cached prompt"));
+        let key = hex::encode(sha2::Sha256::digest(b"native|cached prompt\nmodel: test"));
         let cached_json = serde_json::to_string(&ChatResponse {
             layer: 1,
             message: "from cache".into(),
@@ -738,7 +750,9 @@ mod tests {
         assert!(text.contains("\"delta\":{\"content\":\"downstream openai response\"}"));
         assert!(text.contains("data: [DONE]"));
 
-        let key = hex::encode(sha2::Sha256::digest(b"openai|user: hello stream"));
+        let key = hex::encode(sha2::Sha256::digest(
+            b"openai|user: hello stream\nmodel: gpt-4o-mini",
+        ));
         let cached = state
             .exact_cache
             .get(&key)
@@ -754,7 +768,9 @@ mod tests {
     #[tokio::test]
     async fn openai_streaming_exact_cache_hit_returns_sse() {
         let state = test_state(CacheMode::Exact);
-        let key = hex::encode(sha2::Sha256::digest(b"openai|user: cached prompt"));
+        let key = hex::encode(sha2::Sha256::digest(
+            b"openai|user: cached prompt\nmodel: gpt-4o-mini",
+        ));
         state.exact_cache.put(
             key,
             serde_json::json!({
@@ -951,8 +967,8 @@ mod tests {
 
         let session_a = derive_session_cache_scope("thread-a");
         let session_b = derive_session_cache_scope("thread-b");
-        let key_a = build_exact_cache_key("native", "hello", session_a.as_deref());
-        let key_b = build_exact_cache_key("native", "hello", session_b.as_deref());
+        let key_a = build_exact_cache_key("native", "hello\nmodel: test", session_a.as_deref());
+        let key_b = build_exact_cache_key("native", "hello\nmodel: test", session_b.as_deref());
 
         assert!(state.exact_cache.get(&key_a).is_some());
         assert!(state.exact_cache.get(&key_b).is_some());
@@ -978,8 +994,8 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
 
         let session = derive_session_cache_scope("body-session");
-        let scoped_key = build_exact_cache_key("native", "hello", session.as_deref());
-        let global_key = build_exact_cache_key("native", "hello", None);
+        let scoped_key = build_exact_cache_key("native", "hello\nmodel: test", session.as_deref());
+        let global_key = build_exact_cache_key("native", "hello\nmodel: test", None);
 
         assert!(state.exact_cache.get(&scoped_key).is_some());
         assert!(state.exact_cache.get(&global_key).is_none());

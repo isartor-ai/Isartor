@@ -27,6 +27,25 @@ pub fn extract_cache_key(body: &[u8]) -> String {
     }
 }
 
+pub fn extract_request_model(body: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(body).ok().and_then(|v| {
+        v.get("model")
+            .and_then(|m| m.as_str())
+            .map(ToOwned::to_owned)
+    })
+}
+
+pub fn override_request_model(body: &[u8], model: &str) -> Vec<u8> {
+    let Ok(mut value) = serde_json::from_slice::<Value>(body) else {
+        return body.to_vec();
+    };
+    let Some(object) = value.as_object_mut() else {
+        return body.to_vec();
+    };
+    object.insert("model".to_string(), Value::String(model.to_string()));
+    serde_json::to_vec(&value).unwrap_or_else(|_| body.to_vec())
+}
+
 /// Returns whether the request body includes OpenAI tool/function fields or tool
 /// conversation turns. These requests should not use semantic cache matching.
 pub fn has_tooling(body: &[u8]) -> bool {
@@ -49,15 +68,21 @@ fn extract_prompt_parts(body: &[u8]) -> (String, Vec<String>) {
         return (String::from_utf8_lossy(body).to_string(), Vec::new());
     };
 
+    let model_extra = v
+        .get("model")
+        .and_then(|m| m.as_str())
+        .filter(|model| !model.trim().is_empty())
+        .map(|model| format!("model: {model}"));
+
     // 1) Native format: {"prompt": "..."}
     if let Some(p) = v.get("prompt").and_then(|p| p.as_str()) {
-        return (p.to_string(), Vec::new());
+        return (p.to_string(), model_extra.into_iter().collect());
     }
 
     // 2) Chat-like format: {"messages": [...]}
     if let Some(messages) = v.get("messages").and_then(|m| m.as_array()) {
         let mut parts: Vec<String> = Vec::with_capacity(messages.len() + 1);
-        let mut extras: Vec<String> = Vec::new();
+        let mut extras: Vec<String> = model_extra.into_iter().collect();
 
         // Anthropic supports a top-level system field.
         if let Some(system) = v.get("system").and_then(|s| s.as_str())
@@ -260,6 +285,14 @@ mod tests {
     }
 
     #[test]
+    fn cache_key_includes_model_identifier() {
+        let body = br#"{"model":"fast","messages":[{"role":"user","content":"hello"}]}"#;
+        let key = extract_cache_key(body);
+        assert!(key.contains("model: fast"));
+        assert!(key.contains("user: hello"));
+    }
+
+    #[test]
     fn cache_key_includes_top_level_tool_fields() {
         let body = br#"{
             "model":"gpt-4o",
@@ -301,5 +334,17 @@ mod tests {
         assert!(!has_tooling(
             br#"{"messages":[{"role":"user","content":"hello"}]}"#
         ));
+    }
+
+    #[test]
+    fn request_model_can_be_extracted_and_overridden() {
+        let body = br#"{"prompt":"hello","model":"fast"}"#;
+        assert_eq!(extract_request_model(body).as_deref(), Some("fast"));
+
+        let overridden = override_request_model(body, "gpt-4o-mini");
+        assert_eq!(
+            extract_request_model(&overridden).as_deref(),
+            Some("gpt-4o-mini")
+        );
     }
 }

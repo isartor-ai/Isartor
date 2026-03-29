@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,7 +24,9 @@ use crate::config::{
 use crate::core::cache_scope::{
     build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
 };
-use crate::core::prompt::{extract_prompt, has_tooling};
+use crate::core::prompt::{
+    extract_prompt, extract_request_model, has_tooling, override_request_model,
+};
 use crate::core::retry::{RetryConfig, execute_with_retry};
 use crate::errors::GatewayError;
 use crate::mcp::{self, ToolExecutor};
@@ -38,23 +41,53 @@ use crate::visibility;
 
 fn configured_openai_models(state: &AppState) -> OpenAiModelList {
     let provider = state.config.llm_provider.as_str();
-    let model_id = match state.config.llm_provider {
-        crate::config::LlmProvider::Azure if !state.config.azure_deployment_id.is_empty() => {
-            state.config.azure_deployment_id.clone()
-        }
-        _ => state.config.external_llm_model.clone(),
-    };
+    let mut data = Vec::new();
+    let mut seen = HashSet::new();
+    let default_model = state.config.configured_model_id();
 
-    OpenAiModelList::new(vec![OpenAiModel::new(model_id, provider)])
+    if seen.insert(default_model.clone()) {
+        data.push(OpenAiModel::new(default_model, provider));
+    }
+
+    let mut alias_entries = state
+        .config
+        .model_aliases
+        .iter()
+        .map(|(alias, target)| (alias.clone(), target.clone()))
+        .collect::<Vec<_>>();
+    alias_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for (_, target) in &alias_entries {
+        if seen.insert(target.clone()) {
+            data.push(OpenAiModel::new(target.clone(), provider));
+        }
+    }
+
+    for (alias, _) in alias_entries {
+        if seen.insert(alias.clone()) {
+            data.push(OpenAiModel::new(alias, format!("alias:{provider}")));
+        }
+    }
+
+    OpenAiModelList::new(data)
 }
 
 fn configured_openai_model_id(state: &AppState) -> String {
-    configured_openai_models(state)
-        .data
-        .into_iter()
-        .next()
-        .map(|model| model.id)
-        .unwrap_or_else(|| state.config.external_llm_model.clone())
+    state.config.configured_model_id()
+}
+
+fn resolved_request_model(state: &AppState, body_bytes: &[u8]) -> String {
+    extract_request_model(body_bytes)
+        .map(|model| state.config.resolve_model_alias(&model))
+        .unwrap_or_else(|| configured_openai_model_id(state))
+}
+
+fn canonicalize_request_body_model(state: &AppState, body_bytes: &[u8]) -> (Vec<u8>, String) {
+    let resolved_model = resolved_request_model(state, body_bytes);
+    (
+        override_request_model(body_bytes, &resolved_model),
+        resolved_model,
+    )
 }
 
 fn request_tool(request: &Request, traffic_surface: &str) -> &'static str {
@@ -67,6 +100,14 @@ fn request_tool(request: &Request, traffic_surface: &str) -> &'static str {
     )
 }
 
+fn record_provider_success(state: &AppState) {
+    state.record_provider_success();
+}
+
+fn record_provider_failure(state: &AppState, error: &impl std::fmt::Display) {
+    state.record_provider_failure(&error.to_string());
+}
+
 fn supports_openai_passthrough(provider: &LlmProvider) -> bool {
     matches!(
         provider,
@@ -76,6 +117,12 @@ fn supports_openai_passthrough(provider: &LlmProvider) -> bool {
             | LlmProvider::Xai
             | LlmProvider::Mistral
             | LlmProvider::Groq
+            | LlmProvider::Cerebras
+            | LlmProvider::Nebius
+            | LlmProvider::Siliconflow
+            | LlmProvider::Fireworks
+            | LlmProvider::Nvidia
+            | LlmProvider::Chutes
             | LlmProvider::Deepseek
             | LlmProvider::Galadriel
             | LlmProvider::Hyperbolic
@@ -129,10 +176,7 @@ async fn send_openai_passthrough_request(
 
     let mut payload = serde_json::to_value(request)?;
     if let Value::Object(ref mut map) = payload {
-        map.insert(
-            "model".to_string(),
-            Value::String(configured_openai_model_id(state)),
-        );
+        map.insert("model".to_string(), Value::String(request.model.clone()));
     }
 
     let mut request_builder = state
@@ -254,31 +298,35 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
             }
         };
 
-        let session_cache_scope = extract_session_cache_scope(request.headers(), &body_bytes);
-        let prompt = extract_prompt(&body_bytes);
+        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes);
+        let session_cache_scope = extract_session_cache_scope(request.headers(), &canonical_body);
+        let prompt = extract_prompt(&canonical_body);
+        let cache_key_material = crate::core::prompt::extract_cache_key(&canonical_body);
 
         tracing::Span::current().record("ai.prompt.length_bytes", prompt.len() as u64);
 
         let provider_name = state.llm_agent.provider_name();
         tracing::Span::current().record("provider.name", provider_name);
-        tracing::Span::current().record("model", state.config.external_llm_model.as_str());
+        tracing::Span::current().record("model", resolved_model.as_str());
         tracing::info!(prompt = %prompt, provider = provider_name, "Layer 3: Forwarding to LLM via Rig");
 
         // ------------------------------------------------------------------
         // 2. Dispatch to the configured rig-core Agent — with retry.
         // ------------------------------------------------------------------
         let retry_cfg = RetryConfig::cloud_llm();
-        let agent = state.llm_agent.clone();
         let provider_for_err = provider_name.to_string();
         let prompt_for_retry = prompt.clone();
+        let state_for_retry = state.clone();
+        let model_for_retry = resolved_model.clone();
 
         let result = execute_with_retry(&retry_cfg, "L3_Cloud_LLM", tool, || {
-            let agent = agent.clone();
+            let state = state_for_retry.clone();
             let prompt = prompt_for_retry.clone();
             let provider = provider_for_err.clone();
+            let model = model_for_retry.clone();
             async move {
-                agent
-                    .chat(&prompt)
+                state
+                    .chat_with_model(&prompt, &model)
                     .await
                     .map_err(|e| GatewayError::from_llm_error(&provider, &e))
             }
@@ -287,6 +335,7 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
 
         match result {
             Ok(text) => {
+                record_provider_success(&state);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -294,17 +343,18 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
                 );
                 let mut response = (
                     StatusCode::OK,
-                    Json(ChatResponse {
-                        layer: 3,
-                        message: text,
-                        model: Some(state.config.external_llm_model.clone()),
-                    }),
+                        Json(ChatResponse {
+                            layer: 3,
+                            message: text,
+                            model: Some(resolved_model.clone()),
+                        }),
                 )
                     .into_response();
                 response.extensions_mut().insert(FinalLayer::Cloud);
                 response
             }
             Err(gw_err) => {
+                record_provider_failure(&state, &gw_err);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -333,12 +383,12 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
                 let exact_keys = if session_cache_scope.is_some() {
                     vec![build_exact_cache_key(
                         "native",
-                        &prompt,
+                        &cache_key_material,
                         session_cache_scope.as_deref(),
                     )]
                 } else {
                     vec![
-                        build_exact_cache_key("native", &prompt, None),
+                        build_exact_cache_key("native", &cache_key_material, None),
                         hex::encode(Sha256::digest(prompt.as_bytes())),
                     ]
                 };
@@ -428,11 +478,12 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             }
         };
 
+        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes);
         let provider_name = state.llm_agent.provider_name();
         tracing::info!(provider = provider_name, "OpenAI compat: forwarding to LLM");
 
-        if has_tooling(&body_bytes) {
-            let request = match serde_json::from_slice::<OpenAiChatRequest>(&body_bytes) {
+        if has_tooling(&canonical_body) {
+            let request = match serde_json::from_slice::<OpenAiChatRequest>(&canonical_body) {
                 Ok(request) => request,
                 Err(err) => {
                     let mut resp = (
@@ -465,6 +516,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
 
             match result {
                 Ok(body) => {
+                    record_provider_success(&state);
                     crate::metrics::record_layer_duration_with_tool(
                         "L3_Cloud",
                         layer_start.elapsed(),
@@ -476,6 +528,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                     return resp;
                 }
                 Err(gw_err) => {
+                    record_provider_failure(&state, &gw_err);
                     crate::metrics::record_layer_duration_with_tool(
                         "L3_Cloud",
                         layer_start.elapsed(),
@@ -504,20 +557,22 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             }
         }
 
-        let prompt = extract_prompt(&body_bytes);
+        let prompt = extract_prompt(&canonical_body);
 
         let retry_cfg = RetryConfig::cloud_llm();
-        let agent = state.llm_agent.clone();
         let provider_for_err = provider_name.to_string();
         let prompt_for_retry = prompt.clone();
+        let state_for_retry = state.clone();
+        let model_for_retry = resolved_model.clone();
 
         let result = execute_with_retry(&retry_cfg, "L3_OpenAICompat", tool, || {
-            let agent = agent.clone();
+            let state = state_for_retry.clone();
             let prompt = prompt_for_retry.clone();
             let provider = provider_for_err.clone();
+            let model = model_for_retry.clone();
             async move {
-                agent
-                    .chat(&prompt)
+                state
+                    .chat_with_model(&prompt, &model)
                     .await
                     .map_err(|e| GatewayError::from_llm_error(&provider, &e))
             }
@@ -526,6 +581,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
 
         match result {
             Ok(text) => {
+                record_provider_success(&state);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -545,7 +601,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                         index: 0,
                         finish_reason: Some("stop".to_string()),
                     }],
-                    model: Some(state.config.external_llm_model.clone()),
+                    model: Some(resolved_model.clone()),
                 };
 
                 let mut resp = (StatusCode::OK, Json(response)).into_response();
@@ -553,6 +609,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                 resp
             }
             Err(gw_err) => {
+                record_provider_failure(&state, &gw_err);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -602,6 +659,23 @@ pub async fn openai_models_handler(request: Request) -> impl IntoResponse {
     (StatusCode::OK, Json(configured_openai_models(&state))).into_response()
 }
 
+pub async fn provider_status_handler(request: Request) -> impl IntoResponse {
+    let state = match request.extensions().get::<Arc<AppState>>() {
+        Some(s) => s.clone(),
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": {"message": "missing application state"}
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    (StatusCode::OK, Json(state.provider_status())).into_response()
+}
+
 /// Anthropic Messages endpoint — `POST /v1/messages`.
 ///
 /// Used by Claude Code and other Anthropic-compatible clients.
@@ -646,7 +720,8 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
             }
         };
 
-        let prompt = extract_prompt(&body_bytes);
+        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes);
+        let prompt = extract_prompt(&canonical_body);
 
         let provider_name = state.llm_agent.provider_name();
         tracing::info!(
@@ -655,27 +730,28 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
         );
 
         let retry_cfg = RetryConfig::cloud_llm();
-        let agent = state.llm_agent.clone();
         let provider_for_err = provider_name.to_string();
         let prompt_for_retry = prompt.clone();
+        let state_for_retry = state.clone();
+        let model_for_retry = resolved_model.clone();
 
         let result = execute_with_retry(&retry_cfg, "L3_AnthropicCompat", tool, || {
-            let agent = agent.clone();
+            let state = state_for_retry.clone();
             let prompt = prompt_for_retry.clone();
             let provider = provider_for_err.clone();
+            let model = model_for_retry.clone();
             async move {
-                agent
-                    .chat(&prompt)
+                state
+                    .chat_with_model(&prompt, &model)
                     .await
                     .map_err(|e| GatewayError::from_llm_error(&provider, &e))
             }
         })
         .await;
 
-        let model = &state.config.external_llm_model;
-
         match result {
             Ok(text) => {
+                record_provider_success(&state);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -683,13 +759,14 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
                 );
                 let mut resp = (
                     StatusCode::OK,
-                    Json(anthropic_sse::build_json_response(&text, model)),
+                    Json(anthropic_sse::build_json_response(&text, &resolved_model)),
                 )
                     .into_response();
                 resp.extensions_mut().insert(FinalLayer::Cloud);
                 resp
             }
             Err(gw_err) => {
+                record_provider_failure(&state, &gw_err);
                 crate::metrics::record_layer_duration_with_tool(
                     "L3_Cloud",
                     layer_start.elapsed(),
@@ -1375,6 +1452,7 @@ mod tests {
             llm_provider: "openai".into(),
             external_llm_url: "http://localhost".into(),
             external_llm_model: "gpt-4o-mini".into(),
+            model_aliases: std::collections::HashMap::new(),
             external_llm_api_key: "".into(),
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
@@ -1382,6 +1460,8 @@ mod tests {
             enable_monitoring: false,
             enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
+            enable_request_logs: false,
+            request_log_path: "~/.isartor/request_logs".into(),
             offline_mode: false,
             proxy_port: "0.0.0.0:8081".into(),
             enable_context_optimizer: true,
@@ -1397,6 +1477,7 @@ mod tests {
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             config,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1411,6 +1492,7 @@ mod tests {
                 post(openai_chat_completions_handler),
             )
             .route("/v1/models", get(openai_models_handler))
+            .route("/debug/providers", get(provider_status_handler))
             .layer(axum_mw::from_fn(buffer_body_middleware))
             .layer(axum_mw::from_fn(
                 move |mut req: Request, next: axum_mw::Next| {
@@ -1535,6 +1617,23 @@ mod tests {
     #[tokio::test]
     async fn openai_non_tool_request_preserves_text_only_behavior() {
         let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config
+            .model_aliases
+            .insert("ignored-by-isartor".into(), "gpt-4o-mini".into());
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
         let app = handler_app(state);
 
         let body = serde_json::to_vec(&serde_json::json!({
@@ -1616,6 +1715,9 @@ mod tests {
         let state = test_state(Arc::new(SuccessAgent));
         let mut config = (*state.config).clone();
         config.external_llm_url = format!("{}/v1/chat/completions", server.uri());
+        config
+            .model_aliases
+            .insert("client-specified-model".into(), "gpt-4o-mini".into());
 
         let state = Arc::new(AppState {
             http_client: reqwest::Client::new(),
@@ -1625,6 +1727,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1732,6 +1835,9 @@ mod tests {
         let state = test_state(Arc::new(SuccessAgent));
         let mut config = (*state.config).clone();
         config.external_llm_url = format!("{}/v1/chat/completions", server.uri());
+        config
+            .model_aliases
+            .insert("client-specified-model".into(), "gpt-4o-mini".into());
 
         let state = Arc::new(AppState {
             http_client: reqwest::Client::new(),
@@ -1741,6 +1847,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1799,6 +1906,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1848,6 +1956,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             config: Arc::new(config),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
@@ -1870,12 +1979,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn openai_models_include_aliases_and_resolved_targets() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let mut config = (*state.config).clone();
+        config
+            .model_aliases
+            .insert("fast".into(), "gpt-4o-mini".into());
+        config.model_aliases.insert("smart".into(), "gpt-4o".into());
+
+        let state = Arc::new(AppState {
+            http_client: reqwest::Client::new(),
+            exact_cache: state.exact_cache.clone(),
+            vector_cache: state.vector_cache.clone(),
+            llm_agent: Arc::new(SuccessAgent),
+            slm_client: state.slm_client.clone(),
+            text_embedder: state.text_embedder.clone(),
+            instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
+            config: Arc::new(config),
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        });
+        let app = handler_app(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/v1/models")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let ids = json["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(ids.contains(&"gpt-4o-mini".to_string()));
+        assert!(ids.contains(&"gpt-4o".to_string()));
+        assert!(ids.contains(&"fast".to_string()));
+        assert!(ids.contains(&"smart".to_string()));
+    }
+
+    #[tokio::test]
     async fn stale_cache_fallback_on_llm_failure() {
         let state = test_state(Arc::new(FailAgent));
 
         // Pre-populate the exact cache with a stale entry for "fallback test".
         let prompt = "fallback test";
-        let key_input = format!("native|{prompt}");
+        let key_input = format!("native|{prompt}\nmodel: gpt-4o-mini");
         let key = hex::encode(Sha256::digest(key_input.as_bytes()));
         let cached_json = serde_json::to_string(&ChatResponse {
             layer: 3,
@@ -1920,6 +2077,102 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
+    }
+
+    #[tokio::test]
+    async fn debug_providers_reports_unknown_before_l3_traffic() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let app = handler_app(state);
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/debug/providers")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let snapshot: crate::models::ProviderStatusResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(snapshot.active_provider, "openai");
+        assert_eq!(snapshot.providers.len(), 1);
+        let entry = &snapshot.providers[0];
+        assert_eq!(entry.status, crate::models::ProviderHealthStatus::Unknown);
+        assert_eq!(entry.requests_total, 0);
+        assert_eq!(entry.errors_total, 0);
+    }
+
+    #[tokio::test]
+    async fn debug_providers_tracks_successful_l3_requests() {
+        let state = test_state(Arc::new(SuccessAgent));
+        let app = handler_app(state);
+
+        let chat_req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({ "prompt": "hello" })).unwrap(),
+            ))
+            .unwrap();
+        let chat_resp = app.clone().oneshot(chat_req).await.unwrap();
+        assert_eq!(chat_resp.status(), StatusCode::OK);
+
+        let status_req = Request::builder()
+            .method("GET")
+            .uri("/debug/providers")
+            .body(Body::empty())
+            .unwrap();
+        let status_resp = app.oneshot(status_req).await.unwrap();
+        let body = status_resp.into_body().collect().await.unwrap().to_bytes();
+        let snapshot: crate::models::ProviderStatusResponse =
+            serde_json::from_slice(&body).unwrap();
+        let entry = &snapshot.providers[0];
+        assert_eq!(entry.status, crate::models::ProviderHealthStatus::Healthy);
+        assert_eq!(entry.requests_total, 1);
+        assert_eq!(entry.errors_total, 0);
+        assert!(entry.last_success.is_some());
+    }
+
+    #[tokio::test]
+    async fn debug_providers_tracks_failed_l3_requests() {
+        let state = test_state(Arc::new(FailAgent));
+        let app = handler_app(state);
+
+        let chat_req = Request::builder()
+            .method("POST")
+            .uri("/api/chat")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({ "prompt": "hello" })).unwrap(),
+            ))
+            .unwrap();
+        let chat_resp = app.clone().oneshot(chat_req).await.unwrap();
+        assert_eq!(chat_resp.status(), StatusCode::BAD_GATEWAY);
+
+        let status_req = Request::builder()
+            .method("GET")
+            .uri("/debug/providers")
+            .body(Body::empty())
+            .unwrap();
+        let status_resp = app.oneshot(status_req).await.unwrap();
+        let body = status_resp.into_body().collect().await.unwrap().to_bytes();
+        let snapshot: crate::models::ProviderStatusResponse =
+            serde_json::from_slice(&body).unwrap();
+        let entry = &snapshot.providers[0];
+        assert_eq!(entry.status, crate::models::ProviderHealthStatus::Failing);
+        assert_eq!(entry.requests_total, 1);
+        assert_eq!(entry.errors_total, 1);
+        assert!(entry.last_error.is_some());
+        assert!(
+            entry
+                .last_error_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("provider outage")
+        );
     }
 
     #[tokio::test]

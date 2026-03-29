@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 
 /// Inference Engine mode
@@ -51,6 +52,12 @@ pub enum LlmProvider {
     Gemini,
     Mistral,
     Groq,
+    Cerebras,
+    Nebius,
+    Siliconflow,
+    Fireworks,
+    Nvidia,
+    Chutes,
     Deepseek,
     Cohere,
     Galadriel,
@@ -75,6 +82,12 @@ impl LlmProvider {
             LlmProvider::Gemini => "gemini",
             LlmProvider::Mistral => "mistral",
             LlmProvider::Groq => "groq",
+            LlmProvider::Cerebras => "cerebras",
+            LlmProvider::Nebius => "nebius",
+            LlmProvider::Siliconflow => "siliconflow",
+            LlmProvider::Fireworks => "fireworks",
+            LlmProvider::Nvidia => "nvidia",
+            LlmProvider::Chutes => "chutes",
             LlmProvider::Deepseek => "deepseek",
             LlmProvider::Cohere => "cohere",
             LlmProvider::Galadriel => "galadriel",
@@ -105,6 +118,12 @@ pub fn default_chat_completions_url(provider: &LlmProvider) -> Option<&'static s
         LlmProvider::Xai => Some("https://api.x.ai/v1/chat/completions"),
         LlmProvider::Mistral => Some("https://api.mistral.ai/v1/chat/completions"),
         LlmProvider::Groq => Some("https://api.groq.com/openai/v1/chat/completions"),
+        LlmProvider::Cerebras => Some("https://api.cerebras.ai/v1/chat/completions"),
+        LlmProvider::Nebius => Some("https://api.studio.nebius.ai/v1/chat/completions"),
+        LlmProvider::Siliconflow => Some("https://api.siliconflow.cn/v1/chat/completions"),
+        LlmProvider::Fireworks => Some("https://api.fireworks.ai/inference/v1/chat/completions"),
+        LlmProvider::Nvidia => Some("https://integrate.api.nvidia.com/v1/chat/completions"),
+        LlmProvider::Chutes => Some("https://llm.chutes.ai/v1/chat/completions"),
         LlmProvider::Deepseek => Some("https://api.deepseek.com/chat/completions"),
         LlmProvider::Galadriel => Some("https://api.galadriel.com/v1/chat/completions"),
         LlmProvider::Hyperbolic => Some("https://api.hyperbolic.xyz/v1/chat/completions"),
@@ -127,6 +146,12 @@ impl From<&str> for LlmProvider {
             "gemini" => LlmProvider::Gemini,
             "mistral" => LlmProvider::Mistral,
             "groq" => LlmProvider::Groq,
+            "cerebras" => LlmProvider::Cerebras,
+            "nebius" => LlmProvider::Nebius,
+            "siliconflow" => LlmProvider::Siliconflow,
+            "fireworks" => LlmProvider::Fireworks,
+            "nvidia" => LlmProvider::Nvidia,
+            "chutes" => LlmProvider::Chutes,
             "deepseek" => LlmProvider::Deepseek,
             "cohere" => LlmProvider::Cohere,
             "galadriel" => LlmProvider::Galadriel,
@@ -319,7 +344,8 @@ pub struct AppConfig {
     // ── Layer 3 — External LLM ──────────────────────────────────────
     /// LLM provider. Supported values (all via rig-core):
     /// "openai", "azure", "anthropic", "copilot", "xai", "gemini", "mistral",
-    /// "groq", "deepseek", "cohere", "galadriel", "hyperbolic",
+    /// "groq", "cerebras", "nebius", "siliconflow", "fireworks", "nvidia",
+    /// "chutes", "deepseek", "cohere", "galadriel", "hyperbolic",
     /// "huggingface", "mira", "moonshot", "ollama", "openrouter",
     /// "perplexity", "together".
     /// Any unsupported value will cause configuration loading to fail
@@ -357,6 +383,11 @@ pub struct AppConfig {
 
     /// Model name to request from the external LLM.
     pub external_llm_model: String,
+
+    /// Optional user-defined aliases that resolve short names to real provider
+    /// model identifiers before routing and cache-key generation.
+    #[serde(default)]
+    pub model_aliases: HashMap<String, String>,
 
     /// API key for the external heavy LLM (Layer 3).
     pub external_llm_api_key: String,
@@ -404,6 +435,8 @@ pub struct AppConfig {
     // ── Observability ───────────────────────────────────────────────
     pub enable_monitoring: bool,
     pub otel_exporter_endpoint: String,
+    pub enable_request_logs: bool,
+    pub request_log_path: String,
 
     // ── Air-Gap / Offline Mode ──────────────────────────────────────
     /// When `true`, all outbound HTTP connections are blocked at the
@@ -426,6 +459,22 @@ impl AppConfig {
     /// file during local development.
     pub fn load() -> anyhow::Result<Self> {
         Self::load_with_validation(true)
+    }
+
+    pub fn configured_model_id(&self) -> String {
+        match self.llm_provider {
+            LlmProvider::Azure if !self.azure_deployment_id.is_empty() => {
+                self.azure_deployment_id.clone()
+            }
+            _ => self.external_llm_model.clone(),
+        }
+    }
+
+    pub fn resolve_model_alias(&self, requested_model: &str) -> String {
+        self.model_aliases
+            .get(requested_model)
+            .cloned()
+            .unwrap_or_else(|| requested_model.to_string())
     }
 
     /// Load configuration but optionally skip strict provider validation.
@@ -479,6 +528,11 @@ impl AppConfig {
             .set_default("context_optimizer_minify", true)?
             .set_default("enable_monitoring", false)?
             .set_default("otel_exporter_endpoint", "http://localhost:4317")?
+            .set_default("enable_request_logs", false)?
+            .set_default(
+                "request_log_path",
+                crate::core::request_logger::default_request_log_dir_string(),
+            )?
             // Air-gap / offline mode
             .set_default("offline_mode", false)?
             // CONNECT proxy
@@ -612,6 +666,23 @@ fn validate_provider_config(cfg: &AppConfig) -> anyhow::Result<()> {
         }
     }
 
+    for (alias, target) in &cfg.model_aliases {
+        if alias.trim().is_empty() {
+            return Err(anyhow::anyhow!("model alias names must not be empty"));
+        }
+        if target.trim().is_empty() {
+            return Err(anyhow::anyhow!(
+                "model alias '{alias}' must resolve to a non-empty model identifier"
+            ));
+        }
+    }
+
+    if cfg.enable_request_logs && cfg.request_log_path.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "request logging is enabled but request_log_path is empty"
+        ));
+    }
+
     Ok(())
 }
 
@@ -675,6 +746,79 @@ mod tests {
         assert_eq!(settings.sidecar_url, "http://localhost:8082");
         assert_eq!(settings.model_name, "all-minilm");
         assert_eq!(settings.timeout_seconds, 10);
+    }
+
+    #[test]
+    fn model_aliases_deserialize_and_resolve() {
+        let json = r#"{
+            "host_port":"0.0.0.0:8080",
+            "inference_engine":"sidecar",
+            "gateway_api_key":"",
+            "cache_mode":"both",
+            "cache_backend":"memory",
+            "redis_url":"redis://127.0.0.1:6379",
+            "router_backend":"embedded",
+            "vllm_url":"http://127.0.0.1:8000",
+            "vllm_model":"gemma-2-2b-it",
+            "embedding_model":"all-minilm",
+            "similarity_threshold":0.85,
+            "cache_ttl_secs":300,
+            "cache_max_capacity":1000,
+            "layer2":{"sidecar_url":"http://127.0.0.1:8081","model_name":"phi-3-mini","timeout_seconds":30},
+            "local_slm_url":"http://localhost:11434/api/generate",
+            "local_slm_model":"llama3",
+            "embedding_sidecar":{"sidecar_url":"http://127.0.0.1:8082","model_name":"all-minilm","timeout_seconds":10},
+            "llm_provider":"openai",
+            "external_llm_url":"https://api.openai.com/v1/chat/completions",
+            "external_llm_model":"gpt-4o-mini",
+            "external_llm_api_key":"",
+            "l3_timeout_secs":120,
+            "azure_deployment_id":"",
+            "azure_api_version":"2024-08-01-preview",
+            "enable_slm_router":false,
+            "enable_context_optimizer":true,
+            "context_optimizer_dedup":true,
+            "context_optimizer_minify":true,
+             "enable_monitoring":false,
+             "otel_exporter_endpoint":"http://localhost:4317",
+             "enable_request_logs":false,
+             "request_log_path":"~/.isartor/request_logs",
+             "offline_mode":false,
+             "proxy_port":"0.0.0.0:8081",
+             "model_aliases":{"fast":"gpt-4o-mini","smart":"gpt-4o"}
+        }"#;
+        let config: AppConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.resolve_model_alias("fast"), "gpt-4o-mini");
+        assert_eq!(config.resolve_model_alias("smart"), "gpt-4o");
+        assert_eq!(config.resolve_model_alias("raw-model"), "raw-model");
+    }
+
+    #[test]
+    fn default_chat_completion_urls_cover_new_openai_compatible_providers() {
+        assert_eq!(
+            default_chat_completions_url(&LlmProvider::Cerebras),
+            Some("https://api.cerebras.ai/v1/chat/completions")
+        );
+        assert_eq!(
+            default_chat_completions_url(&LlmProvider::Nebius),
+            Some("https://api.studio.nebius.ai/v1/chat/completions")
+        );
+        assert_eq!(
+            default_chat_completions_url(&LlmProvider::Siliconflow),
+            Some("https://api.siliconflow.cn/v1/chat/completions")
+        );
+        assert_eq!(
+            default_chat_completions_url(&LlmProvider::Fireworks),
+            Some("https://api.fireworks.ai/inference/v1/chat/completions")
+        );
+        assert_eq!(
+            default_chat_completions_url(&LlmProvider::Nvidia),
+            Some("https://integrate.api.nvidia.com/v1/chat/completions")
+        );
+        assert_eq!(
+            default_chat_completions_url(&LlmProvider::Chutes),
+            Some("https://llm.chutes.ai/v1/chat/completions")
+        );
     }
 
     #[test]
@@ -755,6 +899,10 @@ mod tests {
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
             .unwrap()
+            .set_default("enable_request_logs", false)
+            .unwrap()
+            .set_default("request_log_path", "~/.isartor/request_logs")
+            .unwrap()
             .set_default("offline_mode", false)
             .unwrap()
             .set_default("proxy_port", "0.0.0.0:8081")
@@ -792,6 +940,8 @@ mod tests {
         assert_eq!(config.external_llm_model, "gpt-4o-mini");
         assert_eq!(config.l3_timeout_secs, 120);
         assert!(!config.enable_monitoring);
+        assert!(!config.enable_request_logs);
+        assert_eq!(config.request_log_path, "~/.isartor/request_logs");
         assert!(!config.enable_slm_router);
         assert!(config.enable_context_optimizer);
         assert!(config.context_optimizer_dedup);
@@ -876,6 +1026,10 @@ mod tests {
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
             .unwrap()
+            .set_default("enable_request_logs", false)
+            .unwrap()
+            .set_default("request_log_path", "~/.isartor/request_logs")
+            .unwrap()
             .set_default("offline_mode", false)
             .unwrap()
             .set_default("proxy_port", "0.0.0.0:8081")
@@ -893,6 +1047,10 @@ mod tests {
             .unwrap()
             .set_override("enable_monitoring", true)
             .unwrap()
+            .set_override("enable_request_logs", true)
+            .unwrap()
+            .set_override("request_log_path", "/tmp/isartor-requests")
+            .unwrap()
             .build()
             .unwrap();
 
@@ -904,6 +1062,8 @@ mod tests {
         assert_eq!(config.cache_mode, CacheMode::Exact);
         assert_eq!(config.cache_ttl_secs, 600);
         assert!(config.enable_monitoring);
+        assert!(config.enable_request_logs);
+        assert_eq!(config.request_log_path, "/tmp/isartor-requests");
         assert!(!config.enable_slm_router);
     }
 
@@ -983,6 +1143,10 @@ mod tests {
             .set_default("context_optimizer_minify", true)
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
+            .unwrap()
+            .set_default("enable_request_logs", false)
+            .unwrap()
+            .set_default("request_log_path", "~/.isartor/request_logs")
             .unwrap()
             .set_default("offline_mode", false)
             .unwrap()
@@ -1096,6 +1260,10 @@ mod tests {
             .set_default("context_optimizer_minify", true)
             .unwrap()
             .set_default("otel_exporter_endpoint", "http://localhost:4317")
+            .unwrap()
+            .set_default("enable_request_logs", false)
+            .unwrap()
+            .set_default("request_log_path", "~/.isartor/request_logs")
             .unwrap()
             .set_default("offline_mode", false)
             .unwrap()

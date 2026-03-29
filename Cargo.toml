@@ -1,6 +1,6 @@
 [package]
 name = "isartor"
-version = "2026.3.10"
+version = "2026.3.11"
 edition = "2024"
 license = "Apache-2.0"
 description = "Open-source Prompt Firewall — a local LLM gateway with caching, semantic deduplication, and content filtering"
@@ -55,6 +55,7 @@ json5 = "0.4"
 
 # Body / bytes utilities
 bytes = "1"
+http-body = "1"
 http-body-util = "0.1"
 tokio-stream = "0.1"
 

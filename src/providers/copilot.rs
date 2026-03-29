@@ -163,16 +163,18 @@ impl CopilotAgent {
         let _ = exchange_copilot_session_token(http, github_token).await?;
         Ok(())
     }
-}
 
-#[async_trait::async_trait]
-impl AppLlmAgent for CopilotAgent {
-    async fn chat(&self, prompt: &str) -> anyhow::Result<String> {
-        let copilot_token = exchange_copilot_session_token(&self.http, &self.github_token).await?;
-        let body = build_completion_body(&self.model, prompt, DEFAULT_MAX_OUTPUT_TOKENS);
+    pub async fn chat_with_model(
+        http: &Client,
+        github_token: &str,
+        model: &str,
+        request_timeout: Duration,
+        prompt: &str,
+    ) -> anyhow::Result<String> {
+        let copilot_token = exchange_copilot_session_token(http, github_token).await?;
+        let body = build_completion_body(model, prompt, DEFAULT_MAX_OUTPUT_TOKENS);
 
-        let response = self
-            .http
+        let response = http
             .post(COPILOT_COMPLETIONS_URL)
             .header("Authorization", format!("Bearer {copilot_token}"))
             .header("Accept", "application/json")
@@ -188,7 +190,7 @@ impl AppLlmAgent for CopilotAgent {
             .with_context(|| {
                 format!(
                     "Copilot completions request failed after {:?}",
-                    self.request_timeout
+                    request_timeout
                 )
             })?;
 
@@ -208,6 +210,20 @@ impl AppLlmAgent for CopilotAgent {
                 payload
             )
         })
+    }
+}
+
+#[async_trait::async_trait]
+impl AppLlmAgent for CopilotAgent {
+    async fn chat(&self, prompt: &str) -> anyhow::Result<String> {
+        Self::chat_with_model(
+            &self.http,
+            &self.github_token,
+            &self.model,
+            self.request_timeout,
+            prompt,
+        )
+        .await
     }
 
     fn provider_name(&self) -> &'static str {

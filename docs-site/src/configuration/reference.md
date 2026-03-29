@@ -41,11 +41,14 @@ isartor init
 | fallback.anthropic_api_key| ISARTOR__ANTHROPIC_API_KEY     | string   | (none)                 | Anthropic API key for Layer 3 fallback           |
 | llm_provider             | ISARTOR__LLM_PROVIDER           | string   | openai                 | LLM provider (see below for full list)           |
 | external_llm_model       | ISARTOR__EXTERNAL_LLM_MODEL     | string   | gpt-4o-mini            | Model name to request from the provider          |
+| model_aliases.<name>     | ISARTOR__MODEL_ALIASES__<NAME>  | string   | (none)                 | Request-time alias that resolves to a real model ID |
 | external_llm_api_key     | ISARTOR__EXTERNAL_LLM_API_KEY   | string   | (none)                 | API key for the configured LLM provider (not needed for ollama) |
 | l3_timeout_secs          | ISARTOR__L3_TIMEOUT_SECS        | u64      | 120                    | HTTP timeout applied to all Layer 3 provider requests |
 | enable_context_optimizer | ISARTOR__ENABLE_CONTEXT_OPTIMIZER | bool   | true                   | Master switch for L2.5 context optimiser             |
 | context_optimizer_dedup  | ISARTOR__CONTEXT_OPTIMIZER_DEDUP | bool    | true                   | Enable cross-turn instruction deduplication          |
 | context_optimizer_minify | ISARTOR__CONTEXT_OPTIMIZER_MINIFY | bool   | true                   | Enable static minification (comments, rules, blanks) |
+| enable_request_logs      | ISARTOR__ENABLE_REQUEST_LOGS     | bool    | false                  | Opt-in request/response debug logging with redaction |
+| request_log_path         | ISARTOR__REQUEST_LOG_PATH        | string  | ~/.isartor/request_logs | Directory for rotating JSONL request logs            |
 
 ---
 
@@ -87,19 +90,62 @@ L2.5 compresses repeated instruction payloads (CLAUDE.md, copilot-instructions.m
 
 The pipeline processes system/instruction messages from OpenAI, Anthropic, and native request formats. See [Deflection Stack — L2.5](../concepts/deflection-stack.md#l25--context-optimiser) for architecture details.
 
+### Request debug logging
+
+Isartor can optionally record request and response payloads to a separate JSONL log for troubleshooting provider or client integrations.
+
+- `enable_request_logs`: Default `false`. Set to `true` only while debugging.
+- `request_log_path`: Directory where rotating request log files are written. Default `~/.isartor/request_logs`.
+
+Important behavior:
+
+- request logs are separate from `isartor.log` and OpenTelemetry output
+- sensitive headers such as `Authorization`, `api-key`, and `x-api-key` are redacted automatically
+- bodies are truncated to a bounded size per entry to keep logs manageable
+- `isartor logs --requests` shows or follows the request log stream
+
 ### Layer 3: Cloud Fallbacks
 
 - `fallback.openai_api_key`, `fallback.anthropic_api_key`: API keys for external LLMs
 - `llm_provider`: Select the active provider. All providers are powered by [rig-core](https://crates.io/crates/rig-core) except `copilot`, which uses Isartor's native GitHub Copilot adapter:
   - `openai` (default), `azure`, `anthropic`, `xai`
-  - `gemini`, `mistral`, `groq`, `deepseek`
+  - `gemini`, `mistral`, `groq`, `cerebras`, `nebius`, `siliconflow`, `fireworks`, `nvidia`, `chutes`, `deepseek`
   - `cohere`, `galadriel`, `hyperbolic`, `huggingface`
   - `mira`, `moonshot`, `ollama` (local, no key), `openrouter`
   - `perplexity`, `together`
   - `copilot` (GitHub Copilot subscription-backed L3)
 - `external_llm_model`: Model name for the selected provider (e.g. `gpt-4o-mini`, `gemini-2.0-flash`, `mistral-small-latest`, `llama-3.1-8b-instant`, `deepseek-chat`, `command-r`, `sonar`, `moonshot-v1-128k`)
+- Many OpenAI-compatible providers ship with built-in default endpoints now, so `set-key`, `setup`, and `check` work directly for providers such as Cerebras, Nebius, SiliconFlow, Fireworks, NVIDIA, and Chutes.
+- `model_aliases`: Optional map of friendly names to real model IDs. Alias resolution happens at the HTTP boundary before L1 cache keys are built, so `model="fast"` and the resolved real model share the same canonical cache behavior.
 - `external_llm_api_key`: API key for the configured provider (not needed for `ollama`)
 - `l3_timeout_secs`: Shared timeout, in seconds, for all Layer 3 provider HTTP calls
+
+### Provider status / health
+
+Isartor keeps an in-memory status tracker for the currently configured Layer 3 provider. It is intentionally process-local and resets on restart.
+
+- `GET /debug/providers`: Authenticated debug endpoint that returns the active provider, configured model and endpoint, request/error counts, and the last-known success/error timestamps and message.
+- `isartor providers`: CLI view that reads `/debug/providers` when the gateway is reachable and falls back to local config inspection when it is not.
+- The tracker is updated only by real Layer 3 request outcomes. It does not persist across restarts and does not write to Redis or other storage.
+
+### Model aliases
+
+Use aliases when you want clients to send stable names like `fast`, `smart`, or `code` instead of raw provider model IDs:
+
+```toml
+[model_aliases]
+fast = "gpt-4o-mini"
+smart = "gpt-4o"
+code = "gpt-4.1"
+```
+
+You can also write them from the CLI:
+
+```bash
+isartor set-alias --alias fast --model gpt-4o-mini
+```
+
+Aliases are currently model aliases within the configured provider. They are surfaced by `GET /v1/models` alongside the configured real model IDs.
 
 ---
 
@@ -137,6 +183,9 @@ provider = "embedded"         # "embedded" or "vllm"
 
 # llm_provider = "openai"
 # external_llm_model = "gpt-4o-mini"
+# [model_aliases]
+# fast = "gpt-4o-mini"
+# smart = "gpt-4o"
 # external_llm_api_key = "sk-..."
 ```
 
@@ -216,6 +265,9 @@ This writes the key to `isartor.toml` or the appropriate env file.
 | `isartor connect claude-copilot` | Configure Claude Code to use GitHub Copilot through Isartor |
 | `isartor stats` | Show total prompts, counts by layer, and recent prompt routing history |
 | `isartor set-key --provider <name>` | Set LLM provider API key (writes to `isartor.toml` or env file) |
+| `isartor set-alias --alias <name> --model <id>` | Set a request-time model alias in `isartor.toml` |
+| `isartor providers` | Show the active provider config plus last-known in-memory Layer 3 health |
+| `isartor logs --requests` | Show or follow the separate request/response debug log |
 | `isartor stop` | Stop a running Isartor instance (uses PID file). Flags: `--force` (SIGKILL), `--pid-file <path>` |
 | `isartor update` | Self-update to the latest (or specific) version. Flags: `--version <tag>`, `--dry-run`, `--force` |
 

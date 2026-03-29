@@ -7,6 +7,16 @@
 
 Isartor is an AI Prompt Firewall that intercepts LLM traffic and routes it through a multi-layer **Deflection Stack**. Each layer can short-circuit and return a response without reaching the cloud, dramatically reducing cost and latency.
 
+Documentation contract: if an implementation changes this architecture, the request flow, supported surfaces, deployment shape, or other durable design assumptions, update this page and the ADR pages in the same patch. User-visible capability changes should also be reflected in the `README.md` feature list and the relevant docs under `docs/` and `docs-site/src/`.
+
+At the HTTP boundary, request-time model aliases are normalized to real provider model IDs before Layer 1 cache keys are built or Layer 3 routing runs. That keeps aliases like `fast` and their canonical target model on the same routing and cache path.
+
+When operators need full payload troubleshooting, the outer monitoring middleware can also emit a separate opt-in JSONL request log with redacted auth headers. This request log is intentionally kept separate from normal tracing / startup logs so OpenTelemetry metadata and sensitive body captures do not share the same sink by default.
+
+Layer 3 now also maintains a broader provider registry for OpenAI-compatible backends. Where possible, Isartor reuses a shared OpenAI-compatible runtime path with provider-specific default endpoints instead of duplicating nearly identical client logic for every vendor.
+
+The running `AppState` also maintains a small in-memory provider-health snapshot for the currently configured Layer 3 backend. That snapshot powers the authenticated `GET /debug/providers` endpoint and the `isartor providers` CLI command so operators can see the active provider, endpoint, request/error counts, and last-known success or failure without enabling full request-body logging.
+
 
 
 For a detailed breakdown of the deflection layers, see the [Deflection Stack](deflection-stack.md) page.
