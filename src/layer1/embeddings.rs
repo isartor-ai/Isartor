@@ -181,7 +181,7 @@ pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 
 /// Returns a shared singleton `TextEmbedder` for use in tests.
 /// Avoids model re-download contention when many tests run in parallel.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-helpers"))]
 pub fn shared_test_embedder() -> std::sync::Arc<TextEmbedder> {
     use std::sync::{Arc, LazyLock};
     static EMBEDDER: LazyLock<Arc<TextEmbedder>> =

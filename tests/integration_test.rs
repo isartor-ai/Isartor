@@ -245,11 +245,7 @@ async fn body_survives_all_middleware() {
     use std::sync::Arc;
     use tower::ServiceExt;
 
-    use isartor::clients::slm::SlmClient;
-    use isartor::config::{
-        AppConfig, CacheBackend, CacheMode, ClassifierMode, EmbeddingSidecarSettings,
-        InferenceEngineMode, Layer2Settings, RouterBackend,
-    };
+    use isartor::config::AppConfig;
     use isartor::core::context_compress::InstructionCache;
     use isartor::core::usage::UsageTracker;
     use isartor::handler::chat_handler;
@@ -276,63 +272,10 @@ async fn body_survives_all_middleware() {
         }
     }
 
-    let config = Arc::new(AppConfig {
-        host_port: "127.0.0.1:0".into(),
-        inference_engine: InferenceEngineMode::Sidecar,
-        gateway_api_key: "test-key".into(),
-        cache_mode: CacheMode::Exact,
-        cache_backend: CacheBackend::Memory,
-        redis_url: "redis://127.0.0.1:6379".into(),
-        router_backend: RouterBackend::Embedded,
-        vllm_url: "http://127.0.0.1:8000".into(),
-        vllm_model: "gemma-2-2b-it".into(),
-        embedding_model: "all-minilm".into(),
-        similarity_threshold: 0.85,
-        cache_ttl_secs: 300,
-        cache_max_capacity: 100,
-        layer2: Layer2Settings {
-            // Point to a non-listening address so SLM triage falls through.
-            sidecar_url: "http://127.0.0.1:1".into(),
-            model_name: "phi-3-mini".into(),
-            timeout_seconds: 1,
-            classifier_mode: ClassifierMode::Tiered,
-            max_answer_tokens: 2048,
-        },
-        local_slm_url: "http://localhost:11434/api/generate".into(),
-        local_slm_model: "llama3".into(),
-        embedding_sidecar: EmbeddingSidecarSettings {
-            sidecar_url: "http://127.0.0.1:8082".into(),
-            model_name: "test".into(),
-            timeout_seconds: 5,
-        },
-        llm_provider: "openai".into(),
-        external_llm_url: "http://localhost".into(),
-        external_llm_model: "gpt-4o-mini".into(),
-        model_aliases: std::collections::HashMap::new(),
-        external_llm_api_key: "".into(),
-        provider_keys: Vec::new(),
-        key_rotation_strategy: isartor::config::KeyRotationStrategy::RoundRobin,
-        key_cooldown_secs: 60,
-        fallback_providers: Vec::new(),
-        l3_timeout_secs: 120,
-        azure_deployment_id: "".into(),
-        azure_api_version: "".into(),
-        enable_monitoring: false,
-        enable_slm_router: false,
-        otel_exporter_endpoint: "http://localhost:4317".into(),
-        enable_request_logs: false,
-        request_log_path: "~/.isartor/request_logs".into(),
-        usage_log_path: "~/.isartor".into(),
-        usage_retention_days: 30,
-        usage_window_hours: 24,
-        usage_pricing: std::collections::HashMap::new(),
-        quota: std::collections::HashMap::new(),
-        offline_mode: false,
-        proxy_port: "0.0.0.0:8081".into(),
-        enable_context_optimizer: true,
-        context_optimizer_dedup: true,
-        context_optimizer_minify: true,
-    });
+    let mut cfg = AppConfig::test_default();
+    cfg.layer2.sidecar_url = "http://127.0.0.1:1".into();
+    cfg.layer2.timeout_seconds = 1;
+    let config = Arc::new(cfg);
 
     let state = Arc::new(AppState {
         http_client: reqwest::Client::new(),
@@ -341,7 +284,7 @@ async fn body_survives_all_middleware() {
         provider_chain: Arc::new(isartor::state::resolved_provider_chain(&config)),
         usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
         llm_agent: Arc::new(EchoAgent),
-        slm_client: Arc::new(SlmClient::new(&config.layer2)),
+        slm_client: Arc::new(isartor::clients::slm::SlmClient::new(&config.layer2)),
         text_embedder: Arc::new(TextEmbedder::new().expect("TextEmbedder init")),
         instruction_cache: Arc::new(InstructionCache::new()),
         provider_health: Arc::new(isartor::state::ProviderHealthTracker::from_config(&config)),

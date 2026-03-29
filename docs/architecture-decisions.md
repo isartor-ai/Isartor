@@ -24,11 +24,11 @@ Implement a **sequential Deflection Stack** with 4+ layers, each capable of shor
 - **Layer 0** — Operational defense (auth, rate limiting, concurrency control)
 - **Layer 1** — Semantic + exact cache (zero-cost hits)
 - **Layer 2** — Local SLM triage (classify intent, execute simple tasks locally)
-- **Layer 2.5** — Context optimiser (retrieve + rerank to minimise token usage)
-- **Layer 3** — Cloud LLM fallback (only the hardest prompts)
+- **Layer 2.5** — Context optimiser (instruction dedup + minification to reduce cloud input tokens)
+- **Layer 3** — Cloud LLM fallback with ordered provider chain, quotas, and multi-key rotation
 
 **Layer 2.5 (Context Optimiser):**
-Retrieves and reranks candidate documents or responses to minimize downstream token usage. Typically implements top-K selection, reranking, or context window optimization before forwarding to the LLM. Instrumented as the `context_optimise` span in observability.
+Compresses repeated instruction payloads (CLAUDE.md, copilot-instructions.md, skills blocks) via a modular `CompressionPipeline` with three built-in stages: ContentClassifier (gate), DedupStage (session-aware cross-turn dedup), and LogCrunchStage (static minification). Instrumented as the `layer2_5_context_optimizer` span in observability.
 
 ### Consequences
 

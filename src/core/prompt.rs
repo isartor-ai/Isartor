@@ -169,7 +169,7 @@ fn extract_prompt_parts(body: &[u8]) -> (String, Vec<String>) {
     // 3) Chat-like format: {"messages": [...]}.
     if let Some(messages) = v.get("messages").and_then(|m| m.as_array()) {
         let mut parts: Vec<String> = Vec::with_capacity(messages.len() + 1);
-        let mut extras: Vec<String> = model_extra.clone().into_iter().collect();
+        let mut extras: Vec<String> = model_extra.into_iter().collect();
 
         if let Some(system) = v.get("system").and_then(|s| s.as_str())
             && !system.trim().is_empty()

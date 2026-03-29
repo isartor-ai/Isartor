@@ -26,7 +26,6 @@ pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod openai_sse;
-pub mod pipeline;
 pub mod providers;
 pub mod proxy;
 #[cfg(feature = "embedded-inference")]

@@ -362,18 +362,12 @@ mod tests {
     use sha2::Digest;
     use tower::ServiceExt;
 
-    use crate::clients::slm::SlmClient;
-    use crate::config::{AppConfig, CacheMode, EmbeddingSidecarSettings, Layer2Settings};
+    use crate::config::{AppConfig, CacheMode};
     use crate::core::cache_scope::{build_exact_cache_key, derive_session_cache_scope};
-    use crate::core::context_compress::InstructionCache;
     use crate::core::prompt::{extract_cache_key, extract_semantic_key};
-    use crate::core::usage::UsageTracker;
-    use crate::layer1::embeddings::shared_test_embedder;
-    use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::middleware::body_buffer::buffer_body_middleware;
     use crate::models::ChatResponse;
     use crate::state::AppLlmAgent;
-    use crate::vector_cache::VectorCache;
 
     struct MockAgent;
 
@@ -388,88 +382,15 @@ mod tests {
     }
 
     fn test_config(mode: CacheMode) -> Arc<AppConfig> {
-        Arc::new(AppConfig {
-            host_port: "127.0.0.1:0".into(),
-            inference_engine: crate::config::InferenceEngineMode::Sidecar,
-            gateway_api_key: "test".into(),
-            cache_mode: mode,
-            cache_backend: crate::config::CacheBackend::Memory,
-            redis_url: "redis://127.0.0.1:6379".into(),
-            router_backend: crate::config::RouterBackend::Embedded,
-            vllm_url: "http://127.0.0.1:8000".into(),
-            vllm_model: "gemma-2-2b-it".into(),
-            embedding_model: "all-minilm".into(),
-            similarity_threshold: 0.85,
-            cache_ttl_secs: 300,
-            cache_max_capacity: 100,
-            layer2: Layer2Settings {
-                sidecar_url: "http://127.0.0.1:8081".into(),
-                model_name: "test".into(),
-                timeout_seconds: 5,
-                classifier_mode: crate::config::ClassifierMode::Tiered,
-                max_answer_tokens: 2048,
-            },
-            local_slm_url: "http://localhost:11434/api/generate".into(),
-            local_slm_model: "llama3".into(),
-            embedding_sidecar: EmbeddingSidecarSettings {
-                sidecar_url: "http://127.0.0.1:8082".into(),
-                model_name: "test".into(),
-                timeout_seconds: 5,
-            },
-            llm_provider: "openai".into(),
-            external_llm_url: "http://localhost".into(),
-            external_llm_model: "test".into(),
-            model_aliases: std::collections::HashMap::new(),
-            external_llm_api_key: "".into(),
-            provider_keys: Vec::new(),
-            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
-            key_cooldown_secs: 60,
-            fallback_providers: Vec::new(),
-            l3_timeout_secs: 120,
-            azure_deployment_id: "".into(),
-            azure_api_version: "".into(),
-            enable_monitoring: false,
-            enable_slm_router: false,
-            otel_exporter_endpoint: "http://localhost:4317".into(),
-            enable_request_logs: false,
-            request_log_path: "~/.isartor/request_logs".into(),
-            usage_log_path: "~/.isartor".into(),
-            usage_retention_days: 30,
-            usage_window_hours: 24,
-            usage_pricing: std::collections::HashMap::new(),
-            quota: std::collections::HashMap::new(),
-            offline_mode: false,
-            proxy_port: "0.0.0.0:8081".into(),
-            enable_context_optimizer: true,
-            context_optimizer_dedup: true,
-            context_optimizer_minify: true,
-        })
+        let mut cfg = AppConfig::test_default();
+        cfg.cache_mode = mode;
+        cfg.external_llm_model = "test".into();
+        Arc::new(cfg)
     }
 
     fn test_state(mode: CacheMode) -> Arc<AppState> {
         let config = test_config(mode);
-        Arc::new(AppState {
-            http_client: reqwest::Client::new(),
-            exact_cache: Arc::new(ExactMatchCache::new(
-                std::num::NonZeroUsize::new(100).unwrap(),
-            )),
-            vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
-            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
-            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
-            llm_agent: Arc::new(MockAgent),
-            slm_client: Arc::new(SlmClient::new(&config.layer2)),
-            text_embedder: shared_test_embedder(),
-            instruction_cache: Arc::new(InstructionCache::new()),
-            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
-            provider_key_pools: Arc::new(
-                crate::state::ProviderKeyPoolManager::from_provider_chain(
-                    crate::state::resolved_provider_chain(&config).as_slice(),
-                ),
-            ),
-            config,
-            #[cfg(feature = "embedded-inference")]
-            embedded_classifier: None,
-        })
+        AppState::test_with_agent(Arc::new(MockAgent), config)
     }
 
     /// Build a router with cache middleware and a handler that echoes the body.

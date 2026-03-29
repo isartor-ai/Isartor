@@ -950,7 +950,7 @@ impl AppState {
         let agent = build_agent_for_provider(
             &primary_provider,
             http_client.clone(),
-            rig_http_client.clone(),
+            rig_http_client,
             l3_timeout,
         );
 
@@ -988,7 +988,7 @@ impl AppState {
             };
 
         Self {
-            config: config.clone(),
+            config,
             http_client,
             exact_cache,
             vector_cache,
@@ -1338,6 +1338,42 @@ impl AppState {
     }
 }
 
+#[cfg(any(test, feature = "test-helpers"))]
+impl AppState {
+    /// Build a test `AppState` from the given agent and config.
+    pub fn test_with_agent(agent: Arc<dyn AppLlmAgent>, config: Arc<AppConfig>) -> Arc<Self> {
+        use crate::clients::slm::SlmClient;
+        use crate::core::context_compress::InstructionCache;
+        use crate::core::usage::UsageTracker;
+        use crate::layer1::layer1a_cache::ExactMatchCache;
+        use crate::vector_cache::VectorCache;
+        use std::num::NonZeroUsize;
+
+        Arc::new(Self {
+            http_client: reqwest::Client::new(),
+            exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
+            vector_cache: Arc::new(VectorCache::new(
+                config.similarity_threshold,
+                config.cache_ttl_secs,
+                config.cache_max_capacity,
+            )),
+            provider_chain: Arc::new(resolved_provider_chain(&config)),
+            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
+            llm_agent: agent,
+            slm_client: Arc::new(SlmClient::new(&config.layer2)),
+            text_embedder: crate::layer1::embeddings::shared_test_embedder(),
+            instruction_cache: Arc::new(InstructionCache::new()),
+            provider_health: Arc::new(ProviderHealthTracker::from_config(&config)),
+            provider_key_pools: Arc::new(ProviderKeyPoolManager::from_provider_chain(
+                resolved_provider_chain(&config).as_slice(),
+            )),
+            config,
+            #[cfg(feature = "embedded-inference")]
+            embedded_classifier: None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1374,62 +1410,24 @@ mod tests {
     // ── AppState::new tests ──────────────────────────────────────
 
     fn make_test_config(provider: &str) -> Arc<AppConfig> {
-        Arc::new(AppConfig {
-            host_port: "127.0.0.1:0".into(),
-            inference_engine: crate::config::InferenceEngineMode::Sidecar,
-            gateway_api_key: "test-key".into(),
-            llm_provider: provider.into(),
-            external_llm_url: "https://api.openai.com".into(),
-            external_llm_api_key: "sk-test".into(),
-            provider_keys: Vec::new(),
-            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
-            key_cooldown_secs: 60,
-            external_llm_model: "gpt-4o-mini".into(),
-            model_aliases: std::collections::HashMap::new(),
-            fallback_providers: Vec::new(),
-            l3_timeout_secs: 120,
-            azure_api_version: "2024-02-15-preview".into(),
-            azure_deployment_id: "my-deployment".into(),
-            cache_mode: crate::config::CacheMode::Both,
-            cache_backend: crate::config::CacheBackend::Memory,
-            redis_url: "redis://127.0.0.1:6379".into(),
-            router_backend: crate::config::RouterBackend::Embedded,
-            vllm_url: "http://127.0.0.1:8000".into(),
-            vllm_model: "gemma-2-2b-it".into(),
-            cache_ttl_secs: 300,
-            cache_max_capacity: 1000,
-            embedding_model: "test".into(),
-            similarity_threshold: 0.92,
-            enable_monitoring: false,
-            enable_slm_router: false,
-            otel_exporter_endpoint: String::new(),
-            enable_request_logs: false,
-            request_log_path: "~/.isartor/request_logs".into(),
-            usage_log_path: "~/.isartor".into(),
-            usage_retention_days: 30,
-            usage_window_hours: 24,
-            usage_pricing: std::collections::HashMap::new(),
-            quota: std::collections::HashMap::new(),
-            offline_mode: false,
-            proxy_port: "0.0.0.0:8081".into(),
-            local_slm_url: "http://localhost:11434/api/generate".into(),
-            local_slm_model: "llama3".into(),
-            layer2: crate::config::Layer2Settings {
-                sidecar_url: "http://localhost:8081".into(),
-                model_name: "test-model".into(),
-                timeout_seconds: 30,
-                classifier_mode: crate::config::ClassifierMode::Tiered,
-                max_answer_tokens: 2048,
-            },
-            embedding_sidecar: crate::config::EmbeddingSidecarSettings {
-                sidecar_url: "http://localhost:8082".into(),
-                model_name: "test-embed".into(),
-                timeout_seconds: 30,
-            },
-            enable_context_optimizer: true,
-            context_optimizer_dedup: true,
-            context_optimizer_minify: true,
-        })
+        let mut cfg = AppConfig::test_default();
+        cfg.llm_provider = provider.into();
+        cfg.external_llm_url = "https://api.openai.com".into();
+        cfg.external_llm_api_key = "sk-test".into();
+        cfg.azure_deployment_id = "my-deployment".into();
+        cfg.azure_api_version = "2024-02-15-preview".into();
+        cfg.similarity_threshold = 0.92;
+        cfg.cache_mode = crate::config::CacheMode::Both;
+        cfg.cache_max_capacity = 1000;
+        cfg.embedding_model = "test".into();
+        cfg.otel_exporter_endpoint = String::new();
+        cfg.layer2.sidecar_url = "http://localhost:8081".into();
+        cfg.layer2.model_name = "test-model".into();
+        cfg.layer2.timeout_seconds = 30;
+        cfg.embedding_sidecar.sidecar_url = "http://localhost:8082".into();
+        cfg.embedding_sidecar.model_name = "test-embed".into();
+        cfg.embedding_sidecar.timeout_seconds = 30;
+        Arc::new(cfg)
     }
 
     #[tokio::test]

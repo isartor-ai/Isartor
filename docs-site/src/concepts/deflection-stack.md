@@ -17,7 +17,7 @@ Request ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM 
 | **L1b — Semantic Cache** | Cosine Similarity (Embeddings) | Computes mathematical meaning via pure-Rust `candle` models (`all-MiniLM-L6-v2`) to catch variations ("Price?" ≈ "Cost?"). | 1–5 ms |
 | **L2 — SLM Router** | Neural Classification (LLM) | Triages intent using an embedded Small Language Model (e.g. Qwen-1.5B) to resolve simple data extraction tasks. | 50–200 ms |
 | **L2.5 — Context Optimiser** | Instruction Dedup + Minify | Compresses repeated instruction files (CLAUDE.md, copilot-instructions.md) via session dedup and static minification to reduce cloud input tokens. | < 1 ms |
-| **L3 — Cloud Logic** | Load Balancing & Retries | Routes surviving complex prompts to OpenAI, Anthropic, or Azure, with built-in fallback resilience. | Network-bound |
+| **L3 — Cloud Logic** | Provider Chain + Retries | Routes surviving complex prompts to 23+ providers (OpenAI, Anthropic, Azure, Gemini, etc.) with ordered fallback chain, per-provider retry budgets, multi-key rotation, and quota enforcement. | Network-bound |
 
 Layers 1a and 1b deflect **71% of repetitive agentic traffic** (FAQ/agent loop patterns) and **38% of diverse task traffic** before any neural inference runs.
 
@@ -129,19 +129,33 @@ Implement the `CompressionStage` trait and add your stage to the pipeline via
 
 ### L3 — Cloud Logic
 
-**Algorithm:** Load balancing & retries
+**Algorithm:** Ordered provider chain with per-provider retry budgets
 
 L3 is the final layer. Only the hardest prompts — those not resolved by cache, SLM, or context optimisation — reach the external cloud LLMs.
 
-- Routes to OpenAI, Anthropic, Azure OpenAI, or xAI via [rig-core](https://crates.io/crates/rig-core).
-- Built-in fallback resilience with load balancing and retries.
-- **Offline mode (`offline_mode = true`):** Blocks L3 routing explicitly instead of silently pretending success.
+**Provider chain execution:**
+
+1. Isartor evaluates **quota** for the current provider (daily/weekly/monthly token and cost windows). If the provider is over quota, the request either blocks (429), warns, or falls through to the next provider depending on the `action_on_limit` policy.
+2. The request is dispatched to the provider with **retry logic** (exponential backoff, jitter). Each provider has its own independent retry budget.
+3. On exhausting retries with a retry-safe upstream error (429, 5xx, timeout), Isartor advances to the **next fallback provider** in the chain.
+4. Successful responses are annotated with the `x-isartor-provider` header.
+
+**Multi-key rotation:** Each provider can own an in-memory key pool. When multiple credentials are configured, keys are selected with `round_robin` or `priority` strategy. Only the rate-limited key is cooled down after 429/quota failures — other keys continue serving.
+
+**Supported providers (23+):**
+
+- **Full client:** OpenAI, Azure OpenAI, Anthropic, Copilot (GitHub), Gemini, Cohere, xAI
+- **OpenAI-compatible registry:** Groq, Cerebras, Nebius, SiliconFlow, Fireworks, NVIDIA, Chutes, DeepSeek, Galadriel, Hyperbolic, HuggingFace, Mira, Moonshot, Ollama, OpenRouter, Perplexity, Together
+
+**Safety nets:**
+
+- **Offline mode (`offline_mode = true`):** Blocks L3 routing explicitly with HTTP 503.
 - **Stale fallback:** On L3 failure, checks the namespaced exact-cache key first, then a legacy un-namespaced key for backward compatibility.
 
 | Mode | Implementation |
 |:-----|:---------------|
-| Minimalist | Direct to OpenAI / Anthropic |
-| Enterprise | Direct to OpenAI / Anthropic |
+| Minimalist | Direct to cloud providers via `rig-core` |
+| Enterprise | Direct to cloud providers via `rig-core` |
 
 ## How Layers Interact
 
@@ -157,7 +171,7 @@ The deflection stack is implemented as Axum middleware plus a final handler. For
 
 > **Implementation note:** Axum middleware wraps inside-out — the last `.layer(...)` added runs first. The stack order in `src/main.rs` documents this explicitly and must be preserved.
 
-Public health routes (`/health`, `/healthz`) intentionally bypass the deflection stack. The authenticated routes are `/api/chat`, `/api/v1/chat`, `/v1/chat/completions`, and `/v1/messages`.
+Public health routes (`/health`, `/healthz`) intentionally bypass the deflection stack. The authenticated routes are `/api/chat`, `/api/v1/chat`, `/v1/chat/completions`, `/v1/messages`, and `/v1beta/models/{model}:generateContent`.
 
 ## See Also
 

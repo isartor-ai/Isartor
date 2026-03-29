@@ -282,6 +282,76 @@ fn add_provider_header(response: &mut Response, provider: &ResolvedProviderConfi
     }
 }
 
+/// Check provider quota and return either a blocking error or `Ok(())`.
+fn check_provider_quota(
+    state: &AppState,
+    provider: &ResolvedProviderConfig,
+    projected_total_tokens: u64,
+    projected_prompt_tokens: u64,
+    projected_completion_tokens: u64,
+) -> Result<(), GatewayError> {
+    let projected_cost_usd = crate::core::usage::estimate_event_cost_usd(
+        &state.config,
+        provider.provider_name(),
+        projected_prompt_tokens,
+        projected_completion_tokens,
+    );
+    if let Some(quota_decision) = evaluate_provider_quota(
+        &state.config,
+        &state.usage_tracker,
+        provider.provider_name(),
+        projected_total_tokens,
+        projected_cost_usd,
+        chrono::Utc::now(),
+    ) {
+        let provider_name = provider.provider_name();
+        for warning in quota_decision.warning_messages {
+            tracing::warn!(
+                provider = %provider_name,
+                action = ?quota_decision.action,
+                "{warning}"
+            );
+        }
+
+        if let Some(limit_message) = quota_decision.limit_message {
+            return Err(GatewayError::Quota {
+                provider: provider_name.to_string(),
+                message: limit_message,
+                fallback_allowed: quota_decision.action
+                    == crate::config::QuotaLimitAction::Fallback,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Handle a provider call result: on success return the execution result,
+/// on fallback-eligible failure record and continue, otherwise return the error.
+fn handle_provider_result(
+    state: &AppState,
+    provider: &ResolvedProviderConfig,
+    model: String,
+    result: Result<String, GatewayError>,
+    last_error: &mut Option<GatewayError>,
+) -> Option<Result<ProviderExecutionResult, GatewayError>> {
+    match result {
+        Ok(body) => Some(Ok(ProviderExecutionResult {
+            provider: provider.clone(),
+            model,
+            body,
+        })),
+        Err(error) => {
+            record_provider_failure(state, provider, &error);
+            if error.should_fallback_to_next_provider() {
+                *last_error = Some(error);
+                None
+            } else {
+                Some(Err(error))
+            }
+        }
+    }
+}
+
 async fn execute_prompt_provider_chain(
     state: Arc<AppState>,
     prompt: String,
@@ -296,59 +366,37 @@ async fn execute_prompt_provider_chain(
         projected_total_tokens.saturating_sub(projected_prompt_tokens);
 
     for provider in state.provider_chain.iter() {
-        let provider_name = provider.provider_name().to_string();
+        if let Err(e) = check_provider_quota(
+            &state,
+            provider,
+            projected_total_tokens,
+            projected_prompt_tokens,
+            projected_completion_tokens,
+        ) {
+            record_provider_failure(&state, provider, &e);
+            if e.should_fallback_to_next_provider() {
+                last_error = Some(e);
+                continue;
+            }
+            return Err(e);
+        }
+
         let model = if provider.active {
             primary_model.clone()
         } else {
             provider.configured_model_id().to_string()
         };
-        let projected_cost_usd = crate::core::usage::estimate_event_cost_usd(
-            &state.config,
-            provider.provider_name(),
-            projected_prompt_tokens,
-            projected_completion_tokens,
-        );
-        if let Some(quota_decision) = evaluate_provider_quota(
-            &state.config,
-            &state.usage_tracker,
-            provider.provider_name(),
-            projected_total_tokens,
-            projected_cost_usd,
-            chrono::Utc::now(),
-        ) {
-            for warning in quota_decision.warning_messages {
-                tracing::warn!(
-                    provider = %provider_name,
-                    action = ?quota_decision.action,
-                    "{warning}"
-                );
-            }
-
-            if let Some(limit_message) = quota_decision.limit_message {
-                let quota_error = GatewayError::Quota {
-                    provider: provider_name.clone(),
-                    message: limit_message,
-                    fallback_allowed: quota_decision.action
-                        == crate::config::QuotaLimitAction::Fallback,
-                };
-                record_provider_failure(&state, provider, &quota_error);
-                if quota_error.should_fallback_to_next_provider() {
-                    last_error = Some(quota_error);
-                    continue;
-                }
-                return Err(quota_error);
-            }
-        }
         let retry_cfg = RetryConfig::cloud_llm();
-        let state_for_retry = state.clone();
-        let prompt_for_retry = prompt.clone();
-        let provider_for_retry = provider.clone();
-        let model_for_retry = model.clone();
+        let state_c = state.clone();
+        let prompt_c = prompt.clone();
+        let provider_c = provider.clone();
+        let model_c = model.clone();
+        let provider_name = provider.provider_name().to_string();
         let result = execute_with_retry(&retry_cfg, operation, tool, move || {
-            let state = state_for_retry.clone();
-            let prompt = prompt_for_retry.clone();
-            let provider = provider_for_retry.clone();
-            let model = model_for_retry.clone();
+            let state = state_c.clone();
+            let prompt = prompt_c.clone();
+            let provider = provider_c.clone();
+            let model = model_c.clone();
             let provider_name = provider_name.clone();
             async move {
                 state
@@ -359,22 +407,10 @@ async fn execute_prompt_provider_chain(
         })
         .await;
 
-        match result {
-            Ok(body) => {
-                return Ok(ProviderExecutionResult {
-                    provider: provider.clone(),
-                    model,
-                    body,
-                });
-            }
-            Err(error) => {
-                record_provider_failure(&state, provider, &error);
-                if error.should_fallback_to_next_provider() {
-                    last_error = Some(error);
-                    continue;
-                }
-                return Err(error);
-            }
+        if let Some(outcome) =
+            handle_provider_result(&state, provider, model, result, &mut last_error)
+        {
+            return outcome;
         }
     }
 
@@ -400,54 +436,32 @@ async fn execute_passthrough_provider_chain(
         if !supports_openai_passthrough(&provider.provider) {
             continue;
         }
-        let projected_cost_usd = crate::core::usage::estimate_event_cost_usd(
-            &state.config,
-            provider.provider_name(),
+
+        if let Err(e) = check_provider_quota(
+            &state,
+            provider,
+            projected_total_tokens,
             projected_prompt_tokens,
             projected_completion_tokens,
-        );
-        if let Some(quota_decision) = evaluate_provider_quota(
-            &state.config,
-            &state.usage_tracker,
-            provider.provider_name(),
-            projected_total_tokens,
-            projected_cost_usd,
-            chrono::Utc::now(),
         ) {
-            for warning in quota_decision.warning_messages {
-                tracing::warn!(
-                    provider = %provider.provider_name(),
-                    action = ?quota_decision.action,
-                    "{warning}"
-                );
+            record_provider_failure(&state, provider, &e);
+            if e.should_fallback_to_next_provider() {
+                last_error = Some(e);
+                continue;
             }
-
-            if let Some(limit_message) = quota_decision.limit_message {
-                let quota_error = GatewayError::Quota {
-                    provider: provider.provider_name().to_string(),
-                    message: limit_message,
-                    fallback_allowed: quota_decision.action
-                        == crate::config::QuotaLimitAction::Fallback,
-                };
-                record_provider_failure(&state, provider, &quota_error);
-                if quota_error.should_fallback_to_next_provider() {
-                    last_error = Some(quota_error);
-                    continue;
-                }
-                return Err(quota_error);
-            }
+            return Err(e);
         }
 
         let retry_cfg = RetryConfig::cloud_llm();
-        let state_for_retry = state.clone();
-        let request_for_retry = request.clone();
-        let provider_for_retry = provider.clone();
+        let state_c = state.clone();
+        let request_c = request.clone();
+        let provider_c = provider.clone();
         let provider_name = provider.provider_name().to_string();
         let model = provider.configured_model_id().to_string();
         let result = execute_with_retry(&retry_cfg, "L3_OpenAIToolPassthrough", tool, move || {
-            let state = state_for_retry.clone();
-            let request = request_for_retry.clone();
-            let provider = provider_for_retry.clone();
+            let state = state_c.clone();
+            let request = request_c.clone();
+            let provider = provider_c.clone();
             let provider_name = provider_name.clone();
             async move {
                 send_openai_passthrough_request(&state, &provider, &request)
@@ -457,22 +471,10 @@ async fn execute_passthrough_provider_chain(
         })
         .await;
 
-        match result {
-            Ok(body) => {
-                return Ok(ProviderExecutionResult {
-                    provider: provider.clone(),
-                    model,
-                    body,
-                });
-            }
-            Err(error) => {
-                record_provider_failure(&state, provider, &error);
-                if error.should_fallback_to_next_provider() {
-                    last_error = Some(error);
-                    continue;
-                }
-                return Err(error);
-            }
+        if let Some(outcome) =
+            handle_provider_result(&state, provider, model, result, &mut last_error)
+        {
+            return outcome;
         }
     }
 
@@ -1705,20 +1707,13 @@ mod tests {
     use sha2::{Digest, Sha256};
     use tower::ServiceExt;
 
-    use crate::clients::slm::SlmClient;
-    use crate::config::{
-        AppConfig, CacheMode, EmbeddingSidecarSettings, FallbackProviderConfig, Layer2Settings,
-        ProviderQuotaConfig, QuotaLimitAction,
-    };
+    use crate::config::{AppConfig, FallbackProviderConfig, ProviderQuotaConfig, QuotaLimitAction};
     use crate::core::context_compress::InstructionCache;
     use crate::core::usage::UsageTracker;
     use crate::layer1::embeddings::shared_test_embedder;
-    use crate::layer1::layer1a_cache::ExactMatchCache;
     use crate::middleware::body_buffer::buffer_body_middleware;
     use crate::state::AppLlmAgent;
-    use crate::vector_cache::VectorCache;
     use crate::visibility::{agent_stats_snapshot, clear_prompt_stats, prompt_stats_snapshot};
-    use std::num::NonZeroUsize;
 
     struct SuccessAgent;
 
@@ -1745,83 +1740,8 @@ mod tests {
     }
 
     fn test_state(agent: Arc<dyn AppLlmAgent>) -> Arc<AppState> {
-        let config = Arc::new(AppConfig {
-            host_port: "127.0.0.1:0".into(),
-            inference_engine: crate::config::InferenceEngineMode::Sidecar,
-            gateway_api_key: "test".into(),
-            cache_mode: CacheMode::Exact,
-            cache_backend: crate::config::CacheBackend::Memory,
-            redis_url: "redis://127.0.0.1:6379".into(),
-            router_backend: crate::config::RouterBackend::Embedded,
-            vllm_url: "http://127.0.0.1:8000".into(),
-            vllm_model: "gemma-2-2b-it".into(),
-            embedding_model: "all-minilm".into(),
-            similarity_threshold: 0.85,
-            cache_ttl_secs: 300,
-            cache_max_capacity: 100,
-            layer2: Layer2Settings {
-                sidecar_url: "http://127.0.0.1:8081".into(),
-                model_name: "test".into(),
-                timeout_seconds: 5,
-                classifier_mode: crate::config::ClassifierMode::Tiered,
-                max_answer_tokens: 2048,
-            },
-            local_slm_url: "http://localhost:11434/api/generate".into(),
-            local_slm_model: "llama3".into(),
-            embedding_sidecar: EmbeddingSidecarSettings {
-                sidecar_url: "http://127.0.0.1:8082".into(),
-                model_name: "test".into(),
-                timeout_seconds: 5,
-            },
-            llm_provider: "openai".into(),
-            external_llm_url: "http://localhost".into(),
-            external_llm_model: "gpt-4o-mini".into(),
-            model_aliases: std::collections::HashMap::new(),
-            external_llm_api_key: "".into(),
-            provider_keys: Vec::new(),
-            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
-            key_cooldown_secs: 60,
-            fallback_providers: Vec::new(),
-            l3_timeout_secs: 120,
-            azure_deployment_id: "".into(),
-            azure_api_version: "".into(),
-            enable_monitoring: false,
-            enable_slm_router: false,
-            otel_exporter_endpoint: "http://localhost:4317".into(),
-            enable_request_logs: false,
-            request_log_path: "~/.isartor/request_logs".into(),
-            usage_log_path: "~/.isartor".into(),
-            usage_retention_days: 30,
-            usage_window_hours: 24,
-            usage_pricing: std::collections::HashMap::new(),
-            quota: std::collections::HashMap::new(),
-            offline_mode: false,
-            proxy_port: "0.0.0.0:8081".into(),
-            enable_context_optimizer: true,
-            context_optimizer_dedup: true,
-            context_optimizer_minify: true,
-        });
-
-        Arc::new(AppState {
-            http_client: reqwest::Client::new(),
-            exact_cache: Arc::new(ExactMatchCache::new(NonZeroUsize::new(100).unwrap())),
-            vector_cache: Arc::new(VectorCache::new(0.85, 300, 100)),
-            provider_chain: Arc::new(crate::state::resolved_provider_chain(&config)),
-            usage_tracker: Arc::new(UsageTracker::new(config.clone()).unwrap()),
-            llm_agent: agent,
-            slm_client: Arc::new(SlmClient::new(&config.layer2)),
-            text_embedder: shared_test_embedder(),
-            instruction_cache: Arc::new(InstructionCache::new()),
-            provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
-            provider_key_pools: Arc::new(
-                crate::state::ProviderKeyPoolManager::from_provider_chain(
-                    crate::state::resolved_provider_chain(&config).as_slice(),
-                ),
-            ),
-            config,
-            #[cfg(feature = "embedded-inference")]
-            embedded_classifier: None,
-        })
+        let config = Arc::new(AppConfig::test_default());
+        AppState::test_with_agent(agent, config)
     }
 
     fn handler_app(state: Arc<AppState>) -> Router {

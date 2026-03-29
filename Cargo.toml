@@ -129,6 +129,7 @@ panic = "abort"
 [features]
 default = ["embedded-inference"]
 embedded-inference = []
+test-helpers = []
 
 [[bench]]
 name = "cache_latency"

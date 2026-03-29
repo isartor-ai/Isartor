@@ -418,13 +418,8 @@ pub fn default_usage_window_hours() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
-    use crate::config::{
-        AppConfig, CacheBackend, CacheMode, ClassifierMode, EmbeddingSidecarSettings,
-        FallbackProviderConfig, InferenceEngineMode, KeyRotationStrategy, Layer2Settings,
-        RouterBackend,
-    };
+    use crate::config::AppConfig;
     use tempfile::tempdir;
 
     fn test_config(log_dir: &str) -> Arc<AppConfig> {
@@ -436,62 +431,15 @@ mod tests {
                 output_cost_per_million_usd: 2.0,
             },
         );
-        Arc::new(AppConfig {
-            host_port: "127.0.0.1:0".into(),
-            inference_engine: InferenceEngineMode::Sidecar,
-            gateway_api_key: "test-key".into(),
-            cache_mode: CacheMode::Both,
-            cache_backend: CacheBackend::Memory,
-            redis_url: "redis://127.0.0.1:6379".into(),
-            router_backend: RouterBackend::Embedded,
-            vllm_url: "http://127.0.0.1:8000".into(),
-            vllm_model: "gemma-2-2b-it".into(),
-            embedding_model: "all-minilm".into(),
-            similarity_threshold: 0.85,
-            cache_ttl_secs: 300,
-            cache_max_capacity: 100,
-            layer2: Layer2Settings {
-                sidecar_url: "http://127.0.0.1:8081".into(),
-                model_name: "phi-3-mini".into(),
-                timeout_seconds: 5,
-                classifier_mode: ClassifierMode::Tiered,
-                max_answer_tokens: 2048,
-            },
-            local_slm_url: "http://localhost:11434/api/generate".into(),
-            local_slm_model: "llama3".into(),
-            embedding_sidecar: EmbeddingSidecarSettings {
-                sidecar_url: "http://127.0.0.1:8082".into(),
-                model_name: "test".into(),
-                timeout_seconds: 5,
-            },
-            llm_provider: "openai".into(),
-            external_llm_url: "https://api.openai.com/v1/chat/completions".into(),
-            external_llm_model: "gpt-4o-mini".into(),
-            model_aliases: std::collections::HashMap::new(),
-            external_llm_api_key: "sk-test".into(),
-            provider_keys: Vec::new(),
-            key_rotation_strategy: KeyRotationStrategy::RoundRobin,
-            key_cooldown_secs: 60,
-            fallback_providers: Vec::<FallbackProviderConfig>::new(),
-            l3_timeout_secs: 120,
-            azure_deployment_id: "".into(),
-            azure_api_version: "2024-08-01-preview".into(),
-            enable_slm_router: false,
-            enable_context_optimizer: true,
-            context_optimizer_dedup: true,
-            context_optimizer_minify: true,
-            enable_monitoring: false,
-            otel_exporter_endpoint: "http://localhost:4317".into(),
-            enable_request_logs: false,
-            request_log_path: "~/.isartor/request_logs".into(),
-            usage_log_path: log_dir.into(),
-            usage_retention_days: 30,
-            usage_window_hours: 24,
-            usage_pricing,
-            quota: HashMap::new(),
-            offline_mode: false,
-            proxy_port: "0.0.0.0:8081".into(),
-        })
+        let mut cfg = AppConfig::test_default();
+        cfg.usage_log_path = log_dir.into();
+        cfg.external_llm_url = "https://api.openai.com/v1/chat/completions".into();
+        cfg.external_llm_model = "gpt-4o-mini".into();
+        cfg.external_llm_api_key = "sk-test".into();
+        cfg.cache_mode = crate::config::CacheMode::Both;
+        cfg.azure_api_version = "2024-08-01-preview".into();
+        cfg.usage_pricing = usage_pricing;
+        Arc::new(cfg)
     }
 
     #[test]

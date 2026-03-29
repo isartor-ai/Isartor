@@ -432,8 +432,7 @@ fn resolve_openclaw_state_dir(config_path: &Path) -> anyhow::Result<PathBuf> {
     Ok(config_path
         .parent()
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(".")))
 }
 
 fn expand_openclaw_path(path: &str, fallback_home: &Path) -> anyhow::Result<PathBuf> {

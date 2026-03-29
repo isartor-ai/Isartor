@@ -443,62 +443,10 @@ mod tests {
     use http_body_util::BodyExt;
 
     fn test_config(path: &str) -> AppConfig {
-        AppConfig {
-            host_port: "127.0.0.1:0".into(),
-            inference_engine: crate::config::InferenceEngineMode::Sidecar,
-            gateway_api_key: "test".into(),
-            cache_mode: crate::config::CacheMode::Exact,
-            cache_backend: crate::config::CacheBackend::Memory,
-            redis_url: "redis://127.0.0.1:6379".into(),
-            router_backend: crate::config::RouterBackend::Embedded,
-            vllm_url: "http://127.0.0.1:8000".into(),
-            vllm_model: "gemma-2-2b-it".into(),
-            embedding_model: "all-minilm".into(),
-            similarity_threshold: 0.85,
-            cache_ttl_secs: 300,
-            cache_max_capacity: 100,
-            layer2: crate::config::Layer2Settings {
-                sidecar_url: "http://127.0.0.1:8081".into(),
-                model_name: "phi-3-mini".into(),
-                timeout_seconds: 5,
-                classifier_mode: crate::config::ClassifierMode::Tiered,
-                max_answer_tokens: 2048,
-            },
-            local_slm_url: "http://localhost:11434/api/generate".into(),
-            local_slm_model: "llama3".into(),
-            embedding_sidecar: crate::config::EmbeddingSidecarSettings {
-                sidecar_url: "http://127.0.0.1:8082".into(),
-                model_name: "all-minilm".into(),
-                timeout_seconds: 5,
-            },
-            llm_provider: crate::config::LlmProvider::Openai,
-            external_llm_url: "http://localhost".into(),
-            external_llm_model: "gpt-4o-mini".into(),
-            model_aliases: std::collections::HashMap::new(),
-            external_llm_api_key: "".into(),
-            provider_keys: Vec::new(),
-            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
-            key_cooldown_secs: 60,
-            fallback_providers: Vec::new(),
-            l3_timeout_secs: 120,
-            azure_deployment_id: "".into(),
-            azure_api_version: "".into(),
-            enable_slm_router: false,
-            enable_context_optimizer: true,
-            context_optimizer_dedup: true,
-            context_optimizer_minify: true,
-            enable_monitoring: false,
-            otel_exporter_endpoint: "http://localhost:4317".into(),
-            enable_request_logs: true,
-            request_log_path: path.to_string(),
-            usage_log_path: "~/.isartor".into(),
-            usage_retention_days: 30,
-            usage_window_hours: 24,
-            usage_pricing: std::collections::HashMap::new(),
-            quota: std::collections::HashMap::new(),
-            offline_mode: false,
-            proxy_port: "0.0.0.0:8081".into(),
-        }
+        let mut cfg = AppConfig::test_default();
+        cfg.enable_request_logs = true;
+        cfg.request_log_path = path.to_string();
+        cfg
     }
 
     #[test]

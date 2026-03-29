@@ -28,10 +28,7 @@ use tower::ServiceExt;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 
 use isartor::clients::slm::SlmClient;
-use isartor::config::{
-    AppConfig, CacheBackend, CacheMode, ClassifierMode, EmbeddingSidecarSettings,
-    InferenceEngineMode, Layer2Settings, RouterBackend,
-};
+use isartor::config::{AppConfig, CacheMode};
 use isartor::core::context_compress::InstructionCache;
 use isartor::core::usage::UsageTracker;
 use isartor::handler::chat_handler;
@@ -71,63 +68,15 @@ fn build_audit_state(
     offline: bool,
     sidecar_url: &str,
 ) -> Arc<AppState> {
-    let config = Arc::new(AppConfig {
-        host_port: "127.0.0.1:0".into(),
-        inference_engine: InferenceEngineMode::Sidecar,
-        gateway_api_key: "audit-key".into(),
-        cache_mode,
-        cache_backend: CacheBackend::Memory,
-        redis_url: "redis://127.0.0.1:6379".into(),
-        router_backend: RouterBackend::Embedded,
-        vllm_url: "http://127.0.0.1:8000".into(),
-        vllm_model: "gemma-2-2b-it".into(),
-        embedding_model: "all-minilm".into(),
-        similarity_threshold: 0.85,
-        cache_ttl_secs: 300,
-        cache_max_capacity: 1_000,
-        layer2: Layer2Settings {
-            // Points to a non-listening port so L2 always falls through.
-            sidecar_url: sidecar_url.into(),
-            model_name: "phi-3-mini".into(),
-            timeout_seconds: 1,
-            classifier_mode: ClassifierMode::Tiered,
-            max_answer_tokens: 2048,
-        },
-        local_slm_url: "http://localhost:11434/api/generate".into(),
-        local_slm_model: "llama3".into(),
-        embedding_sidecar: EmbeddingSidecarSettings {
-            sidecar_url: "http://127.0.0.1:8082".into(),
-            model_name: "test".into(),
-            timeout_seconds: 1,
-        },
-        llm_provider: "openai".into(),
-        external_llm_url: "http://localhost".into(),
-        external_llm_model: "gpt-4o-mini".into(),
-        model_aliases: std::collections::HashMap::new(),
-        external_llm_api_key: "".into(),
-        provider_keys: Vec::new(),
-        key_rotation_strategy: isartor::config::KeyRotationStrategy::RoundRobin,
-        key_cooldown_secs: 60,
-        fallback_providers: Vec::new(),
-        l3_timeout_secs: 120,
-        azure_deployment_id: "".into(),
-        azure_api_version: "".into(),
-        enable_monitoring: false,
-        enable_slm_router: false,
-        otel_exporter_endpoint: "http://localhost:4317".into(),
-        enable_request_logs: false,
-        request_log_path: "~/.isartor/request_logs".into(),
-        usage_log_path: "~/.isartor".into(),
-        usage_retention_days: 30,
-        usage_window_hours: 24,
-        usage_pricing: std::collections::HashMap::new(),
-        quota: std::collections::HashMap::new(),
-        offline_mode: offline,
-        proxy_port: "0.0.0.0:8081".into(),
-        enable_context_optimizer: true,
-        context_optimizer_dedup: true,
-        context_optimizer_minify: true,
-    });
+    let mut cfg = AppConfig::test_default();
+    cfg.gateway_api_key = "audit-key".into();
+    cfg.cache_mode = cache_mode;
+    cfg.cache_max_capacity = 1_000;
+    cfg.layer2.sidecar_url = sidecar_url.into();
+    cfg.layer2.timeout_seconds = 1;
+    cfg.embedding_sidecar.timeout_seconds = 1;
+    cfg.offline_mode = offline;
+    let config = Arc::new(cfg);
 
     let exact_cache = Arc::new(ExactMatchCache::new(NonZeroUsize::new(1_000).unwrap()));
     let vector_cache = Arc::new(VectorCache::new(0.85, 300, 1_000));
