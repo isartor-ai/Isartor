@@ -264,10 +264,11 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
             false
         }
     } else {
-        let sidecar_url = format!(
-            "{}/v1/chat/completions",
-            state.config.layer2.sidecar_url.trim_end_matches('/')
-        );
+        // ── Classification uses local_slm (lightweight, always-on CPU) ──
+        let classify_base = state.config.local_slm_url
+            .trim_end_matches("/api/generate")
+            .trim_end_matches('/');
+        let classify_url = format!("{classify_base}/v1/chat/completions");
 
         let system_prompt = if use_tiered {
             CLASSIFY_TIERED_SYSTEM_PROMPT
@@ -276,7 +277,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         };
 
         let classify_req = ChatCompletionRequest {
-            model: state.config.layer2.model_name.clone(),
+            model: state.config.local_slm_model.clone(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
@@ -292,9 +293,19 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
             max_tokens: Some(10),
         };
 
+        tracing::debug!(
+            classify_url = %classify_url,
+            classify_model = %state.config.local_slm_model,
+            "Layer 2: Sending classification to local SLM"
+        );
+
+        let classify_timeout = std::time::Duration::from_secs(
+            state.config.layer2.timeout_seconds as u64,
+        );
         match state
             .http_client
-            .post(&sidecar_url)
+            .post(&classify_url)
+            .timeout(classify_timeout)
             .json(&classify_req)
             .send()
             .await
@@ -324,73 +335,17 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     deflect
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "Layer 2: Failed to parse SLM response – falling through");
+                    tracing::warn!(error = %e, "Layer 2: Failed to parse classifier response – falling through");
                     crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
                     crate::visibility::record_agent_error(tool);
                     false
                 }
             },
             Err(e) => {
-                tracing::warn!(error = %e, "Layer 2: Primary SLM unreachable – trying fallback");
-
-                // ── L2 fallback: try local_slm (Ollama on Biggie) ──────────
-                let fallback_base = state.config.local_slm_url
-                    .trim_end_matches("/api/generate")
-                    .trim_end_matches('/');
-                let fallback_url = format!("{fallback_base}/v1/chat/completions");
-                let fallback_model = &state.config.local_slm_model;
-
-                if fallback_base != state.config.layer2.sidecar_url.trim_end_matches('/') {
-                    let fallback_req = ChatCompletionRequest {
-                        model: fallback_model.clone(),
-                        messages: vec![
-                            ChatMessage {
-                                role: "system".to_string(),
-                                content: system_prompt.to_string(),
-                            },
-                            ChatMessage {
-                                role: "user".to_string(),
-                                content: prompt.clone(),
-                            },
-                        ],
-                        stream: false,
-                        temperature: Some(0.0),
-                        max_tokens: Some(10),
-                    };
-
-                    match state.http_client.post(&fallback_url).json(&fallback_req).send().await {
-                        Ok(resp) => match resp.json::<ChatCompletionResponse>().await {
-                            Ok(completion) => {
-                                let answer = completion.choices.into_iter().next()
-                                    .map(|c| c.message.content).unwrap_or_default()
-                                    .trim().to_uppercase();
-                                tracing::info!(classification = %answer, "Layer 2: Fallback SLM classification result");
-                                if use_tiered {
-                                    answer.contains("TEMPLATE") || answer.contains("SNIPPET")
-                                } else {
-                                    answer.contains("SIMPLE")
-                                }
-                            }
-                            Err(e2) => {
-                                tracing::warn!(error = %e2, "Layer 2: Fallback SLM parse failed – falling through to L3");
-                                crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
-                                crate::visibility::record_agent_error(tool);
-                                false
-                            }
-                        },
-                        Err(e2) => {
-                            tracing::warn!(error = %e2, "Layer 2: Fallback SLM also unreachable – falling through to L3");
-                            crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
-                            crate::visibility::record_agent_error(tool);
-                            false
-                        }
-                    }
-                } else {
-                    // Fallback URL is the same as primary — skip
-                    crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
-                    crate::visibility::record_agent_error(tool);
-                    false
-                }
+                tracing::warn!(error = %e, "Layer 2: Classifier unreachable – falling through to L3");
+                crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
+                crate::visibility::record_agent_error(tool);
+                false
             }
         }
     }
@@ -437,11 +392,17 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 }
             }
         } else {
+            // ── Answer generation uses layer2.sidecar (Z390 GPU) ──
             let sidecar_url = format!(
                 "{}/v1/chat/completions",
                 state.config.layer2.sidecar_url.trim_end_matches('/')
             );
             let max_tokens = state.config.layer2.max_answer_tokens;
+            tracing::debug!(
+                generation_url = %sidecar_url,
+                generation_model = %state.config.layer2.model_name,
+                "Layer 2: Sending answer generation to GPU sidecar"
+            );
             // Second call: ask the sidecar to actually answer the prompt.
             let answer_req = ChatCompletionRequest {
                 model: state.config.layer2.model_name.clone(),
@@ -456,9 +417,13 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 max_tokens: Some(max_tokens),
             };
 
+            let gen_timeout = std::time::Duration::from_secs(
+                state.config.layer2.timeout_seconds as u64,
+            );
             match state
                 .http_client
                 .post(&sidecar_url)
+                .timeout(gen_timeout)
                 .json(&answer_req)
                 .send()
                 .await
@@ -498,41 +463,8 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     }
                 },
                 Err(e) => {
-                    tracing::warn!(error = %e, "Layer 2: Sidecar answer call failed – trying fallback");
-
-                    // ── L2 answer fallback: try local_slm ──────────
-                    let fb_base = state.config.local_slm_url
-                        .trim_end_matches("/api/generate").trim_end_matches('/');
-                    let fb_url = format!("{fb_base}/v1/chat/completions");
-                    if fb_base != state.config.layer2.sidecar_url.trim_end_matches('/') {
-                        let fb_req = ChatCompletionRequest {
-                            model: state.config.local_slm_model.clone(),
-                            messages: vec![ChatMessage { role: "user".to_string(), content: prompt.clone() }],
-                            stream: false,
-                            temperature: None,
-                            max_tokens: Some(max_tokens),
-                        };
-                        match state.http_client.post(&fb_url).json(&fb_req).send().await {
-                            Ok(resp) => match resp.json::<ChatCompletionResponse>().await {
-                                Ok(completion) => {
-                                    let answer = completion.choices.into_iter().next()
-                                        .map(|c| c.message.content).unwrap_or_default();
-                                    if answer_quality_ok(&answer) {
-                                        crate::metrics::record_layer_duration_with_tool("L2_SLM", layer_start.elapsed(), tool);
-                                        let model = state.config.local_slm_model.clone();
-                                        let mut response = slm_response_for_path(&request_path, StatusCode::OK, answer, model);
-                                        response.extensions_mut().insert(FinalLayer::Slm);
-                                        return response;
-                                    } else {
-                                        tracing::info!("Layer 2: Fallback answer quality guard rejected – falling through to L3");
-                                    }
-                                }
-                                Err(e2) => { tracing::warn!(error = %e2, "Layer 2: Fallback answer parse failed – falling through"); }
-                            },
-                            Err(e2) => { tracing::warn!(error = %e2, "Layer 2: Fallback answer call failed – falling through"); }
-                        }
-                    }
-                    tracing::warn!("Layer 2: Sidecar answer call failed – falling through");
+                    // Z390 GPU sidecar unreachable — fall straight to L3 (no CPU fallback)
+                    tracing::warn!(error = %e, "Layer 2: Sidecar answer call failed – falling through to L3");
                     crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
                     crate::visibility::record_agent_error(tool);
                 }
