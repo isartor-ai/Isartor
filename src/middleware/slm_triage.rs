@@ -10,7 +10,7 @@ use axum::{
 };
 use tracing::{Instrument, info_span};
 
-use crate::core::prompt::extract_prompt;
+use crate::core::prompt::{extract_prompt, extract_semantic_key};
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{
     ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage,
@@ -215,7 +215,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         }
     };
 
-    let prompt = extract_prompt(&body_bytes);
+    let prompt = extract_semantic_key(&body_bytes);
 
     tracing::debug!(prompt = %prompt, "Layer 2: Classifying intent via local SLM");
 
