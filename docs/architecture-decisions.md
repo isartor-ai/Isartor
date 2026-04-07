@@ -615,3 +615,25 @@ Use the persisted usage tracker as the source of truth for quota enforcement. Pr
 - Usage reporting and quota enforcement stay aligned because both read the same event history.
 - `fallback` quota actions integrate naturally with the existing ordered Layer 3 provider chain.
 - Projected token/cost enforcement remains heuristic when upstream usage metadata is unavailable before the request is sent.
+
+---
+
+## ADR-022: Embedded web management dashboard
+
+- Status: Accepted
+- Date: 2026-04-08
+
+### Context
+
+Operators increasingly want a browser-based way to monitor the gateway — deflection rate, provider health, token costs, and the live request log — without needing to run additional services or install third-party tools. The CLI (`isartor stats`, `isartor providers`) covers this use-case well for power users, but a visual overview is friendlier for shared team environments and periodic spot-checks.
+
+### Decision
+
+Embed a single-page application (SPA) directly in the binary using Rust's `include_str!` macro. The HTML/CSS/JS file is self-contained (no CDN, no external assets) and served at `GET /dashboard/`. Admin API endpoints (`/api/admin/*`) are protected by the existing gateway API-key auth middleware and supply JSON to the frontend. The API key is stored in `sessionStorage` — it is never transmitted to any third party.
+
+### Consequences
+
+- Zero runtime dependencies: no separate web server, no static-file mount, no CDN.
+- The dashboard binary footprint is bounded by the size of the HTML/JS/CSS — currently around 20 KB.
+- Operators gain browser-level visibility with the same API key already in use.
+- The SPA is intentionally read-only; configuration changes still require editing `isartor.toml`.

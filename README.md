@@ -326,9 +326,12 @@ isartor set-key -p openai      Configure your LLM provider API key
 isartor providers             Show active provider config + in-memory health
 isartor stats                  Prompt totals, layer hits, routing history
 isartor stats --by-tool        Per-tool cache hits, latency, errors
+isartor stats --usage          Provider/model token and cost breakdown
 isartor update                 Self-update to the latest release
 isartor connect <tool>         Connect an AI tool (see integrations above)
 ```
+
+Open the **web dashboard** at `http://localhost:8080/dashboard` for a browser-based view — overview cards, provider health, usage charts, and a live request log. Sign in with your gateway API key.
 
 ---
 

@@ -19,6 +19,7 @@ use serde_json::json;
 use isartor::config::{AppConfig, LlmProvider};
 use isartor::core::quota::current_quota_status_lines;
 use isartor::core::usage::UsageTracker;
+use isartor::dashboard;
 use isartor::handler;
 use isartor::health::{self, DemoModeFlag};
 use isartor::middleware;
@@ -385,6 +386,20 @@ async fn main() -> anyhow::Result<()> {
             },
         ));
 
+    // ── Dashboard: static HTML (no auth) + admin API (auth required) ──
+    let state_for_dashboard = app_state.clone();
+    let dashboard_admin = dashboard::admin_api_routes()
+        .layer(axum_mw::from_fn(middleware::auth::auth_middleware))
+        .layer(axum_mw::from_fn(
+            move |mut req: axum::extract::Request, next: axum_mw::Next| {
+                let st = state_for_dashboard.clone();
+                async move {
+                    req.extensions_mut().insert(st);
+                    next.run(req).await
+                }
+            },
+        ));
+
     // Unauthenticated routes — bypass the Deflection Stack entirely.
     let demo_flag = DemoModeFlag(demo_mode);
     let health_config = config.clone();
@@ -435,7 +450,9 @@ async fn main() -> anyhow::Result<()> {
     let app = public
         .merge(debug)
         .merge(authenticated_metadata)
-        .merge(authenticated);
+        .merge(authenticated)
+        .merge(dashboard_admin)
+        .merge(dashboard::dashboard_static_router());
 
     // ------------------------------------------------------------------
     // 5. Start the server and, when requested, the CONNECT proxy.

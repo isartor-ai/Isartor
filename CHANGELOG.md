@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.1] - 2026-04-08
+
+### Added
+- **Embedded web management dashboard** (`/dashboard`): a self-contained single-page application served directly from the binary (no separate server or CDN required). The dashboard provides four views:
+  - **Overview** — gateway version, active provider/model, total requests, deflection rate, token usage, and estimated cost and savings, with live status pills for SLM router, request logging, and offline mode.
+  - **Providers** — health, model, request count, error count, and masked key pool for each configured provider in the fallback chain.
+  - **Usage** — usage window summary with deflection rate, prompt/completion token breakdown, cloud cost, and saved cost, plus a per-day request/deflection bar chart.
+  - **Request Log** — most recent 50 request log entries from the JSONL request log, showing method, path, HTTP status, final layer, provider, model, and latency.
+- API key authentication for all `/api/admin/*` endpoints; the dashboard shell HTML is served without auth and prompts for the gateway API key on first load (stored in `sessionStorage`).
+- Four new authenticated admin API endpoints: `GET /api/admin/overview`, `GET /api/admin/providers`, `GET /api/admin/usage`, `GET /api/admin/requests`.
+
 ## [2026.4.0] - 2026-04-07
 
 ### Added

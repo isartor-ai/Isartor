@@ -12,6 +12,7 @@ pub mod clients;
 pub mod compression;
 pub mod config;
 pub mod core;
+pub mod dashboard;
 pub mod demo;
 pub mod errors;
 pub mod factory;

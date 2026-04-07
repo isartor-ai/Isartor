@@ -152,6 +152,20 @@ Each provider can own an in-memory key pool. When multiple credentials are confi
 
 A small in-memory provider-health snapshot tracks request/error counts, last success/failure, and masked key-pool entries for the entire configured chain. Exposed via `GET /debug/providers` and `isartor providers`.
 
+### Web Management Dashboard
+
+An embedded single-page application (SPA) is served at `/dashboard`. The HTML, CSS, and JavaScript are compiled directly into the binary via `include_str!` — no separate static-file directory or CDN required.
+
+| Route | Auth | Description |
+|:--|:--|:--|
+| `GET /dashboard/` | No | Dashboard SPA shell |
+| `GET /api/admin/overview` | API key | Version, provider, deflection rate, cost/savings |
+| `GET /api/admin/providers` | API key | Provider chain health and key-pool status |
+| `GET /api/admin/usage` | API key | Window usage stats with per-period entries |
+| `GET /api/admin/requests` | API key | Last 50 JSONL request log entries |
+
+The SPA stores the gateway API key in `sessionStorage` and fetches from `/api/admin/*`. The key is never sent to any third party.
+
 ### Quota Enforcement
 
 Per-provider quota enforcement is built on top of the usage-event stream (see below). Before a request is dispatched to Layer 3, Isartor projects the request's token/cost impact against the provider's configured daily, weekly, and monthly windows, then either warns, blocks with `429`, or falls through to the next provider in the ordered fallback chain.
@@ -248,6 +262,9 @@ src/
 ├── proxy/
 │   ├── connect.rs           # HTTPS CONNECT interception
 │   └── tls.rs               # Local CA generation + TLS termination
+├── dashboard/
+│   ├── mod.rs               # Admin API handlers + static SPA route
+│   └── index.html           # Embedded single-page dashboard (compiled into binary)
 ├── handler.rs               # All API surface handlers + provider chain execution
 ├── state.rs                 # AppState: shared runtime wiring hub
 ├── factory.rs               # build_exact_cache(), build_slm_router()
