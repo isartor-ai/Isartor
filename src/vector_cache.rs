@@ -126,6 +126,16 @@ impl VectorCache {
             "Semantic cache: inserted new entry"
         );
     }
+
+    /// Return the current number of (non-expired) entries in the cache.
+    pub async fn len(&self) -> usize {
+        self.entries.read().await.len()
+    }
+
+    /// Return true if the cache is empty.
+    pub async fn is_empty(&self) -> bool {
+        self.len().await == 0
+    }
 }
 
 /// Compute cosine similarity between two vectors.

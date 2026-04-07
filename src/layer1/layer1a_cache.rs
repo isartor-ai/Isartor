@@ -30,6 +30,16 @@ impl ExactMatchCache {
         let mut cache = self.inner.write();
         cache.put(prompt, response);
     }
+
+    /// Return the current number of entries in the cache.
+    pub fn len(&self) -> usize {
+        self.inner.read().len()
+    }
+
+    /// Return true if the cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 #[cfg(test)]
