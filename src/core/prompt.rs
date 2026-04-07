@@ -373,6 +373,41 @@ fn extract_gemini_function_calls(parts: &Value) -> Option<String> {
     }
 }
 
+/// Extract system prompt + last user message for L2 classification.
+///
+/// `extract_semantic_key` intentionally ignores the system prompt for cache
+/// similarity, but the L2 classifier needs it to correctly identify complex
+/// agentic tasks where individual user turns are short but the overall task
+/// context (in the system prompt) is deeply complex.
+pub fn extract_classifier_context(body: &[u8]) -> String {
+    let Ok(v) = serde_json::from_slice::<Value>(body) else {
+        return extract_semantic_key(body);
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Collect system prompt (Anthropic top-level field or OpenAI system message)
+    if let Some(system) = v.get("system").and_then(|s| s.as_str())
+        && !system.trim().is_empty()
+    {
+        parts.push(system.trim().to_string());
+    } else if let Some(messages) = v.get("messages").and_then(|m| m.as_array())
+        && let Some(sys_msg) = messages
+            .iter()
+            .find(|m| m.get("role").and_then(|r| r.as_str()) == Some("system"))
+    {
+        let content = extract_message_content(sys_msg);
+        if !content.trim().is_empty() {
+            parts.push(content.trim().to_string());
+        }
+    }
+
+    // Append last user message
+    parts.push(extract_semantic_key(body));
+
+    parts.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

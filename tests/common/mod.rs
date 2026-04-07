@@ -91,6 +91,9 @@ pub fn test_config_exact(sidecar_url: &str) -> Arc<AppConfig> {
 pub fn test_config_slm_enabled(mode: CacheMode, sidecar_url: &str) -> Arc<AppConfig> {
     let mut cfg = (*test_config(mode, sidecar_url)).clone();
     cfg.enable_slm_router = true;
+    // Classification now uses local_slm_url (CPU path); point it at the same
+    // mock server so tests that set sidecar_url also intercept classify calls.
+    cfg.local_slm_url = sidecar_url.into();
     Arc::new(cfg)
 }
 

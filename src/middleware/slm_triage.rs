@@ -10,7 +10,7 @@ use axum::{
 };
 use tracing::{Instrument, info_span};
 
-use crate::core::prompt::extract_prompt;
+use crate::core::prompt::extract_classifier_context;
 use crate::middleware::body_buffer::BufferedBody;
 use crate::models::{
     ChatResponse, FinalLayer, OpenAiChatChoice, OpenAiChatResponse, OpenAiMessage,
@@ -215,7 +215,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         }
     };
 
-    let prompt = extract_prompt(&body_bytes);
+    let prompt = extract_classifier_context(&body_bytes);
 
     tracing::debug!(prompt = %prompt, "Layer 2: Classifying intent via local SLM");
 
@@ -264,10 +264,14 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
             false
         }
     } else {
-        let sidecar_url = format!(
-            "{}/v1/chat/completions",
-            state.config.layer2.sidecar_url.trim_end_matches('/')
-        );
+        // Classification uses local_slm (CPU-friendly, always-on).
+        // Strip the Ollama generate suffix if present to get the OpenAI-compat base URL.
+        let classify_base = state
+            .config
+            .local_slm_url
+            .trim_end_matches("/api/generate")
+            .trim_end_matches('/');
+        let classify_url = format!("{classify_base}/v1/chat/completions");
 
         let system_prompt = if use_tiered {
             CLASSIFY_TIERED_SYSTEM_PROMPT
@@ -276,7 +280,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
         };
 
         let classify_req = ChatCompletionRequest {
-            model: state.config.layer2.model_name.clone(),
+            model: state.config.local_slm_model.clone(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
@@ -292,9 +296,19 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
             max_tokens: Some(10),
         };
 
+        let classify_timeout =
+            std::time::Duration::from_secs(state.config.layer2.timeout_seconds as u64);
+
+        tracing::debug!(
+            classify_url = %classify_url,
+            classify_model = %state.config.local_slm_model,
+            "Layer 2: Sending classification to local SLM"
+        );
+
         match state
             .http_client
-            .post(&sidecar_url)
+            .post(&classify_url)
+            .timeout(classify_timeout)
             .json(&classify_req)
             .send()
             .await
@@ -324,14 +338,14 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                     deflect
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "Layer 2: Failed to parse SLM response – falling through");
+                    tracing::warn!(error = %e, "Layer 2: Failed to parse classifier response – falling through");
                     crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
                     crate::visibility::record_agent_error(tool);
                     false
                 }
             },
             Err(e) => {
-                tracing::warn!(error = %e, "Layer 2: SLM unreachable – falling through to Layer 3");
+                tracing::warn!(error = %e, "Layer 2: Classifier unreachable – falling through to L3");
                 crate::metrics::record_error_with_tool("L2_SLM", "retryable", tool);
                 crate::visibility::record_agent_error(tool);
                 false
@@ -381,11 +395,21 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
                 }
             }
         } else {
+            // Answer generation uses the GPU sidecar (layer2.sidecar_url).
             let sidecar_url = format!(
                 "{}/v1/chat/completions",
                 state.config.layer2.sidecar_url.trim_end_matches('/')
             );
             let max_tokens = state.config.layer2.max_answer_tokens;
+            let gen_timeout =
+                std::time::Duration::from_secs(state.config.layer2.timeout_seconds as u64);
+
+            tracing::debug!(
+                generation_url = %sidecar_url,
+                generation_model = %state.config.layer2.model_name,
+                "Layer 2: Sending answer generation to GPU sidecar"
+            );
+
             // Second call: ask the sidecar to actually answer the prompt.
             let answer_req = ChatCompletionRequest {
                 model: state.config.layer2.model_name.clone(),
@@ -403,6 +427,7 @@ pub async fn slm_triage_middleware(request: Request, next: Next) -> Response {
             match state
                 .http_client
                 .post(&sidecar_url)
+                .timeout(gen_timeout)
                 .json(&answer_req)
                 .send()
                 .await
@@ -488,6 +513,9 @@ mod tests {
         let mut cfg = AppConfig::test_default();
         cfg.enable_slm_router = true;
         cfg.layer2.sidecar_url = sidecar_url.into();
+        // Point local_slm_url to the same mock server so classification
+        // requests (which now use local_slm_url) reach the mock.
+        cfg.local_slm_url = sidecar_url.into();
         let config = Arc::new(cfg);
         AppState::test_with_agent(Arc::new(MockAgent), config)
     }
@@ -661,6 +689,7 @@ mod tests {
         let mut cfg = AppConfig::test_default();
         cfg.enable_slm_router = true;
         cfg.layer2.sidecar_url = mock_server.uri();
+        cfg.local_slm_url = mock_server.uri();
         cfg.layer2.classifier_mode = ClassifierMode::Binary;
         let config = Arc::new(cfg);
         let state = AppState::test_with_agent(Arc::new(MockAgent), config);
