@@ -73,6 +73,14 @@ L2 runs a lightweight language model to classify the prompt's intent. Simple req
 - **Complex intent:** The request continues to L2.5.
 - **Disabled (`enable_slm_router = false`):** Layer is a no-op; request falls through to L3.
 
+**Two-phase execution (classify then generate):**
+
+Classification uses `local_slm_url` + `local_slm_model` — a CPU-friendly Ollama endpoint that is always-on and lightweight. The classifier input is built by `extract_classifier_context()`, which includes both the **system prompt** and the last user message so agentic tasks with short user turns and large system prompts are correctly identified as complex.
+
+Answer generation uses `layer2.sidecar_url` + `layer2.model_name` — the heavier GPU sidecar, only invoked when the classifier returns a deflectable (SIMPLE / TEMPLATE / SNIPPET) result.
+
+Both calls respect `layer2.timeout_seconds`; a timeout triggers a clean fallthrough to L3.
+
 | Mode | Implementation |
 |:-----|:---------------|
 | Minimalist | Embedded `candle` GGUF inference (e.g. Gemma-2-2B-IT, CPU) |

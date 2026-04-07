@@ -99,6 +99,15 @@ Neural classification via a Small Language Model (e.g. Qwen-1.5B via llama.cpp s
 - **Disabled by default** (`enable_slm_router = false`): Layer is a no-op; request falls through to L2.5.
 - **Classifier modes:** `tiered` (default, multi-level confidence) or `binary` (simple/complex split).
 
+**Two-phase execution:**
+
+| Phase | Config | Purpose |
+|:------|:-------|:--------|
+| Classification | `local_slm_url` + `local_slm_model` | Lightweight CPU-friendly Ollama path (always-on). Sees **system prompt + last user message** for full agentic context. |
+| Answer generation | `layer2.sidecar_url` + `layer2.model_name` | GPU sidecar. Only invoked when classification returns a deflectable intent. |
+
+Splitting the two phases means classification never competes with generation for GPU resources and degrades gracefully when the sidecar is busy. Both calls respect `layer2.timeout_seconds`.
+
 | Component | Minimalist | Enterprise |
 |:----------|:-----------|:-----------|
 | **L2 SLM Router** | Embedded `candle` GGUF inference (CPU) | Remote vLLM / TGI server (GPU pool) |

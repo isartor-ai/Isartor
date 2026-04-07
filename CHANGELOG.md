@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.0] - 2026-04-07
+
+### Added
+- **L2 classifier context enrichment**: `extract_classifier_context()` now feeds the system prompt alongside the last user message to the local SLM classifier, so agentic tasks with short user turns but complex system prompts are correctly identified as COMPLEX and forwarded to Layer 3 rather than deflected incorrectly.
+- **Split L2 classify/generate URLs**: classification requests now use `local_slm_url` + `local_slm_model` (lightweight CPU-friendly Ollama path) while answer generation continues to use `layer2.sidecar_url` + `layer2.model_name` (GPU sidecar). This separates always-on classification from heavier generation inference.
+- **Explicit L2 HTTP timeouts**: both the classify and generate HTTP calls now respect `layer2.timeout_seconds`, preventing silent hangs when the local SLM is slow or unreachable.
+
 ## [2026.3.12] - 2026-03-29
 
 ### Added
