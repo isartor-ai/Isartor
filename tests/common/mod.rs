@@ -126,6 +126,7 @@ pub fn build_state(
         slm_client: Arc::new(SlmClient::new(&config.layer2)),
         text_embedder: embedder,
         instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
         provider_health: Arc::new(isartor::state::ProviderHealthTracker::from_config(&config)),
         provider_key_pools: Arc::new(isartor::state::ProviderKeyPoolManager::from_provider_chain(
             isartor::state::resolved_provider_chain(&config).as_slice(),

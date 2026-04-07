@@ -913,6 +913,9 @@ pub struct AppState {
     /// L2.5 instruction dedup cache for cross-turn session deduplication.
     pub instruction_cache: Arc<InstructionCache>,
 
+    /// Gateway start time — used by the dashboard to compute uptime.
+    pub started_at: Instant,
+
     #[cfg(feature = "embedded-inference")]
     pub embedded_classifier: Option<Arc<crate::services::local_inference::EmbeddedClassifier>>,
 }
@@ -1002,6 +1005,7 @@ impl AppState {
             slm_client,
             text_embedder,
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: Instant::now(),
             #[cfg(feature = "embedded-inference")]
             embedded_classifier,
         }
@@ -1363,6 +1367,7 @@ impl AppState {
             slm_client: Arc::new(SlmClient::new(&config.layer2)),
             text_embedder: crate::layer1::embeddings::shared_test_embedder(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: Instant::now(),
             provider_health: Arc::new(ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(ProviderKeyPoolManager::from_provider_chain(
                 resolved_provider_chain(&config).as_slice(),

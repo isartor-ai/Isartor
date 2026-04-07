@@ -1895,6 +1895,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(
@@ -1948,6 +1949,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(
@@ -1999,6 +2001,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(
@@ -2103,6 +2106,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(
@@ -2230,6 +2234,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(
@@ -2296,6 +2301,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(
@@ -2714,6 +2720,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(
@@ -2760,6 +2767,7 @@ mod tests {
             slm_client: state.slm_client.clone(),
             text_embedder: state.text_embedder.clone(),
             instruction_cache: Arc::new(InstructionCache::new()),
+            started_at: std::time::Instant::now(),
             provider_health: Arc::new(crate::state::ProviderHealthTracker::from_config(&config)),
             provider_key_pools: Arc::new(
                 crate::state::ProviderKeyPoolManager::from_provider_chain(

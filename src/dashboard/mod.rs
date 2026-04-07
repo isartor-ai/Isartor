@@ -11,9 +11,12 @@ use axum::extract::Request;
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
 use axum::{Json, Router, routing::get};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use toml_edit::DocumentMut;
 
+use crate::core::quota::current_quota_status_lines;
+use crate::core::usage::ProviderModelBreakdown;
 use crate::models::UsageStatsResponse;
 use crate::state::AppState;
 
@@ -48,15 +51,19 @@ pub struct OverviewResponse {
     pub version: &'static str,
     pub provider: String,
     pub model: String,
+    pub uptime_secs: u64,
     pub total_requests: u64,
     pub total_deflected: u64,
     pub deflection_rate: f64,
     pub total_tokens: u64,
     pub estimated_cost_usd: f64,
     pub estimated_saved_cost_usd: f64,
+    pub l1a_entries: u64,
+    pub l1b_entries: u64,
     pub request_logging_enabled: bool,
     pub slm_router_enabled: bool,
     pub offline_mode: bool,
+    pub quota_warnings: Vec<String>,
 }
 
 pub async fn admin_overview_handler(request: Request) -> impl IntoResponse {
@@ -74,20 +81,37 @@ pub async fn admin_overview_handler(request: Request) -> impl IntoResponse {
     let usage = state.usage_tracker.snapshot(Some(168)); // last 7 days
     let total_req = usage.total_requests + usage.total_deflected_requests;
     let primary = state.primary_provider();
+    let uptime_secs = state.started_at.elapsed().as_secs();
+    let l1b_entries = state.vector_cache.len().await as u64;
+    let l1a_entries = state.exact_cache.len() as u64;
+
+    // Collect quota warnings for the primary provider.
+    let quota_warnings = current_quota_status_lines(
+        &state.config,
+        &state.usage_tracker,
+        primary.provider_name(),
+        Utc::now(),
+    )
+    .map(|(_, lines)| lines)
+    .unwrap_or_default();
 
     let overview = OverviewResponse {
         version: env!("CARGO_PKG_VERSION"),
         provider: primary.provider_name().to_string(),
         model: primary.configured_model_id().to_string(),
+        uptime_secs,
         total_requests: total_req,
         total_deflected: usage.total_deflected_requests,
         deflection_rate: usage.deflection_rate,
         total_tokens: usage.total_tokens,
         estimated_cost_usd: usage.estimated_cost_usd,
         estimated_saved_cost_usd: usage.estimated_saved_cost_usd,
+        l1a_entries,
+        l1b_entries,
         request_logging_enabled: state.config.enable_request_logs,
         slm_router_enabled: state.config.enable_slm_router,
         offline_mode: state.config.offline_mode,
+        quota_warnings,
     };
 
     (StatusCode::OK, Json(overview)).into_response()
@@ -111,6 +135,101 @@ pub async fn admin_providers_handler(request: Request) -> impl IntoResponse {
     (StatusCode::OK, Json(resp)).into_response()
 }
 
+// ── Provider connectivity test endpoint ───────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ProviderTestRequest {
+    pub url: String,
+    pub api_key: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderTestResponse {
+    pub reachable: bool,
+    pub latency_ms: Option<u64>,
+    pub status_code: Option<u16>,
+    pub error: Option<String>,
+}
+
+pub async fn admin_providers_test_handler(request: Request) -> impl IntoResponse {
+    let state = match request.extensions().get::<Arc<AppState>>() {
+        Some(s) => s.clone(),
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "missing state"})),
+            )
+                .into_response();
+        }
+    };
+
+    let (parts, body) = request.into_parts();
+    let _ = parts; // state already extracted above
+    let bytes = match axum::body::to_bytes(body, 8 * 1024).await {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("body read error: {e}")})),
+            )
+                .into_response();
+        }
+    };
+    let req_body: ProviderTestRequest = match serde_json::from_slice(&bytes) {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": format!("invalid JSON: {e}")})),
+            )
+                .into_response();
+        }
+    };
+
+    let target_url = req_body.url.trim_end_matches('/').to_string();
+    let health_url = format!("{target_url}/models");
+
+    let start = std::time::Instant::now();
+    let mut req_builder = state.http_client.get(&health_url);
+    if let Some(key) = req_body.api_key.as_deref()
+        && !key.is_empty()
+    {
+        req_builder = req_builder.bearer_auth(key);
+    }
+
+    match req_builder.send().await {
+        Ok(resp) => {
+            let latency_ms = start.elapsed().as_millis() as u64;
+            let status = resp.status().as_u16();
+            // A 200 or 401 both indicate the endpoint is reachable.
+            let reachable = matches!(status, 200 | 401 | 403 | 404);
+            (
+                StatusCode::OK,
+                Json(ProviderTestResponse {
+                    reachable,
+                    latency_ms: Some(latency_ms),
+                    status_code: Some(status),
+                    error: None,
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            let latency_ms = start.elapsed().as_millis() as u64;
+            (
+                StatusCode::OK,
+                Json(ProviderTestResponse {
+                    reachable: false,
+                    latency_ms: Some(latency_ms),
+                    status_code: None,
+                    error: Some(e.to_string()),
+                }),
+            )
+                .into_response()
+        }
+    }
+}
+
 // ── Usage endpoint ────────────────────────────────────────────────────
 
 pub async fn admin_usage_handler(request: Request) -> impl IntoResponse {
@@ -130,9 +249,74 @@ pub async fn admin_usage_handler(request: Request) -> impl IntoResponse {
     (StatusCode::OK, Json(snapshot)).into_response()
 }
 
+// ── Usage breakdown endpoint ──────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct UsageBreakdownResponse {
+    pub window_hours: u64,
+    pub rows: Vec<ProviderModelBreakdown>,
+    pub quota_status: Vec<ProviderQuotaStatus>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProviderQuotaStatus {
+    pub provider: String,
+    pub action: String,
+    pub lines: Vec<String>,
+}
+
+pub async fn admin_usage_breakdown_handler(request: Request) -> impl IntoResponse {
+    let state = match request.extensions().get::<Arc<AppState>>() {
+        Some(s) => s.clone(),
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "missing state"})),
+            )
+                .into_response();
+        }
+    };
+
+    let window_hours = state.config.usage_window_hours;
+    let rows = state.usage_tracker.snapshot_by_provider(Some(window_hours));
+
+    // Collect quota status for every unique provider in the breakdown.
+    let now = Utc::now();
+    let providers: Vec<String> = {
+        let mut seen = std::collections::BTreeSet::new();
+        rows.iter()
+            .filter(|r| seen.insert(r.provider.clone()))
+            .map(|r| r.provider.clone())
+            .collect()
+    };
+
+    let quota_status: Vec<ProviderQuotaStatus> = providers
+        .iter()
+        .filter_map(|p| {
+            current_quota_status_lines(&state.config, &state.usage_tracker, p, now).map(
+                |(action, lines)| ProviderQuotaStatus {
+                    provider: p.clone(),
+                    action: format!("{action:?}").to_lowercase(),
+                    lines,
+                },
+            )
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(UsageBreakdownResponse {
+            window_hours,
+            rows,
+            quota_status,
+        }),
+    )
+        .into_response()
+}
+
 // ── Recent requests endpoint ──────────────────────────────────────────
 
-const RECENT_REQUESTS_LIMIT: usize = 50;
+const RECENT_REQUESTS_LIMIT: usize = 100;
 
 #[derive(Debug, Serialize)]
 pub struct RecentRequestsResponse {
@@ -353,9 +537,7 @@ pub async fn admin_config_post_handler(request: Request) -> impl IntoResponse {
     {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
-            Json(
-                serde_json::json!({"error": "similarity_threshold must be between 0.0 and 1.0"}),
-            ),
+            Json(serde_json::json!({"error": "similarity_threshold must be between 0.0 and 1.0"})),
         )
             .into_response();
     }
@@ -439,8 +621,8 @@ pub async fn admin_config_post_handler(request: Request) -> impl IntoResponse {
         }
     }
 
-    // Notify about restart requirement (we can't hot-reload AppConfig).
-    let _ = &state.config; // just to satisfy the borrow; live reload is out of scope.
+    // Live reload is not supported — the caller must restart the gateway.
+    let _ = &state.config;
 
     match std::fs::write(CONFIG_FILE, doc.to_string()) {
         Ok(()) => (
@@ -478,7 +660,15 @@ pub fn admin_api_routes() -> Router {
     Router::new()
         .route("/api/admin/overview", get(admin_overview_handler))
         .route("/api/admin/providers", get(admin_providers_handler))
+        .route(
+            "/api/admin/providers/test",
+            axum::routing::post(admin_providers_test_handler),
+        )
         .route("/api/admin/usage", get(admin_usage_handler))
+        .route(
+            "/api/admin/usage/breakdown",
+            get(admin_usage_breakdown_handler),
+        )
         .route("/api/admin/requests", get(admin_requests_handler))
         .route(
             "/api/admin/config",

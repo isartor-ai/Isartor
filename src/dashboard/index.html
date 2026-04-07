@@ -3,373 +3,676 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Isartor — Management Dashboard</title>
+<title>Isartor Dashboard</title>
 <style>
-:root{--bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--bd:#30363d;--tx:#e6edf3;--tx2:#8b949e;--acc:#388bfd;--acc2:#1f6feb;--ok:#3fb950;--warn:#d29922;--err:#f85149;--font-mono:'SF Mono','Fira Code',Consolas,monospace}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;min-height:100vh}
-header{background:var(--bg2);border-bottom:1px solid var(--bd);padding:10px 24px;display:flex;align-items:center;gap:12px}
-header img{filter:brightness(0) invert(1);opacity:.92}
-header .badge{font-size:11px;background:var(--bg3);border:1px solid var(--bd);border-radius:12px;padding:2px 8px;color:var(--tx2)}
-.logout-btn{margin-left:auto;background:none;border:1px solid var(--bd);color:var(--tx2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px}
-.logout-btn:hover{border-color:var(--err);color:var(--err)}
-#login-screen{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 50px)}
-.login-box{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:40px;width:380px;text-align:center}
-.login-box h2{margin-bottom:8px;font-size:18px}
-.login-box p{color:var(--tx2);margin-bottom:24px;font-size:13px}
-.login-box input{width:100%;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;color:var(--tx);font-size:14px;font-family:var(--font-mono);letter-spacing:.05em;outline:none}
-.login-box input:focus{border-color:var(--acc)}
-.login-box button{width:100%;margin-top:12px;background:var(--acc2);border:none;border-radius:6px;color:#fff;padding:10px;font-size:14px;font-weight:600;cursor:pointer}
-.login-box button:hover{background:var(--acc)}
-.login-box .err-msg{color:var(--err);font-size:12px;margin-top:8px;min-height:16px}
-nav{background:var(--bg2);border-bottom:1px solid var(--bd);padding:0 24px;display:flex;gap:4px}
-nav button{background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);padding:12px 16px;cursor:pointer;font-size:13px;font-weight:500;transition:.15s}
-nav button.active{color:var(--tx);border-bottom-color:var(--acc)}
-nav button:hover:not(.active){color:var(--tx)}
-main{padding:24px;max-width:1200px}
-.tab-content{display:none}.tab-content.active{display:block}
-.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
-.card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:20px}
-.card .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--tx2);margin-bottom:6px}
-.card .value{font-size:28px;font-weight:700;line-height:1}
-.card .sub{font-size:12px;color:var(--tx2);margin-top:4px}
-.card.ok .value{color:var(--ok)}.card.warn .value{color:var(--warn)}.card.err .value{color:var(--err)}
-.section-title{font-size:15px;font-weight:600;margin:24px 0 12px}
-.provider-table,.request-table{width:100%;border-collapse:collapse;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;overflow:hidden}
-.provider-table th,.request-table th{background:var(--bg3);text-align:left;padding:10px 16px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--tx2);font-weight:500}
-.provider-table td,.request-table td{padding:10px 16px;border-top:1px solid var(--bd);vertical-align:top;font-size:13px}
-.provider-table tr:hover td,.request-table tr:hover td{background:var(--bg3)}
-.badge-ok{display:inline-block;background:rgba(63,185,80,.15);color:var(--ok);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600}
-.badge-err{display:inline-block;background:rgba(248,81,73,.15);color:var(--err);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600}
-.badge-warn{display:inline-block;background:rgba(210,153,34,.15);color:var(--warn);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:600}
-.badge-info{display:inline-block;background:rgba(56,139,253,.15);color:var(--acc);border-radius:4px;padding:2px 8px;font-size:11px}
-.mono{font-family:var(--font-mono);font-size:12px}
-.chart-bar-wrap{margin-top:24px}
-.bar-row{display:flex;align-items:center;gap:12px;margin-bottom:8px}
-.bar-row .bar-label{width:100px;font-size:12px;color:var(--tx2);text-align:right;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bar-row .bar-track{flex:1;background:var(--bg3);border-radius:4px;height:16px;overflow:hidden}
-.bar-row .bar-fill{height:100%;background:var(--acc2);border-radius:4px;transition:width .4s}
-.bar-row .bar-fill.deflected{background:var(--ok)}
-.bar-row .bar-val{width:80px;font-size:12px;color:var(--tx2)}
-.empty-state{text-align:center;padding:48px;color:var(--tx2)}
-.spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--bd);border-top-color:var(--acc);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
-@keyframes spin{to{transform:rotate(360deg)}}
-.refresh-row{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.refresh-row button{background:var(--bg3);border:1px solid var(--bd);color:var(--tx2);border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px}
-.refresh-row button:hover{border-color:var(--acc);color:var(--acc)}
-.refresh-row .ts{font-size:11px;color:var(--tx2);margin-left:auto}
-.status-box{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px}
-.status-pill{display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--bd);border-radius:20px;padding:6px 14px;font-size:12px}
-.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.off{background:var(--tx2)}
-pre.req-body{background:var(--bg3);border-radius:4px;padding:8px;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto;border:1px solid var(--bd)}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#e6edf3;min-height:100vh}
+#login{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}
+.login-box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:2.5rem 3rem;width:100%;max-width:400px;text-align:center}
+.login-box img{height:52px;margin-bottom:1.2rem;filter:brightness(0) invert(1)}
+.login-box h1{font-size:1.4rem;font-weight:700;margin-bottom:.3rem}
+.login-box p{color:#8b949e;font-size:.88rem;margin-bottom:1.5rem}
+.login-box input{width:100%;padding:.7rem 1rem;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-size:.95rem;margin-bottom:1rem}
+.login-box input:focus{outline:none;border-color:#58a6ff}
+.btn{display:inline-block;padding:.6rem 1.3rem;border-radius:8px;border:none;cursor:pointer;font-size:.88rem;font-weight:600;transition:opacity .15s}
+.btn-primary{background:#238636;color:#fff}.btn-primary:hover{opacity:.85}
+.btn-secondary{background:#21262d;color:#e6edf3;border:1px solid #30363d}.btn-secondary:hover{background:#30363d}
+.btn-danger{background:#da3633;color:#fff}.btn-danger:hover{opacity:.85}
+.btn-sm{padding:.35rem .75rem;font-size:.8rem}
+.btn-icon{background:none;border:1px solid #30363d;color:#8b949e;padding:.3rem .55rem;border-radius:6px;cursor:pointer;font-size:.8rem}
+.btn-icon:hover{border-color:#58a6ff;color:#58a6ff}
+#login-error{color:#f85149;font-size:.85rem;margin-top:.5rem;display:none}
+#app{display:none;flex-direction:column;min-height:100vh}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:.75rem 1.5rem;display:flex;align-items:center;gap:1rem}
+header img{height:36px;filter:brightness(0) invert(1)}
+header h1{font-size:1.05rem;font-weight:700;color:#e6edf3}
+header .spacer{flex:1}
+header .version{color:#8b949e;font-size:.8rem;background:#21262d;padding:.3rem .7rem;border-radius:6px}
+header .uptime-pill{color:#3fb950;font-size:.8rem;background:#0f2d18;border:1px solid #1f4529;padding:.28rem .75rem;border-radius:20px}
+header .offline-pill{color:#f0883e;font-size:.8rem;background:#2d1b00;border:1px solid #5a3200;padding:.28rem .75rem;border-radius:20px;display:none}
+nav{background:#161b22;border-bottom:1px solid #30363d;padding:0 1.5rem;display:flex;gap:.25rem}
+nav button{background:none;border:none;color:#8b949e;padding:.75rem 1.1rem;font-size:.88rem;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+nav button.active{color:#e6edf3;border-bottom-color:#58a6ff}
+nav button:hover:not(.active){color:#e6edf3}
+main{flex:1;padding:1.5rem;max-width:1300px;margin:0 auto;width:100%}
+.section-title{font-size:1rem;font-weight:600;color:#e6edf3;margin-bottom:1rem}
+.grid{display:grid;gap:1rem}
+.grid-2{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.grid-3{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.grid-4{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:1.2rem}
+.card-label{font-size:.75rem;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.4rem}
+.card-value{font-size:1.7rem;font-weight:700;color:#e6edf3;line-height:1.1}
+.card-value.green{color:#3fb950}.card-value.blue{color:#58a6ff}.card-value.orange{color:#f0883e}
+.card-sub{font-size:.78rem;color:#8b949e;margin-top:.3rem}
+.chart-card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:1.2rem;margin-top:1rem}
+.chart-card svg{display:block;width:100%;overflow:visible}
+.chart-labels{display:flex;justify-content:space-between;font-size:.7rem;color:#8b949e;margin-top:.4rem}
+.table-wrap{overflow-x:auto;margin-top:1rem}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;color:#8b949e;font-weight:600;padding:.55rem 1rem;border-bottom:1px solid #21262d;white-space:nowrap}
+td{padding:.55rem 1rem;border-bottom:1px solid #21262d;color:#e6edf3;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:#1c2128}
+.expand-inner{background:#0d1117;border-top:1px solid #21262d;padding:1rem;font-size:.78rem;color:#8b949e;font-family:monospace;white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto;display:none}
+.badge{display:inline-block;padding:.18rem .55rem;border-radius:4px;font-size:.75rem;font-weight:600}
+.badge-green{background:#1b3a24;color:#3fb950}.badge-red{background:#3b1c1c;color:#f85149}
+.badge-yellow{background:#3b2c10;color:#d29922}.badge-blue{background:#102846;color:#58a6ff}
+.badge-gray{background:#21262d;color:#8b949e}
+.form-row{margin-bottom:.9rem}
+label{display:block;font-size:.82rem;color:#8b949e;margin-bottom:.3rem}
+input[type=text],input[type=number],input[type=password],select,textarea{width:100%;padding:.6rem .9rem;background:#0d1117;border:1px solid #30363d;border-radius:7px;color:#e6edf3;font-size:.88rem}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#58a6ff}
+.toggle-row{display:flex;align-items:center;gap:.7rem;margin-bottom:.9rem}
+.toggle-row label{margin:0;color:#e6edf3;font-size:.88rem}
+input[type=checkbox]{width:16px;height:16px;accent-color:#238636}
+.form-hint{font-size:.76rem;color:#8b949e;margin-top:.25rem}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100}
+.modal-backdrop.open{display:flex}
+.modal{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:1.8rem 2rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto}
+.modal h2{font-size:1.05rem;font-weight:700;margin-bottom:1.2rem}
+.modal-actions{display:flex;justify-content:flex-end;gap:.6rem;margin-top:1.2rem}
+.banner{padding:.7rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem;display:none}
+.banner-warning{background:#3b2c10;border:1px solid #5a4010;color:#d29922}
+.banner-success{background:#0f2d18;border:1px solid #1f4529;color:#3fb950}
+.banner-error{background:#3b1c1c;border:1px solid #5a2020;color:#f85149}
+.actions{display:flex;gap:.4rem;justify-content:flex-end}
+.layer-pill{display:inline-block;padding:.15rem .5rem;border-radius:4px;font-size:.73rem;font-weight:700;font-family:monospace}
+.layer-L0{background:#102846;color:#58a6ff}.layer-L1a{background:#1b3a24;color:#3fb950}
+.layer-L1b{background:#1b3a24;color:#3fb950}.layer-L2{background:#3b2c10;color:#d29922}
+.layer-L3{background:#3b1c1c;color:#f85149}
+.config-section{margin-bottom:1.5rem}
+.config-section h3{font-size:.85rem;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.8rem;padding-bottom:.4rem;border-bottom:1px solid #21262d}
+.quota-item{margin-bottom:.5rem;padding:.5rem .75rem;background:#0d1117;border-radius:6px;border-left:3px solid #d29922;font-size:.82rem;color:#8b949e}
+.empty{text-align:center;padding:3rem;color:#8b949e;font-size:.9rem}
+.loader{text-align:center;padding:2rem;color:#8b949e;font-size:.9rem}
+.tab-pane{display:none}.tab-pane.active{display:block}
 </style>
 </head>
 <body>
-<header>
-  <img src="/dashboard/logo.png" alt="Isartor" style="height:32px;width:auto;object-fit:contain">
-  <span class="badge" id="version-badge">Management Dashboard</span>
-  <button class="logout-btn" onclick="logout()" id="logout-btn" style="display:none">Sign out</button>
-</header>
 
-<div id="login-screen">
+<div id="login">
   <div class="login-box">
-    <h2>Sign in</h2>
-    <p>Enter your Isartor gateway API key to access the dashboard.</p>
-    <input type="password" id="api-key-input" placeholder="sk-isartor-..." autocomplete="off" onkeydown="if(event.key==='Enter')login()">
-    <button onclick="login()">Access Dashboard</button>
-    <div class="err-msg" id="login-err"></div>
+    <img src="/dashboard/logo.png" alt="Isartor">
+    <h1>Isartor Dashboard</h1>
+    <p>Enter your gateway API key to continue</p>
+    <input type="password" id="api-key-input" placeholder="API key" autofocus>
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Sign in</button>
+    <div id="login-error">Invalid API key</div>
   </div>
 </div>
 
-<div id="app-shell" style="display:none">
+<div id="app">
+  <header>
+    <img src="/dashboard/logo.png" alt="Isartor">
+    <h1>Isartor</h1>
+    <span class="version" id="hdr-version">v&#x2014;</span>
+    <span class="uptime-pill" id="hdr-uptime">&#x2191; &#x2014;</span>
+    <span class="offline-pill" id="hdr-offline">&#x26A0; Offline mode</span>
+    <div class="spacer"></div>
+    <button class="btn btn-secondary btn-sm" onclick="doLogout()">Sign out</button>
+  </header>
   <nav>
-    <button class="active" onclick="showTab('overview')">Overview</button>
-    <button onclick="showTab('providers')">Providers</button>
-    <button onclick="showTab('usage')">Usage</button>
-    <button onclick="showTab('requests')">Request Log</button>
+    <button class="active" onclick="switchTab('overview',this)">Overview</button>
+    <button onclick="switchTab('providers',this)">Providers</button>
+    <button onclick="switchTab('usage',this)">Usage</button>
+    <button onclick="switchTab('requests',this)">Request Log</button>
+    <button onclick="switchTab('config',this)">Configuration</button>
   </nav>
-
   <main>
-    <!-- OVERVIEW -->
-    <div id="tab-overview" class="tab-content active">
-      <div class="refresh-row">
-        <button onclick="loadOverview()">&#x21bb; Refresh</button>
-        <span class="ts" id="ov-ts"></span>
+
+    <!-- Overview -->
+    <div id="tab-overview" class="tab-pane active">
+      <div id="quota-banner" class="banner banner-warning"></div>
+      <div class="grid grid-4">
+        <div class="card"><div class="card-label">Deflection Rate</div><div class="card-value green" id="ov-defl">&#x2014;</div><div class="card-sub">last 7 days</div></div>
+        <div class="card"><div class="card-label">Total Requests</div><div class="card-value blue" id="ov-total">&#x2014;</div><div class="card-sub" id="ov-defl-sub">&#x2014; deflected</div></div>
+        <div class="card"><div class="card-label">Tokens Used</div><div class="card-value" id="ov-tokens">&#x2014;</div><div class="card-sub" id="ov-cost">$&#x2014; cost</div></div>
+        <div class="card"><div class="card-label">Cost Saved</div><div class="card-value green" id="ov-saved">&#x2014;</div><div class="card-sub">by deflection</div></div>
+        <div class="card"><div class="card-label">L1a Cache</div><div class="card-value blue" id="ov-l1a">&#x2014;</div><div class="card-sub">exact entries</div></div>
+        <div class="card"><div class="card-label">L1b Cache</div><div class="card-value blue" id="ov-l1b">&#x2014;</div><div class="card-sub">semantic vectors</div></div>
+        <div class="card"><div class="card-label">Active Provider</div><div class="card-value" style="font-size:1.05rem" id="ov-provider">&#x2014;</div><div class="card-sub" id="ov-model">&#x2014;</div></div>
+        <div class="card"><div class="card-label">L2 Router</div><div class="card-value" style="font-size:1rem" id="ov-l2">&#x2014;</div><div class="card-sub" id="ov-mode">&#x2014;</div></div>
       </div>
-      <div class="status-box" id="ov-status-pills"></div>
-      <div class="grid" id="ov-grid"></div>
+      <div class="chart-card" id="defl-chart-wrap" style="display:none">
+        <div class="section-title">Deflection Rate &#x2014; Last 7 Days</div>
+        <svg id="defl-chart" height="80" viewBox="0 0 800 80" preserveAspectRatio="none"></svg>
+        <div class="chart-labels" id="defl-chart-labels"></div>
+      </div>
     </div>
 
-    <!-- PROVIDERS -->
-    <div id="tab-providers" class="tab-content">
-      <div class="refresh-row">
-        <button onclick="loadProviders()">&#x21bb; Refresh</button>
-        <span class="ts" id="pv-ts"></span>
+    <!-- Providers -->
+    <div id="tab-providers" class="tab-pane">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+        <span class="section-title" style="margin:0">Provider Chain</span>
+        <button class="btn btn-secondary btn-sm" onclick="openAddProviderModal()">+ Add Provider</button>
       </div>
-      <div id="pv-content"></div>
+      <div id="provider-test-banner" class="banner banner-success"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Provider</th><th>Model</th><th>Status</th><th>Requests</th><th>Errors</th><th>Keys</th><th>Actions</th></tr></thead>
+          <tbody id="providers-body"><tr><td colspan="8" class="loader">Loading&#x2026;</td></tr></tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- USAGE -->
-    <div id="tab-usage" class="tab-content">
-      <div class="refresh-row">
-        <button onclick="loadUsage()">&#x21bb; Refresh</button>
-        <span class="ts" id="us-ts"></span>
+    <!-- Usage -->
+    <div id="tab-usage" class="tab-pane">
+      <div class="grid grid-4">
+        <div class="card"><div class="card-label">Window</div><div class="card-value blue" id="us-window">&#x2014;</div><div class="card-sub">hours</div></div>
+        <div class="card"><div class="card-label">Cloud Requests</div><div class="card-value" id="us-reqs">&#x2014;</div><div class="card-sub" id="us-defl">&#x2014; deflected</div></div>
+        <div class="card"><div class="card-label">Total Tokens</div><div class="card-value" id="us-tokens">&#x2014;</div></div>
+        <div class="card"><div class="card-label">Est. Cost</div><div class="card-value orange" id="us-cost">$&#x2014;</div></div>
       </div>
-      <div id="us-content"></div>
+      <div class="chart-card" style="margin-top:1.2rem">
+        <div class="section-title">Daily Requests</div>
+        <svg id="usage-chart" height="100" viewBox="0 0 800 100" preserveAspectRatio="none"></svg>
+        <div class="chart-labels" id="usage-chart-labels"></div>
+      </div>
+      <div style="margin-top:1.5rem">
+        <div class="section-title">Breakdown by Provider / Model</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Provider</th><th>Model</th><th>Cloud Reqs</th><th>Deflected</th><th>Tokens</th><th>Est. Cost</th></tr></thead>
+            <tbody id="breakdown-body"><tr><td colspan="6" class="loader">Loading&#x2026;</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div style="margin-top:1.5rem" id="quota-section"></div>
     </div>
 
-    <!-- REQUESTS -->
-    <div id="tab-requests" class="tab-content">
-      <div class="refresh-row">
-        <button onclick="loadRequests()">&#x21bb; Refresh</button>
-        <span class="ts" id="rq-ts"></span>
+    <!-- Request Log -->
+    <div id="tab-requests" class="tab-pane">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+        <span class="section-title" style="margin:0">Recent Requests <span style="color:#8b949e;font-weight:400;font-size:.85rem">(click row to expand)</span></span>
+        <button class="btn btn-secondary btn-sm" onclick="loadRequests()">&#x21BA; Refresh</button>
       </div>
-      <div id="rq-content"></div>
+      <div id="requests-disabled" class="empty" style="display:none">Request logging is disabled. Set <code>enable_request_logs = true</code> in isartor.toml.</div>
+      <div class="table-wrap">
+        <table id="requests-table">
+          <thead><tr><th>Time</th><th>Layer</th><th>Provider</th><th>Model</th><th>Prompt Tok</th><th>Compl Tok</th><th>Latency</th><th>Cost</th></tr></thead>
+          <tbody id="requests-body"><tr><td colspan="8" class="loader">Loading&#x2026;</td></tr></tbody>
+        </table>
+      </div>
     </div>
+
+    <!-- Configuration -->
+    <div id="tab-config" class="tab-pane">
+      <div id="config-banner" class="banner"></div>
+      <form onsubmit="saveConfig(event)">
+        <div class="config-section">
+          <h3>Gateway</h3>
+          <div class="grid grid-2">
+            <div class="form-row"><label>Host Port</label><input type="text" id="cfg-host_port" placeholder="0.0.0.0:8080"><div class="form-hint">Address:port for the API gateway</div></div>
+            <div class="form-row"><label>Proxy Port</label><input type="text" id="cfg-proxy_port" placeholder="0.0.0.0:8081"><div class="form-hint">Address:port for the CONNECT proxy</div></div>
+          </div>
+          <div class="toggle-row"><input type="checkbox" id="cfg-offline_mode"><label for="cfg-offline_mode">Offline mode (block L3 cloud calls)</label></div>
+        </div>
+        <div class="config-section">
+          <h3>Layer 3 Provider</h3>
+          <div class="grid grid-2">
+            <div class="form-row"><label>Provider</label>
+              <select id="cfg-llm_provider">
+                <option value="openai">openai</option><option value="anthropic">anthropic</option>
+                <option value="groq">groq</option><option value="gemini">gemini</option>
+                <option value="openrouter">openrouter</option><option value="copilot">copilot</option>
+                <option value="vllm">vllm</option><option value="ollama">ollama</option>
+              </select>
+            </div>
+            <div class="form-row"><label>Model</label><input type="text" id="cfg-external_llm_model" placeholder="gpt-4o-mini"></div>
+            <div class="form-row"><label>Endpoint URL</label><input type="text" id="cfg-external_llm_url" placeholder="https://api.openai.com/v1"></div>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Layer 1 Cache</h3>
+          <div class="grid grid-3">
+            <div class="form-row"><label>Cache Mode</label>
+              <select id="cfg-cache_mode">
+                <option value="memory">memory</option><option value="redis">redis</option><option value="disabled">disabled</option>
+              </select>
+            </div>
+            <div class="form-row"><label>TTL (seconds)</label><input type="number" id="cfg-cache_ttl_secs" min="0"></div>
+            <div class="form-row"><label>Max Capacity</label><input type="number" id="cfg-cache_max_capacity" min="1"></div>
+            <div class="form-row"><label>Similarity Threshold (0&#x2013;1)</label><input type="number" id="cfg-similarity_threshold" min="0" max="1" step="0.01"></div>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Layer 2 SLM Router</h3>
+          <div class="toggle-row"><input type="checkbox" id="cfg-enable_slm_router"><label for="cfg-enable_slm_router">Enable L2 SLM router</label></div>
+          <div class="grid grid-2">
+            <div class="form-row"><label>Local SLM URL</label><input type="text" id="cfg-local_slm_url" placeholder="http://localhost:11434"></div>
+            <div class="form-row"><label>Local SLM Model</label><input type="text" id="cfg-local_slm_model" placeholder="phi3:mini"></div>
+            <div class="form-row"><label>Sidecar URL</label><input type="text" id="cfg-layer2_sidecar_url"></div>
+            <div class="form-row"><label>Sidecar Model</label><input type="text" id="cfg-layer2_model_name"></div>
+            <div class="form-row"><label>Sidecar Timeout (sec)</label><input type="number" id="cfg-layer2_timeout_seconds" min="1"></div>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Request Logging &amp; Usage</h3>
+          <div class="toggle-row"><input type="checkbox" id="cfg-enable_request_logs"><label for="cfg-enable_request_logs">Enable request logging</label></div>
+          <div class="grid grid-2">
+            <div class="form-row"><label>Log Path</label><input type="text" id="cfg-request_log_path" placeholder="~/.isartor/logs"></div>
+            <div class="form-row"><label>Usage Window (hours)</label><input type="number" id="cfg-usage_window_hours" min="1"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:.7rem;align-items:center;margin-top:.5rem">
+          <button type="submit" class="btn btn-primary">Save to isartor.toml</button>
+          <button type="button" class="btn btn-secondary" onclick="loadConfig()">&#x21BA; Reset</button>
+          <span style="color:#8b949e;font-size:.8rem">Changes require a gateway restart.</span>
+        </div>
+      </form>
+    </div>
+
   </main>
+</div>
+
+<!-- Add Provider Modal -->
+<div class="modal-backdrop" id="add-provider-modal">
+  <div class="modal">
+    <h2>Add Fallback Provider</h2>
+    <div class="form-row"><label>Provider</label>
+      <select id="ap-provider">
+        <option value="openai">openai</option><option value="anthropic">anthropic</option>
+        <option value="groq">groq</option><option value="gemini">gemini</option>
+        <option value="openrouter">openrouter</option><option value="vllm">vllm</option><option value="ollama">ollama</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Model</label><input type="text" id="ap-model" placeholder="gpt-4o-mini"></div>
+    <div class="form-row"><label>API Key</label><input type="password" id="ap-key" placeholder="sk-..."></div>
+    <div class="form-row"><label>Endpoint URL (optional)</label><input type="text" id="ap-url" placeholder="https://api.openai.com/v1"></div>
+    <div id="ap-test-result" style="margin-top:.5rem;font-size:.82rem;display:none"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('add-provider-modal')">Cancel</button>
+      <button class="btn btn-secondary" onclick="testProviderFromModal()">Test Connection</button>
+      <button class="btn btn-primary" onclick="addProvider()">Add Provider</button>
+    </div>
+  </div>
 </div>
 
 <script>
 'use strict';
+var API = '/api/admin';
+var apiKey = sessionStorage.getItem('isartor_key') || '';
+if (apiKey) showApp();
 
-// ── State ──────────────────────────────────────────────────────────────────
-const KEY_STORE = 'isartor_api_key';
-let apiKey = sessionStorage.getItem(KEY_STORE) || '';
-let activeTab = 'overview';
-let autoRefreshTimer = null;
-
-// ── Auth ───────────────────────────────────────────────────────────────────
-async function login() {
-  const input = document.getElementById('api-key-input');
-  const key = input.value.trim();
-  if (!key) { showLoginErr('API key cannot be empty.'); return; }
-  showLoginErr('');
-  try {
-    const resp = await fetch('/api/admin/overview', { headers: { 'Authorization': 'Bearer ' + key } });
-    if (resp.status === 401) { showLoginErr('Invalid API key.'); return; }
-    if (!resp.ok) { showLoginErr('Server error: ' + resp.status); return; }
-    apiKey = key;
-    sessionStorage.setItem(KEY_STORE, key);
-    showApp();
-  } catch (e) { showLoginErr('Connection failed: ' + e.message); }
+function doLogin() {
+  var k = document.getElementById('api-key-input').value.trim();
+  if (!k) return;
+  apiKey = k;
+  fetch(API + '/overview', {headers: {'X-API-Key': k}})
+    .then(function(r) {
+      if (!r.ok) throw new Error(r.status);
+      sessionStorage.setItem('isartor_key', k);
+      showApp();
+    })
+    .catch(function() {
+      document.getElementById('login-error').style.display = 'block';
+      apiKey = '';
+    });
 }
+document.getElementById('api-key-input').addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
 
-function logout() {
+function doLogout() {
+  sessionStorage.removeItem('isartor_key');
   apiKey = '';
-  sessionStorage.removeItem(KEY_STORE);
-  clearInterval(autoRefreshTimer);
-  document.getElementById('app-shell').style.display = 'none';
-  document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('logout-btn').style.display = 'none';
-  document.getElementById('api-key-input').value = '';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login').style.display = 'flex';
 }
-
-function showLoginErr(msg) { document.getElementById('login-err').textContent = msg; }
 
 function showApp() {
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app-shell').style.display = 'block';
-  document.getElementById('logout-btn').style.display = '';
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
   loadOverview();
-  autoRefreshTimer = setInterval(() => { if (activeTab === 'overview') loadOverview(); }, 30000);
+  loadBreakdown();
 }
 
-// ── Navigation ─────────────────────────────────────────────────────────────
-function showTab(name) {
-  activeTab = name;
-  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
-  document.querySelectorAll('nav button').forEach((btn, i) => {
-    const tabs = ['overview','providers','usage','requests'];
-    btn.classList.toggle('active', tabs[i] === name);
+function hdrs() { return {'X-API-Key': apiKey, 'Content-Type': 'application/json'}; }
+function api(path) { return fetch(API + path, {headers: hdrs()}); }
+function apiPost(path, body) { return fetch(API + path, {method: 'POST', headers: hdrs(), body: JSON.stringify(body)}); }
+
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
+  document.querySelectorAll('nav button').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+  if (id === 'overview')  loadOverview();
+  if (id === 'providers') loadProviders();
+  if (id === 'usage')     { loadUsage(); loadBreakdown(); }
+  if (id === 'requests')  loadRequests();
+  if (id === 'config')    loadConfig();
+}
+
+function fmtNum(n) {
+  n = Number(n) || 0;
+  return n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n);
+}
+function fmtCost(c) { return '$' + Number(c).toFixed(4); }
+function fmtPct(r) { return (Number(r)*100).toFixed(1) + '%'; }
+function fmtUptime(s) {
+  s = Number(s) || 0;
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + Math.floor(s%60) + 's';
+  var h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+  if (h < 24) return h + 'h ' + m + 'm';
+  return Math.floor(h/24) + 'd ' + Math.floor(h%24) + 'h';
+}
+function fmtTime(ts) {
+  if (!ts) return '&#x2014;';
+  try { return new Date(ts).toLocaleTimeString(); } catch(e) { return String(ts); }
+}
+function esc(s) { var d = document.createElement('div'); d.textContent = String(s||''); return d.innerHTML; }
+
+// ── Overview ──────────────────────────────────────────────────────────
+function loadOverview() {
+  api('/overview').then(function(r) { return r.json(); }).then(function(d) {
+    document.getElementById('hdr-version').textContent = 'v' + d.version;
+    document.getElementById('hdr-uptime').textContent = '\u2191 ' + fmtUptime(d.uptime_secs);
+    document.getElementById('hdr-offline').style.display = d.offline_mode ? 'inline-block' : 'none';
+    document.getElementById('ov-defl').textContent = fmtPct(d.deflection_rate);
+    document.getElementById('ov-total').textContent = fmtNum(d.total_requests);
+    document.getElementById('ov-defl-sub').textContent = fmtNum(d.total_deflected) + ' deflected';
+    document.getElementById('ov-tokens').textContent = fmtNum(d.total_tokens);
+    document.getElementById('ov-cost').textContent = fmtCost(d.estimated_cost_usd) + ' est. cost';
+    document.getElementById('ov-saved').textContent = fmtCost(d.estimated_saved_cost_usd);
+    document.getElementById('ov-l1a').textContent = fmtNum(d.l1a_entries);
+    document.getElementById('ov-l1b').textContent = fmtNum(d.l1b_entries);
+    document.getElementById('ov-provider').textContent = d.provider || '&#x2014;';
+    document.getElementById('ov-model').textContent = d.model || '&#x2014;';
+    document.getElementById('ov-l2').textContent = d.slm_router_enabled ? 'Enabled' : 'Disabled';
+    document.getElementById('ov-mode').textContent = d.offline_mode ? 'offline' : 'online';
+    var qb = document.getElementById('quota-banner');
+    if (d.quota_warnings && d.quota_warnings.length) {
+      qb.textContent = '\u26A0 Quota: ' + d.quota_warnings.join(' | ');
+      qb.style.display = 'block';
+    } else { qb.style.display = 'none'; }
+  }).catch(function(e) { console.error('overview', e); });
+
+  api('/usage').then(function(r) { return r.json(); }).then(function(d) {
+    renderDeflChart(d);
+  }).catch(function() {});
+}
+
+function renderDeflChart(d) {
+  var entries = (d.entries || []);
+  if (!entries.length) return;
+  var byDay = {};
+  entries.forEach(function(e) {
+    if (!byDay[e.day]) byDay[e.day] = {req:0, defl:0};
+    byDay[e.day].req += (e.requests_total || 0);
+    byDay[e.day].defl += (e.deflected_total || 0);
   });
-  const loaders = { overview: loadOverview, providers: loadProviders, usage: loadUsage, requests: loadRequests };
-  loaders[name]();
+  var days = Object.keys(byDay).sort().slice(-7);
+  if (!days.length) return;
+  var rates = days.map(function(day) {
+    var t = byDay[day].req + byDay[day].defl;
+    return t > 0 ? byDay[day].defl / t : 0;
+  });
+  document.getElementById('defl-chart-wrap').style.display = 'block';
+  var svg = document.getElementById('defl-chart');
+  var W=800, H=80, pad=8;
+  var step = (W - pad*2) / Math.max(rates.length - 1, 1);
+  var pts = rates.map(function(r, i) { return (pad + i*step) + ',' + (H - pad - r*(H - pad*2)); }).join(' ');
+  var fillPts = pts + ' ' + (pad + (rates.length-1)*step) + ',' + H + ' ' + pad + ',' + H;
+  var dots = rates.map(function(r, i) {
+    return '<circle cx="'+(pad+i*step)+'" cy="'+(H-pad-r*(H-pad*2))+'" r="3.5" fill="#3fb950"/>';
+  }).join('');
+  svg.innerHTML = '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3fb950" stop-opacity=".3"/><stop offset="100%" stop-color="#3fb950" stop-opacity="0"/></linearGradient></defs>'
+    + '<polygon points="' + fillPts + '" fill="url(#g)"/>'
+    + '<polyline points="' + pts + '" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+    + dots;
+  document.getElementById('defl-chart-labels').innerHTML = days.map(function(d) {
+    return '<span>' + d.slice(5) + '</span>';
+  }).join('');
 }
 
-// ── API helper ─────────────────────────────────────────────────────────────
-async function apiFetch(path) {
-  const resp = await fetch(path, { headers: { 'Authorization': 'Bearer ' + apiKey } });
-  if (resp.status === 401) { logout(); throw new Error('Unauthorized'); }
-  if (!resp.ok) throw new Error('HTTP ' + resp.status);
-  return resp.json();
-}
-
-function fmtTs(d) {
-  return 'Updated ' + new Date(d).toLocaleTimeString();
-}
-
-function pct(v) { return (v * 100).toFixed(1) + '%'; }
-function num(v) { return v?.toLocaleString() ?? '—'; }
-function usd(v) { return v == null ? '—' : '$' + v.toFixed(4); }
-
-// ── Overview ───────────────────────────────────────────────────────────────
-async function loadOverview() {
-  try {
-    const d = await apiFetch('/api/admin/overview');
-    document.getElementById('version-badge').textContent = 'v' + d.version;
-    document.getElementById('ov-ts').textContent = fmtTs(Date.now());
-
-    const pills = [
-      { label: 'SLM Router', on: d.slm_router_enabled },
-      { label: 'Request Logging', on: d.request_logging_enabled },
-      { label: 'Offline Mode', on: d.offline_mode, invert: true },
-    ];
-    document.getElementById('ov-status-pills').innerHTML = pills.map(p => {
-      const cls = p.invert ? (p.on ? 'warn' : 'ok') : (p.on ? 'ok' : 'off');
-      const lbl = p.on ? 'enabled' : 'disabled';
-      return `<div class="status-pill"><span class="dot ${cls}"></span>${p.label} <strong>${lbl}</strong></div>`;
+// ── Providers ─────────────────────────────────────────────────────────
+function loadProviders() {
+  api('/providers').then(function(r) { return r.json(); }).then(function(d) {
+    var list = d.providers || [];
+    var tbody = document.getElementById('providers-body');
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No providers configured</td></tr>'; return; }
+    tbody.innerHTML = list.map(function(p, i) {
+      var st = p.active ? '<span class="badge badge-green">primary</span>' : '<span class="badge badge-gray">fallback</span>';
+      var health = p.status === 'Healthy' ? '<span class="badge badge-green">healthy</span>'
+        : p.status === 'Degraded' ? '<span class="badge badge-yellow">degraded</span>'
+        : '<span class="badge badge-red">unhealthy</span>';
+      var keyCfg = p.api_key_configured ? '<span class="badge badge-green">\u2713</span>' : '<span class="badge badge-red">\u2717</span>';
+      var keyCount = p.keys ? ' ' + p.keys.length + ' key(s)' : '';
+      var up = i > 0 ? '<button class="btn-icon" title="Move up" onclick="moveProvider('+i+',-1)">\u2191</button>' : '';
+      var dn = i < list.length-1 ? '<button class="btn-icon" title="Move down" onclick="moveProvider('+i+',1)">\u2193</button>' : '';
+      var rm = !p.active ? '<button class="btn-icon" style="color:#f85149;border-color:#f85149" title="Remove" onclick="removeProvider('+i+')">\u2715</button>' : '';
+      var ep = esc(p.endpoint || '');
+      var nm = esc(p.name || '');
+      return '<tr>'
+        + '<td>' + (i+1) + '</td>'
+        + '<td><strong>' + nm + '</strong></td>'
+        + '<td>' + esc(p.model || '&#x2014;') + '</td>'
+        + '<td>' + st + ' ' + health + '</td>'
+        + '<td>' + fmtNum(p.requests_total||0) + '</td>'
+        + '<td>' + fmtNum(p.errors_total||0) + '</td>'
+        + '<td>' + keyCfg + keyCount + '</td>'
+        + '<td><div class="actions"><button class="btn-icon" onclick="testProvider(\'' + ep + '\',\'' + nm + '\')">Test</button>' + up + dn + rm + '</div></td>'
+        + '</tr>';
     }).join('');
-
-    const deflPct = (d.deflection_rate * 100).toFixed(1);
-    const deflClass = d.deflection_rate >= 0.6 ? 'ok' : d.deflection_rate >= 0.3 ? 'warn' : '';
-    const cards = [
-      { label: 'Provider', value: d.provider.toUpperCase(), sub: d.model, cls: '' },
-      { label: 'Total Requests', value: num(d.total_requests), sub: 'all-time window', cls: '' },
-      { label: 'Deflection Rate', value: deflPct + '%', sub: num(d.total_deflected) + ' deflected', cls: deflClass },
-      { label: 'Total Tokens', value: num(d.total_tokens), sub: 'prompt + completion', cls: '' },
-      { label: 'Cloud Cost', value: usd(d.estimated_cost_usd), sub: 'L3 calls only', cls: '' },
-      { label: 'Estimated Savings', value: usd(d.estimated_saved_cost_usd), sub: 'via deflection', cls: 'ok' },
-    ];
-    document.getElementById('ov-grid').innerHTML = cards.map(c =>
-      `<div class="card ${c.cls}"><div class="label">${c.label}</div><div class="value">${c.value}</div><div class="sub">${c.sub}</div></div>`
-    ).join('');
-  } catch (e) {
-    document.getElementById('ov-grid').innerHTML = `<div class="empty-state">Failed to load: ${e.message}</div>`;
-  }
+  }).catch(function() {
+    document.getElementById('providers-body').innerHTML = '<tr><td colspan="8" class="empty">Failed to load providers</td></tr>';
+  });
 }
 
-// ── Providers ──────────────────────────────────────────────────────────────
-async function loadProviders() {
-  document.getElementById('pv-content').innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
-  try {
-    const d = await apiFetch('/api/admin/providers');
-    document.getElementById('pv-ts').textContent = fmtTs(Date.now());
-    const providers = d.providers || [];
-    if (!providers.length) {
-      document.getElementById('pv-content').innerHTML = '<div class="empty-state">No providers configured.</div>';
+function testProvider(url, name) {
+  var banner = document.getElementById('provider-test-banner');
+  banner.className = 'banner banner-warning';
+  banner.textContent = 'Testing ' + name + '\u2026';
+  banner.style.display = 'block';
+  apiPost('/providers/test', {url: url || 'https://api.openai.com/v1'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.reachable) {
+        banner.className = 'banner banner-success';
+        banner.textContent = '\u2713 ' + name + ' reachable \u2014 ' + d.latency_ms + 'ms (HTTP ' + d.status_code + ')';
+      } else {
+        banner.className = 'banner banner-error';
+        banner.textContent = '\u2717 ' + name + ' unreachable \u2014 ' + (d.error || 'no response');
+      }
+    }).catch(function(e) {
+      banner.className = 'banner banner-error';
+      banner.textContent = '\u2717 Test failed: ' + e;
+    });
+}
+
+function testProviderFromModal() {
+  var url = document.getElementById('ap-url').value.trim() || 'https://api.openai.com/v1';
+  var key = document.getElementById('ap-key').value.trim();
+  var res = document.getElementById('ap-test-result');
+  res.style.display = 'block'; res.style.color = '#d29922'; res.textContent = 'Testing\u2026';
+  apiPost('/providers/test', {url: url, api_key: key})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.reachable) { res.style.color='#3fb950'; res.textContent='\u2713 Reachable \u2014 '+d.latency_ms+'ms (HTTP '+d.status_code+')'; }
+      else { res.style.color='#f85149'; res.textContent='\u2717 Unreachable \u2014 '+(d.error||'no response'); }
+    }).catch(function(e) { res.style.color='#f85149'; res.textContent='\u2717 Error: '+e; });
+}
+
+function openAddProviderModal() { document.getElementById('add-provider-modal').classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function addProvider() {
+  var prov = document.getElementById('ap-provider').value;
+  var model = document.getElementById('ap-model').value.trim();
+  var key = document.getElementById('ap-key').value.trim();
+  var url = document.getElementById('ap-url').value.trim();
+  if (!model || !key) { alert('Model and API key are required.'); return; }
+  var snippet = '[[fallback_providers]]\nprovider = "' + prov + '"\nmodel = "' + model + '"\napi_key = "' + key + '"' + (url ? '\nurl = "' + url + '"' : '');
+  alert('Add this to isartor.toml and restart the gateway:\n\n' + snippet);
+  closeModal('add-provider-modal');
+}
+
+function moveProvider(idx, dir) {
+  alert('To reorder the fallback chain, edit the [[fallback_providers]] array order in isartor.toml and restart the gateway.');
+}
+
+function removeProvider(idx) {
+  alert('To remove a fallback provider, delete the [[fallback_providers]] entry from isartor.toml and restart the gateway.');
+}
+
+// ── Usage ─────────────────────────────────────────────────────────────
+function loadUsage() {
+  api('/usage').then(function(r) { return r.json(); }).then(function(d) {
+    document.getElementById('us-window').textContent = d.window_hours || '&#x2014;';
+    document.getElementById('us-reqs').textContent = fmtNum(d.total_requests || 0);
+    document.getElementById('us-defl').textContent = fmtNum(d.total_deflected_requests||0) + ' deflected';
+    document.getElementById('us-tokens').textContent = fmtNum(d.total_tokens||0);
+    document.getElementById('us-cost').textContent = fmtCost(d.estimated_cost_usd||0);
+    renderUsageChart(d.entries || []);
+  }).catch(function(e) { console.error('usage', e); });
+}
+
+function renderUsageChart(entries) {
+  var byDay = {};
+  entries.forEach(function(e) {
+    if (!byDay[e.day]) byDay[e.day] = 0;
+    byDay[e.day] += (e.requests_total||0) + (e.deflected_total||0);
+  });
+  var days = Object.keys(byDay).sort();
+  if (!days.length) return;
+  var vals = days.map(function(d) { return byDay[d]; });
+  var maxV = Math.max.apply(null, vals.concat([1]));
+  var W=800, H=100, pad=8;
+  var step = (W-pad*2)/days.length;
+  var barW = Math.max(6, step - 4);
+  var svg = document.getElementById('usage-chart');
+  svg.innerHTML = vals.map(function(v, i) {
+    var bh = ((v/maxV)*(H-pad*2)) || 2;
+    var x = pad + i*step + step/2 - barW/2;
+    return '<rect x="'+x+'" y="'+(H-pad-bh)+'" width="'+barW+'" height="'+bh+'" fill="#58a6ff" rx="2"><title>'+days[i]+': '+v+'</title></rect>';
+  }).join('');
+  document.getElementById('usage-chart-labels').innerHTML = days.map(function(d) {
+    return '<span>' + d.slice(5) + '</span>';
+  }).join('');
+}
+
+function loadBreakdown() {
+  api('/usage/breakdown').then(function(r) { return r.json(); }).then(function(d) {
+    var tbody = document.getElementById('breakdown-body');
+    if (!d.rows || !d.rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No usage data yet</td></tr>';
+    } else {
+      tbody.innerHTML = d.rows.map(function(r) {
+        return '<tr><td>'+esc(r.provider)+'</td><td>'+esc(r.model||'&#x2014;')+'</td>'
+          +'<td>'+fmtNum(r.requests_total)+'</td><td>'+fmtNum(r.deflected_total)+'</td>'
+          +'<td>'+fmtNum(r.total_tokens)+'</td><td>'+fmtCost(r.estimated_cost_usd)+'</td></tr>';
+      }).join('');
+    }
+    var qs = document.getElementById('quota-section');
+    if (d.quota_status && d.quota_status.length) {
+      qs.innerHTML = '<div class="section-title">Quota Status</div>'
+        + d.quota_status.map(function(q) {
+            return '<div class="quota-item"><strong>'+esc(q.provider)+'</strong> ['+esc(q.action)+'] \u2014 '+esc(q.lines.join(' | '))+'</div>';
+          }).join('');
+    } else { qs.innerHTML = ''; }
+  }).catch(function() {
+    document.getElementById('breakdown-body').innerHTML = '<tr><td colspan="6" class="empty">Failed to load breakdown</td></tr>';
+  });
+}
+
+// ── Request Log ───────────────────────────────────────────────────────
+function loadRequests() {
+  api('/requests').then(function(r) { return r.json(); }).then(function(d) {
+    var disabled = document.getElementById('requests-disabled');
+    var table = document.getElementById('requests-table');
+    if (!d.enabled) { disabled.style.display='block'; table.style.display='none'; return; }
+    disabled.style.display='none'; table.style.display='';
+    var tbody = document.getElementById('requests-body');
+    if (!d.entries || !d.entries.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">No requests logged yet</td></tr>';
       return;
     }
-    const rows = providers.map(p => {
-      const hBadge = p.health === 'healthy' ? 'badge-ok' : p.health === 'degraded' ? 'badge-warn' : 'badge-err';
-      const keys = Array.isArray(p.key_pool) ? p.key_pool.map(k =>
-        `<span class="mono">${k.masked_key}</span> <span class="badge-info">${k.rotation_strategy}</span>`
-      ).join('<br>') : '—';
-      return `<tr>
-        <td><strong>${p.provider}</strong></td>
-        <td class="mono">${p.model || '—'}</td>
-        <td><span class="${hBadge}">${p.health || '—'}</span></td>
-        <td>${p.total_requests ?? 0}</td>
-        <td>${p.error_count ?? 0}</td>
-        <td>${keys}</td>
-      </tr>`;
+    tbody.innerHTML = d.entries.map(function(e, idx) {
+      var layer = e.final_layer || e.layer || '&#x2014;';
+      var cls = 'layer-' + layer.replace(/[^a-zA-Z0-9]/g,'');
+      var cost = e.estimated_cost_usd != null ? fmtCost(e.estimated_cost_usd) : '&#x2014;';
+      var lat = e.latency_ms != null ? e.latency_ms+'ms' : '&#x2014;';
+      var eid = 'req-expand-' + idx;
+      return '<tr class="clickable" onclick="toggleExpand(\'' + eid + '\')">'
+        + '<td>'+fmtTime(e.timestamp)+'</td>'
+        + '<td><span class="layer-pill '+cls+'">'+esc(layer)+'</span></td>'
+        + '<td>'+esc(e.provider||'&#x2014;')+'</td>'
+        + '<td>'+esc(e.model||'&#x2014;')+'</td>'
+        + '<td>'+(e.prompt_tokens!=null?fmtNum(e.prompt_tokens):'&#x2014;')+'</td>'
+        + '<td>'+(e.completion_tokens!=null?fmtNum(e.completion_tokens):'&#x2014;')+'</td>'
+        + '<td>'+lat+'</td><td>'+cost+'</td></tr>'
+        + '<tr><td colspan="8"><div class="expand-inner" id="'+eid+'">'+esc(JSON.stringify(e,null,2))+'</div></td></tr>';
     }).join('');
-    document.getElementById('pv-content').innerHTML = `
-      <table class="provider-table">
-        <thead><tr><th>Provider</th><th>Model</th><th>Health</th><th>Requests</th><th>Errors</th><th>Keys</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-  } catch (e) {
-    document.getElementById('pv-content').innerHTML = `<div class="empty-state">Failed to load: ${e.message}</div>`;
-  }
+  }).catch(function() {
+    document.getElementById('requests-body').innerHTML = '<tr><td colspan="8" class="empty">Failed to load requests</td></tr>';
+  });
 }
 
-// ── Usage ──────────────────────────────────────────────────────────────────
-async function loadUsage() {
-  document.getElementById('us-content').innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
-  try {
-    const d = await apiFetch('/api/admin/usage');
-    document.getElementById('us-ts').textContent = fmtTs(Date.now());
-    const total = (d.total_requests || 0) + (d.total_deflected_requests || 0);
-    const entries = (d.entries || []).slice().reverse();
-    const maxReq = Math.max(...entries.map(e => (e.total_requests || 0) + (e.total_deflected_requests || 0)), 1);
-
-    const summary = `
-      <div class="grid" style="margin-bottom:24px">
-        <div class="card"><div class="label">Window</div><div class="value" style="font-size:18px">${d.window_hours}h</div><div class="sub">analysis window</div></div>
-        <div class="card"><div class="label">Total Requests</div><div class="value">${num(total)}</div><div class="sub">${num(d.total_deflected_requests)} deflected</div></div>
-        <div class="card ok"><div class="label">Deflection Rate</div><div class="value">${pct(d.deflection_rate || 0)}</div></div>
-        <div class="card"><div class="label">Prompt Tokens</div><div class="value">${num(d.total_prompt_tokens)}</div></div>
-        <div class="card"><div class="label">Completion Tokens</div><div class="value">${num(d.total_completion_tokens)}</div></div>
-        <div class="card ok"><div class="label">Est. Savings</div><div class="value" style="font-size:20px">${usd(d.estimated_saved_cost_usd)}</div><div class="sub">cloud cost: ${usd(d.estimated_cost_usd)}</div></div>
-      </div>`;
-
-    const bars = entries.length ? `
-      <div class="section-title">Request Activity</div>
-      <div class="chart-bar-wrap">${entries.slice(0, 14).map(e => {
-        const tot = (e.total_requests || 0) + (e.total_deflected_requests || 0);
-        const cloudW = Math.round((e.total_requests || 0) / maxReq * 100);
-        const deflW = Math.round((e.total_deflected_requests || 0) / maxReq * 100);
-        return `<div class="bar-row"><div class="bar-label">${e.period_label || e.date || '?'}</div>
-          <div class="bar-track"><div class="bar-fill" style="width:${cloudW}%"></div></div>
-          <div class="bar-row" style="width:100%;margin:0"><div class="bar-label"></div>
-          <div class="bar-track"><div class="bar-fill deflected" style="width:${deflW}%"></div></div>
-          <div class="bar-val">${num(tot)} req</div></div></div>`;
-      }).join('')}
-      <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--tx2)">
-        <span><span style="display:inline-block;width:10px;height:10px;background:var(--acc2);border-radius:2px;margin-right:4px"></span>L3 cloud</span>
-        <span><span style="display:inline-block;width:10px;height:10px;background:var(--ok);border-radius:2px;margin-right:4px"></span>Deflected</span>
-      </div></div>` : '';
-
-    document.getElementById('us-content').innerHTML = summary + bars;
-  } catch (e) {
-    document.getElementById('us-content').innerHTML = `<div class="empty-state">Failed to load: ${e.message}</div>`;
-  }
+function toggleExpand(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
 }
 
-// ── Request Log ────────────────────────────────────────────────────────────
-async function loadRequests() {
-  document.getElementById('rq-content').innerHTML = '<div class="empty-state"><span class="spinner"></span></div>';
-  try {
-    const d = await apiFetch('/api/admin/requests');
-    document.getElementById('rq-ts').textContent = fmtTs(Date.now());
-    if (!d.enabled) {
-      document.getElementById('rq-content').innerHTML =
-        '<div class="empty-state">Request logging is disabled.<br>Set <code>enable_request_logs = true</code> in isartor.toml to enable.</div>';
-      return;
+// ── Configuration ─────────────────────────────────────────────────────
+function loadConfig() {
+  api('/config').then(function(r) { return r.json(); }).then(function(d) {
+    function set(id, val) {
+      var el = document.getElementById('cfg-' + id);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = !!val;
+      else el.value = val != null ? val : '';
     }
-    const entries = d.entries || [];
-    if (!entries.length) {
-      document.getElementById('rq-content').innerHTML = '<div class="empty-state">No request log entries found.</div>';
-      return;
-    }
-    const rows = [...entries].reverse().map(e => {
-      const ok = (e.response_status || 0) < 400;
-      const statusBadge = ok ? `<span class="badge-ok">${e.response_status}</span>` : `<span class="badge-err">${e.response_status}</span>`;
-      const layer = e.final_layer != null ? `<span class="badge-info">L${e.final_layer}</span>` : '—';
-      const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—';
-      const latency = e.latency_ms != null ? e.latency_ms + 'ms' : '—';
-      return `<tr>
-        <td class="mono">${ts}</td>
-        <td class="mono">${e.method || '—'} ${e.path || '—'}</td>
-        <td>${statusBadge}</td>
-        <td>${layer}</td>
-        <td>${e.provider || '—'}</td>
-        <td class="mono">${e.model || '—'}</td>
-        <td class="mono">${latency}</td>
-      </tr>`;
-    }).join('');
-    document.getElementById('rq-content').innerHTML = `
-      <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">Last ${entries.length} entries · log: <span class="mono">${d.log_path}</span></div>
-      <table class="request-table">
-        <thead><tr><th>Time</th><th>Request</th><th>Status</th><th>Layer</th><th>Provider</th><th>Model</th><th>Latency</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-  } catch (e) {
-    document.getElementById('rq-content').innerHTML = `<div class="empty-state">Failed to load: ${e.message}</div>`;
-  }
+    set('host_port', d.host_port); set('proxy_port', d.proxy_port);
+    set('offline_mode', d.offline_mode); set('llm_provider', d.llm_provider);
+    set('external_llm_model', d.external_llm_model); set('external_llm_url', d.external_llm_url);
+    set('cache_mode', d.cache_mode); set('cache_ttl_secs', d.cache_ttl_secs);
+    set('cache_max_capacity', d.cache_max_capacity); set('similarity_threshold', d.similarity_threshold);
+    set('enable_slm_router', d.enable_slm_router); set('local_slm_url', d.local_slm_url);
+    set('local_slm_model', d.local_slm_model); set('layer2_sidecar_url', d.layer2_sidecar_url);
+    set('layer2_model_name', d.layer2_model_name); set('layer2_timeout_seconds', d.layer2_timeout_seconds);
+    set('enable_request_logs', d.enable_request_logs); set('request_log_path', d.request_log_path);
+    set('usage_window_hours', d.usage_window_hours);
+    hideBanner('config-banner');
+  }).catch(function(e) { showBanner('config-banner','error','Failed to load config: '+e); });
 }
 
-// ── Bootstrap ──────────────────────────────────────────────────────────────
-if (apiKey) {
-  // Pre-validate stored key on load
-  fetch('/api/admin/overview', { headers: { 'Authorization': 'Bearer ' + apiKey } })
-    .then(r => { if (r.ok) showApp(); else logout(); })
-    .catch(() => logout());
-} else {
-  document.getElementById('login-screen').style.display = 'flex';
+function saveConfig(evt) {
+  evt.preventDefault();
+  function get(id) {
+    var el = document.getElementById('cfg-' + id);
+    if (!el) return undefined;
+    if (el.type === 'checkbox') return el.checked;
+    if (el.type === 'number') return el.value !== '' ? Number(el.value) : undefined;
+    return el.value || undefined;
+  }
+  var payload = {
+    host_port: get('host_port'), proxy_port: get('proxy_port'), offline_mode: get('offline_mode'),
+    llm_provider: get('llm_provider'), external_llm_model: get('external_llm_model'), external_llm_url: get('external_llm_url'),
+    cache_mode: get('cache_mode'), cache_ttl_secs: get('cache_ttl_secs'), cache_max_capacity: get('cache_max_capacity'),
+    similarity_threshold: get('similarity_threshold'), enable_slm_router: get('enable_slm_router'),
+    local_slm_url: get('local_slm_url'), local_slm_model: get('local_slm_model'),
+    layer2_sidecar_url: get('layer2_sidecar_url'), layer2_model_name: get('layer2_model_name'),
+    layer2_timeout_seconds: get('layer2_timeout_seconds'), enable_request_logs: get('enable_request_logs'),
+    request_log_path: get('request_log_path'), usage_window_hours: get('usage_window_hours')
+  };
+  apiPost('/config', payload)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) showBanner('config-banner','success','\u2713 ' + d.message);
+      else showBanner('config-banner','error','\u2717 ' + d.error);
+    }).catch(function(e) { showBanner('config-banner','error','\u2717 Save failed: ' + e); });
 }
+
+function showBanner(id, type, msg) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'banner banner-' + type;
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideBanner(id) { var el = document.getElementById(id); if (el) el.style.display='none'; }
 </script>
 </body>
 </html>

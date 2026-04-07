@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2026.4.1] - 2026-04-07
+## [2026.4.2] - 2026-04-07
+
+### Added
+- **Dashboard: Configuration tab** — 5th dashboard tab with form-based editing of all `isartor.toml` settings (gateway ports, L3 provider, L1 cache, L2 SLM router, request logging). Validated on submit, writes via `toml_edit` preserving comments, shows restart-required banner.
+- **Dashboard: Uptime** — header pill showing elapsed time since gateway start (`started_at: Instant` added to `AppState`).
+- **Dashboard: L1a/L1b cache entry counts** — overview cards now display exact-match and semantic vector cache sizes in real time.
+- **Dashboard: Deflection rate sparkline** — SVG line chart showing per-day deflection rate over the last 7 days on the Overview tab.
+- **Dashboard: Quota warnings** — overview endpoint surfaces active quota warnings for the primary provider; displayed as a banner on the Overview tab and badge rows on the Usage tab.
+- **Dashboard: Provider connectivity test** — "Test" button per provider row calls `POST /api/admin/providers/test`, which issues an HTTP probe to the provider's `/models` endpoint and returns latency, HTTP status, and reachability.
+- **Dashboard: Expandable request rows** — clicking any row in the Request Log expands a full JSON detail pane.
+- **Dashboard: Usage breakdown by provider/model** — new `GET /api/admin/usage/breakdown` endpoint backed by `UsageTracker::snapshot_by_provider()`; Usage tab shows a breakdown table plus per-provider quota status.
+- **Dashboard: Add Provider modal** — "Add Provider" button opens a modal with provider/model/key/URL fields, test-connection action, and TOML snippet output.
+- **`UsageTracker::snapshot_by_provider()`** — new method aggregating usage events by `(provider, model)` pair; returns `Vec<ProviderModelBreakdown>`.
+- **`POST /api/admin/providers/test`** — new admin API endpoint; body `{url, api_key?}`, probes `url/models`, returns `{reachable, latency_ms, status_code, error}`.
+- **`GET /api/admin/usage/breakdown`** — new admin API endpoint; returns per-provider/model breakdown rows and quota status per provider.
+- Request Log limit increased from 50 to 100 entries.
+
+
 
 ### Added
 - **Embedded web management dashboard** (`/dashboard`): a self-contained single-page application served directly from the binary (no separate server or CDN required). The dashboard provides four views:

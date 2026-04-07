@@ -50,6 +50,19 @@ pub struct ProviderUsageTotals {
     pub estimated_cost_usd: f64,
 }
 
+/// Aggregated usage broken down by provider + model — used by the dashboard breakdown table.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ProviderModelBreakdown {
+    pub provider: String,
+    pub model: String,
+    pub requests_total: u64,
+    pub deflected_total: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub estimated_cost_usd: f64,
+}
+
 #[derive(Debug)]
 pub struct UsageTracker {
     config: Arc<AppConfig>,
@@ -223,6 +236,41 @@ impl UsageTracker {
         }
 
         totals
+    }
+
+    /// Per-provider-model breakdown of usage within the given window.
+    pub fn snapshot_by_provider(&self, window_hours: Option<u64>) -> Vec<ProviderModelBreakdown> {
+        let window_hours = window_hours
+            .unwrap_or(self.config.usage_window_hours)
+            .max(1);
+        let cutoff = Utc::now() - Duration::hours(window_hours as i64);
+        let cutoff_ts = cutoff.to_rfc3339();
+
+        let events = self.events.lock();
+        let mut by_key: BTreeMap<(String, String), ProviderModelBreakdown> = BTreeMap::new();
+
+        for event in events.iter().filter(|e| e.timestamp >= cutoff_ts) {
+            let entry = by_key
+                .entry((event.provider.clone(), event.model.clone()))
+                .or_insert_with(|| ProviderModelBreakdown {
+                    provider: event.provider.clone(),
+                    model: event.model.clone(),
+                    ..ProviderModelBreakdown::default()
+                });
+            if event.deflected {
+                entry.deflected_total = entry.deflected_total.saturating_add(1);
+            } else {
+                entry.requests_total = entry.requests_total.saturating_add(1);
+                entry.estimated_cost_usd += event.estimated_cost_usd;
+            }
+            entry.prompt_tokens = entry.prompt_tokens.saturating_add(event.prompt_tokens);
+            entry.completion_tokens = entry
+                .completion_tokens
+                .saturating_add(event.completion_tokens);
+            entry.total_tokens = entry.total_tokens.saturating_add(event.total_tokens);
+        }
+
+        by_key.into_values().collect()
     }
 }
 
