@@ -154,17 +154,21 @@ A small in-memory provider-health snapshot tracks request/error counts, last suc
 
 ### Web Management Dashboard
 
-An embedded single-page application (SPA) is served at `/dashboard`. The HTML, CSS, and JavaScript are compiled directly into the binary via `include_str!` — no separate static-file directory or CDN required.
+An embedded single-page application (SPA) is served at `/dashboard`. The HTML, CSS, JavaScript, and logo PNG are compiled directly into the binary via `include_str!` / `include_bytes!` — no separate static-file directory or CDN required.
 
-| Route | Auth | Description |
+The dashboard has five tabs, each backed by authenticated JSON admin endpoints:
+
+| Tab | Route(s) | Key features |
 |:--|:--|:--|
-| `GET /dashboard/` | No | Dashboard SPA shell |
-| `GET /api/admin/overview` | API key | Version, provider, deflection rate, cost/savings |
-| `GET /api/admin/providers` | API key | Provider chain health and key-pool status |
-| `GET /api/admin/usage` | API key | Window usage stats with per-period entries |
-| `GET /api/admin/requests` | API key | Last 50 JSONL request log entries |
+| **Overview** | `GET /api/admin/overview` | Deflection rate sparkline (7-day SVG), uptime pill, L1a/L1b cache counts, quota-warning banner, provider/model cards, cost/savings |
+| **Providers** | `GET /api/admin/providers`<br>`POST /api/admin/providers/test` | Health per provider, key-pool status, connectivity test (latency + HTTP status), Add Provider modal |
+| **Usage** | `GET /api/admin/usage`<br>`GET /api/admin/usage/breakdown` | Window summary, daily request bar chart, per-provider/model breakdown table, per-provider quota status |
+| **Request Log** | `GET /api/admin/requests` | Last 100 JSONL request-log entries, expandable rows showing full JSON details |
+| **Configuration** | `GET /api/admin/config`<br>`POST /api/admin/config` | Form-based editor for all `isartor.toml` settings; `toml_edit` write preserves comments; restart-required banner |
 
-The SPA stores the gateway API key in `sessionStorage` and fetches from `/api/admin/*`. The key is never sent to any third party.
+All `/api/admin/*` routes require the gateway API key (`X-API-Key` header). The SPA stores the key in `sessionStorage` and never transmits it to any third party. Static assets (`/dashboard/`, `/dashboard/logo.png`) are served without authentication.
+
+`AppState` carries a `started_at: Instant` field (set in `AppState::new()`) used by the overview endpoint to compute the gateway uptime.
 
 ### Quota Enforcement
 

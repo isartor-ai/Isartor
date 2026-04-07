@@ -331,7 +331,7 @@ isartor update                 Self-update to the latest release
 isartor connect <tool>         Connect an AI tool (see integrations above)
 ```
 
-Open the **web dashboard** at `http://localhost:8080/dashboard` for a browser-based view — overview cards, provider health, usage charts, and a live request log. Sign in with your gateway API key.
+Open the **web dashboard** at `http://localhost:8080/dashboard` for a full browser-based management UI — five tabs covering Overview (deflection rate sparkline, uptime, cache stats, quota warnings), Providers (health, connectivity test, add provider), Usage (per-provider/model breakdown, quota status), Request Log (expandable rows), and Configuration (edit `isartor.toml` with validation). Sign in with your gateway API key.
 
 ---
 

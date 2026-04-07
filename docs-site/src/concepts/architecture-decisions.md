@@ -630,9 +630,20 @@ Operators increasingly want a browser-based way to monitor the gateway — defle
 
 Embed a single-page application (SPA) directly in the binary using Rust's `include_str!` macro. The HTML/CSS/JS file is self-contained (no CDN, no external assets) and served at `GET /dashboard/`. Admin API endpoints (`/api/admin/*`) are protected by the existing gateway API-key auth middleware and supply JSON to the frontend. The API key is stored in `sessionStorage` — it is never transmitted to any third party.
 
+The dashboard provides five tabs:
+
+| Tab | Key features |
+|:--|:--|
+| **Overview** | Deflection rate sparkline (7-day SVG chart), uptime pill, L1a/L1b cache entry counts, quota-warning banner, provider/model cards |
+| **Providers** | Health per provider, per-key pool status, connectivity test (`POST /api/admin/providers/test`), Add Provider modal |
+| **Usage** | Window summary cards, daily request bar chart, per-provider/model breakdown table, per-provider quota status |
+| **Request Log** | Last 100 JSONL request-log entries, expandable rows showing full JSON details |
+| **Configuration** | Form-based editor for all `isartor.toml` settings; `toml_edit` write preserves comments; restart-required banner on save |
+
 ### Consequences
 
 - Zero runtime dependencies: no separate web server, no static-file mount, no CDN.
-- The dashboard binary footprint is bounded by the size of the HTML/JS/CSS — currently around 20 KB.
-- Operators gain browser-level visibility with the same API key already in use.
-- The SPA is intentionally read-only; configuration changes still require editing `isartor.toml`.
+- The dashboard binary footprint is bounded by the size of the HTML/JS/CSS — currently around 40 KB (including logo PNG).
+- Operators gain browser-level visibility and basic config management with the same API key already in use.
+- Configuration writes go to `isartor.toml` on disk; a gateway restart is required to apply changes (hot-reload is not supported).
+- `AppState` gains a `started_at: Instant` field for uptime reporting; all struct-literal test fixtures must include this field.
