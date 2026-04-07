@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2026.4.1] - 2026-04-08
+## [2026.4.1] - 2026-04-07
 
 ### Added
 - **Embedded web management dashboard** (`/dashboard`): a self-contained single-page application served directly from the binary (no separate server or CDN required). The dashboard provides four views:
