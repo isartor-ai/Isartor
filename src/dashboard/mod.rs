@@ -13,8 +13,8 @@ use axum::response::IntoResponse;
 use axum::{Json, Router, routing::get};
 use serde::Serialize;
 
-use crate::state::AppState;
 use crate::models::UsageStatsResponse;
+use crate::state::AppState;
 
 // Embedded frontend — compiled into the binary at build time.
 const DASHBOARD_HTML: &str = include_str!("index.html");
@@ -56,7 +56,7 @@ pub async fn admin_overview_handler(request: Request) -> impl IntoResponse {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "missing state"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -92,7 +92,7 @@ pub async fn admin_providers_handler(request: Request) -> impl IntoResponse {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "missing state"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -110,7 +110,7 @@ pub async fn admin_usage_handler(request: Request) -> impl IntoResponse {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "missing state"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -138,7 +138,7 @@ pub async fn admin_requests_handler(request: Request) -> impl IntoResponse {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "missing state"})),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -200,7 +200,10 @@ fn resolve_tilde(path: &str) -> String {
 /// Unauthenticated router — serves the dashboard shell HTML.
 pub fn dashboard_static_router() -> Router {
     Router::new()
-        .route("/dashboard", get(|| async { axum::response::Redirect::permanent("/dashboard/") }))
+        .route(
+            "/dashboard",
+            get(|| async { axum::response::Redirect::permanent("/dashboard/") }),
+        )
         .route("/dashboard/", get(dashboard_index))
 }
 
