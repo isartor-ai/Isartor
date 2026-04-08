@@ -34,9 +34,19 @@ curl -fsSL https://raw.githubusercontent.com/isartor-ai/Isartor/main/install.sh 
 # Guided setup (provider, optional L2, connectors, verification)
 isartor setup
 
-# Or configure manually (example: Groq)
+# Or configure manually with static keys (example: Groq)
 # isartor set-key -p groq
 # isartor set-alias --alias fast --model gpt-4o-mini
+
+# Or authenticate with encrypted local credentials
+# isartor auth copilot
+# isartor auth gemini
+# isartor auth openai
+
+# Optional encrypted config sync (opt-in only)
+# isartor sync init --server https://sync.example.com
+# isartor sync push
+# isartor sync pull
 
 # Verify the provider and run the post-install showcase
 isartor check
@@ -56,7 +66,7 @@ isartor connect gemini           # Gemini CLI
 isartor connect claude-copilot   # Claude Code + GitHub Copilot
 ```
 
-The best first-run path is now: **install → `isartor setup` → demo → connect tool**. If you prefer the old explicit flow, `set-key`, `check`, and `connect` still work exactly as before. `isartor demo` still works without an API key, but with a configured provider it now also shows a live upstream round-trip before the cache replay.
+The best first-run path is now: **install → `isartor setup` → demo → connect tool**. If you prefer the old explicit flow, `auth`, `set-key`, `check`, and `connect` still work exactly as before. `isartor demo` still works without an API key, but with a configured provider it now also shows a live upstream round-trip before the cache replay.
 
 You can also define request-time model aliases like `fast`, `smart`, or `code` that resolve to real provider model IDs before routing and cache-key generation.
 
@@ -66,11 +76,15 @@ For a fast Layer 3 status snapshot, run `isartor providers` or query the authent
 
 The provider registry also includes a broader set of OpenAI-compatible backends out of the box, including `cerebras`, `nebius`, `siliconflow`, `fireworks`, `nvidia`, and `chutes`, so `isartor set-key -p <provider>` and `isartor setup` can configure them without manual endpoint lookup.
 
+For providers that support interactive login, `isartor auth <provider>` stores credentials in an encrypted local token store under `~/.isartor/tokens/`. Copilot, Gemini, and Kiro use device flow; OpenAI and Anthropic use the same encrypted store for pasted API keys. If a provider has no explicit `api_key` configured in `isartor.toml`, Isartor will reuse the stored credential automatically.
+
 Isartor can also run an ordered Layer 3 fallback chain now. Keep your primary `llm_provider` settings as-is, then add `[[fallback_providers]]` entries in `isartor.toml` (or set `ISARTOR__FALLBACK_PROVIDERS` to a JSON array) to fail over on retry-safe upstream errors like `429`, `5xx`, timeouts, and quota exhaustion. Each provider can also define a `provider_keys` pool with `round_robin` or `priority` rotation plus cooldown after rate-limit / quota failures. Successful Layer 3 responses now include an `x-isartor-provider` header so clients can see which upstream actually served the request, and `isartor check` / `isartor providers` show the whole chain instead of only the primary provider.
 
-The HTTP boundary now also accepts Gemini-native inbound traffic alongside the existing native, OpenAI-compatible, and Anthropic-compatible surfaces. Gemini clients can call `POST /v1beta/models/{model}:generateContent` or `POST /v1beta/models/{model}:streamGenerateContent` against Isartor directly, and the same Layer 1/L2/L3 stack still applies with Gemini-specific cache namespacing and streaming response framing.
+The HTTP boundary now accepts traffic from **six client wire formats** with full cache isolation between them. Cursor IDE and Kiro (AWS AI IDE) both POST to `/v1/chat/completions` but are fingerprinted by their request headers (`X-Cursor-Checksum`, `X-Kiro-Version`, etc.) and given their own cache namespaces so IDE-specific prompts never pollute the generic OpenAI cache. A canonical internal representation (`InternalRequest` / `InternalResponse`) and per-format `ApiFormat` adapters in `src/formats/` provide the infrastructure for cross-format provider-side translation — e.g. an Anthropic client routed to a Groq provider.
 
 Operators can now also define per-provider quota policies under `[quota.<provider>]` with daily, weekly, and monthly token or cost limits. Quota decisions reuse the persisted usage tracker, warn when projected usage crosses the configured threshold, and can either `warn`, `block`, or `fallback` to the next provider in the Layer 3 chain. `isartor check` surfaces the current quota window status for each configured provider target.
+
+If you work across multiple machines, `isartor sync` provides **optional**, end-to-end encrypted config sync for the shareable parts of `isartor.toml`. The sync server only stores encrypted blobs plus timestamps; it never sees plaintext provider keys or structured config. OAuth tokens, cache contents, usage history, and other local runtime state are explicitly excluded.
 
 ## See Isartor in the Terminal
 
@@ -322,6 +336,14 @@ isartor up copilot             Start gateway + Copilot CONNECT proxy
 isartor stop                   Stop a running instance
 isartor demo                   Run the post-install showcase (cache-only or live + cache)
 isartor init                   Generate a commented config scaffold
+isartor auth <provider>        Authenticate and store encrypted provider credentials
+isartor auth status            Show stored credential status by provider
+isartor auth logout <provider> Remove stored provider credentials
+isartor sync init              Create a local encrypted sync profile
+isartor sync push              Encrypt and upload syncable config
+isartor sync pull              Download and merge syncable config
+isartor sync status            Show current sync profile and timestamps
+isartor sync serve             Run the self-hostable zero-knowledge sync server
 isartor set-key -p openai      Configure your LLM provider API key
 isartor providers             Show active provider config + in-memory health
 isartor stats                  Prompt totals, layer hits, routing history
@@ -332,6 +354,8 @@ isartor connect <tool>         Connect an AI tool (see integrations above)
 ```
 
 Open the **web dashboard** at `http://localhost:8080/dashboard` for a full browser-based management UI — five tabs covering Overview (deflection rate sparkline, uptime, cache stats, quota warnings), Providers (health, connectivity test, add provider), Usage (per-provider/model breakdown, quota status), Request Log (expandable rows), and Configuration (edit `isartor.toml` with validation). Sign in with your gateway API key.
+
+![Isartor dashboard overview](docs/dashboard-screenshot.png)
 
 ---
 

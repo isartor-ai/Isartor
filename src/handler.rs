@@ -727,8 +727,13 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
 
         let (canonical_body, resolved_model) =
             canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
+        let client_format = crate::formats::detect_format(request.uri().path(), request.headers());
         let provider_name = state.primary_provider().provider_name();
-        tracing::info!(provider = provider_name, "OpenAI compat: forwarding to LLM");
+        tracing::info!(
+            provider = provider_name,
+            client_format = client_format.name(),
+            "OpenAI compat: forwarding to LLM"
+        );
 
         if has_tooling(&canonical_body) {
             let request = match serde_json::from_slice::<OpenAiChatRequest>(&canonical_body) {

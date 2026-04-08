@@ -17,8 +17,8 @@ use crate::core::cache_scope::{
     build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
 };
 use crate::core::prompt::{
-    cache_namespace_for_path, extract_cache_key, extract_request_model, extract_route_model,
-    extract_semantic_key, has_tooling, is_gemini_streaming_path, override_request_model,
+    extract_cache_key, extract_request_model, extract_route_model, extract_semantic_key,
+    has_tooling, is_gemini_streaming_path, override_request_model,
 };
 use crate::gemini_sse;
 use crate::middleware::body_buffer::BufferedBody;
@@ -40,7 +40,8 @@ fn streaming_cache_response(
             cached_json,
             model_fallback,
         )),
-        "openai" => Some(openai_sse::cached_to_sse_response(
+        // Cursor and Kiro use OpenAI-compatible SSE format.
+        "openai" | "cursor" | "kiro" => Some(openai_sse::cached_to_sse_response(
             cached_json,
             model_fallback,
         )),
@@ -122,8 +123,9 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     );
 
     // Keep cache entries separate per response format to avoid cross-format cache hits.
-    // (e.g., OpenAI-compatible endpoints should not return native ChatResponse bodies.)
-    let cache_ns = cache_namespace_for_path(request.uri().path());
+    // Uses header-aware detection so Cursor and Kiro get their own namespaces even
+    // though they share the /v1/chat/completions path with generic OpenAI clients.
+    let cache_ns = crate::formats::cache_namespace(request.uri().path(), request.headers());
     let semantic_cache_prompt = namespaced_semantic_cache_input(cache_ns, &semantic_prompt);
     let semantic_cache_enabled = request.uri().path() != "/v1/messages" && !has_tooling;
 
@@ -131,7 +133,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     let is_streaming = match cache_ns {
         "anthropic" => anthropic_sse::is_streaming_request(&canonical_body),
         "gemini" => is_gemini_streaming_path(request.uri().path()),
-        "openai" => openai_sse::is_streaming_request(&canonical_body),
+        // Cursor and Kiro share OpenAI SSE format.
+        "openai" | "cursor" | "kiro" => openai_sse::is_streaming_request(&canonical_body),
         _ => false,
     };
 

@@ -1,6 +1,6 @@
 [package]
 name = "isartor"
-version = "2026.4.2"
+version = "2026.4.3"
 edition = "2024"
 license = "Apache-2.0"
 description = "Open-source Prompt Firewall — a local LLM gateway with caching, semantic deduplication, and content filtering"
@@ -62,6 +62,12 @@ tokio-stream = "0.1"
 # Hashing (exact-match cache keys)
 sha2 = "0.10"
 hex = "0.4"
+pbkdf2 = "0.12"
+
+# Auth framework — OAuth device flow, encrypted token storage, secure memory
+aes-gcm = "0.10"
+zeroize = { version = "1", features = ["derive"] }
+rand = { version = "0.8", features = ["std"] }
 rig-core = "0.32.0"
 async-trait = "0.1.89"
 opentelemetry = "0.31.0"

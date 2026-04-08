@@ -78,6 +78,11 @@ enum Commands {
     Logs(isartor::cli::logs::LogsArgs),
     /// Start a Model Context Protocol (MCP) stdio server for Copilot CLI integration.
     Mcp(isartor::cli::mcp::McpArgs),
+    /// Authenticate with an LLM provider and store encrypted credentials.
+    #[command(visible_alias = "login")]
+    Auth(isartor::cli::auth::AuthArgs),
+    /// Opt-in encrypted config sync and self-hosted sync server commands.
+    Sync(isartor::cli::sync::SyncArgs),
 }
 
 const DETACH_ENV: &str = "ISARTOR_INTERNAL_DETACHED_CHILD";
@@ -152,6 +157,14 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Mcp(args)) => {
             isartor::cli::mcp::handle_mcp(args).await?;
+            return Ok(());
+        }
+        Some(Commands::Auth(args)) => {
+            isartor::cli::auth::handle_auth(args).await?;
+            return Ok(());
+        }
+        Some(Commands::Sync(args)) => {
+            isartor::cli::sync::handle_sync(args).await?;
             return Ok(());
         }
         None => {}

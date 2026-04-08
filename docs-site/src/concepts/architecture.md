@@ -11,17 +11,19 @@ Documentation contract: if an implementation changes this architecture, the requ
 
 ### Request Surfaces
 
-Isartor accepts traffic through five inbound surfaces. All share the same deflection stack but keep cache keys namespaced by response shape so one endpoint never returns another endpoint's schema:
+Isartor accepts traffic through seven inbound surfaces. All share the same deflection stack but keep cache keys namespaced by response shape so one endpoint never returns another endpoint's schema. Format detection is header-aware: Cursor and Kiro both hit `/v1/chat/completions` but receive their own isolated cache namespaces.
 
-| Surface | Route(s) | Cache Namespace |
-|:--------|:---------|:----------------|
-| **Native** | `POST /api/chat`, `POST /api/v1/chat` | `native` |
-| **OpenAI-compatible** | `POST /v1/chat/completions` | `openai` |
-| **Anthropic-compatible** | `POST /v1/messages` | `anthropic` |
-| **Gemini-native** | `POST /v1beta/models/{model}:generateContent`, `:streamGenerateContent` | `gemini` |
-| **CONNECT proxy** | MITM intercept on allowlisted Copilot domains (`:8081`) | `openai` (proxied) |
+| Surface | Route(s) | Cache Namespace | Detection |
+|:--------|:---------|:----------------|:----------|
+| **Native** | `POST /api/chat`, `POST /api/v1/chat` | `native` | Path |
+| **OpenAI-compatible** | `POST /v1/chat/completions` | `openai` | Path |
+| **Anthropic-compatible** | `POST /v1/messages` | `anthropic` | Path |
+| **Gemini-native** | `POST /v1beta/models/{model}:generateContent`, `:streamGenerateContent` | `gemini` | Path |
+| **Cursor IDE** | `POST /v1/chat/completions` | `cursor` | `X-Cursor-Checksum` / `X-Cursor-Client-Version` / `X-Ghost-Mode` header |
+| **Kiro (AWS IDE)** | `POST /v1/chat/completions` | `kiro` | `X-Kiro-Version` / `X-Kiro-Client-Id` header |
+| **CONNECT proxy** | MITM intercept on allowlisted Copilot domains (`:8081`) | `openai` (proxied) | Port 8081 |
 
-Streaming is a boundary concern: handlers store canonical JSON internally, while middleware converts cached or downstream responses into surface-specific SSE when the client requests streaming.
+Streaming is a boundary concern: handlers always return canonical JSON. The cache middleware converts cached or downstream responses into surface-specific SSE (`text/event-stream`) when the client requests streaming (`"stream": true`). Cursor and Kiro use OpenAI-compatible SSE format.
 
 ### MCP Server
 
@@ -136,6 +138,8 @@ Only the hardest prompts — those not resolved by cache, SLM, or context optimi
 
 The running `AppState` maintains an **ordered provider chain**: one primary provider plus zero or more fallback providers. Each provider keeps its own retry budget (exponential backoff with jitter). Isartor advances to the next provider only when the current one exhausts retries with a retry-safe upstream error (429, 5xx, timeout). Successful responses are annotated with `x-isartor-provider` so clients can see which upstream answered.
 
+If a provider has no explicit `api_key` configured, the resolved chain also does a best-effort lookup in the encrypted local token store (`~/.isartor/tokens/`) before falling back to an empty key. That lets operators authenticate once with `isartor auth <provider>` and keep long-lived OAuth/API credentials out of `isartor.toml`.
+
 ### Provider Registry
 
 Layer 3 supports 23+ LLM providers through `rig-core`:
@@ -147,6 +151,28 @@ Layer 3 supports 23+ LLM providers through `rig-core`:
 ### Multi-Key Rotation
 
 Each provider can own an in-memory key pool. When multiple credentials are configured, Isartor selects keys with `round_robin` or `priority` rotation and temporarily cools down only the rate-limited key after 429/quota-style failures. Key rotation is separate from provider-level fallback.
+
+### Stored OAuth Credentials
+
+`src/auth/` adds a provider-agnostic authentication layer:
+
+- `OAuthProvider` trait for device-flow, refresh-token, and manual API-key providers
+- `TokenStore` for AES-256-GCM encrypted credentials on disk
+- provider implementations for Copilot, Gemini, Kiro, Anthropic, and OpenAI
+- `isartor auth <provider>`, `isartor auth status`, and `isartor auth logout <provider>`
+
+Copilot, Gemini, and Kiro use interactive device authorization. Anthropic and OpenAI do not expose a public device flow, so the same encrypted store is used for securely pasted API keys.
+
+### Optional Encrypted Config Sync
+
+`src/sync/` adds an opt-in config sync path for operators who use multiple machines:
+
+- `isartor sync init` creates a local sync profile with server URL, user hash, and encryption salt
+- `isartor sync push` filters the shareable subset of `isartor.toml`, encrypts it client-side, and uploads the encrypted blob
+- `isartor sync pull` downloads, decrypts, and merges only the syncable keys/tables back into the local config file
+- `isartor sync serve` runs the self-hostable zero-knowledge blob server
+
+The sync server only stores `{ user_hash, salt, encrypted_blob, updated_at }`. It never sees plaintext config. The synced subset includes provider/model settings, model aliases, fallback providers, and quota/pricing preferences. It explicitly excludes OAuth tokens, cache contents, usage history, bind addresses, and other machine-local runtime paths.
 
 ### Provider Health
 
@@ -233,6 +259,13 @@ See the deployment guides for tier-specific setup:
 
 ```text
 src/
+├── sync/
+│   └── mod.rs               # Encrypted config sync, profile storage, blob server
+├── auth/
+│   ├── mod.rs               # OAuthProvider trait + provider registry
+│   ├── device_flow.rs       # Shared RFC 8628 polling loop
+│   ├── token_store.rs       # AES-GCM encrypted token persistence
+│   └── providers/           # Copilot, Gemini, Kiro, Anthropic, OpenAI auth backends
 ├── core/
 │   ├── mod.rs               # Re-exports + is_internal_endpoint()
 │   ├── ports.rs             # Trait interfaces (ExactCache, SlmRouter)
@@ -269,6 +302,7 @@ src/
 ├── dashboard/
 │   ├── mod.rs               # Admin API handlers + static SPA route
 │   └── index.html           # Embedded single-page dashboard (compiled into binary)
+├── formats/                 # Client wire-format adapters + translation helpers
 ├── handler.rs               # All API surface handlers + provider chain execution
 ├── state.rs                 # AppState: shared runtime wiring hub
 ├── factory.rs               # build_exact_cache(), build_slm_router()

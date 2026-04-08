@@ -647,3 +647,139 @@ The dashboard provides five tabs:
 - Operators gain browser-level visibility and basic config management with the same API key already in use.
 - Configuration writes go to `isartor.toml` on disk; a gateway restart is required to apply changes (hot-reload is not supported).
 - `AppState` gains a `started_at: Instant` field for uptime reporting; all struct-literal test fixtures must include this field.
+| **Request Log** | Last 100 JSONL request-log entries, expandable rows showing full JSON details |
+| **Configuration** | Form-based editor for all `isartor.toml` settings; `toml_edit` write preserves comments; restart-required banner on save |
+
+### Consequences
+
+- Zero runtime dependencies: no separate web server, no static-file mount, no CDN.
+- The dashboard binary footprint is bounded by the size of the HTML/JS/CSS — currently around 40 KB (including logo PNG).
+- Operators gain browser-level visibility and basic config management with the same API key already in use.
+- Configuration writes go to `isartor.toml` on disk; a gateway restart is required to apply changes (hot-reload is not supported).
+- `AppState` gains a `started_at: Instant` field for uptime reporting; all struct-literal test fixtures must include this field.
+
+## ADR-023: Bidirectional Format Translation Matrix
+
+**Status:** Accepted  
+**Date:** 2026-04-07
+
+### Context
+
+Isartor serves five distinct client wire formats:
+
+| Client | Endpoint / Detection |
+|--------|---------------------|
+| Native (Isartor) | `POST /api/chat`, `POST /api/v1/chat` |
+| OpenAI | `POST /v1/chat/completions` |
+| Anthropic | `POST /v1/messages` |
+| Gemini | `POST /v1beta/models/*:generateContent` |
+| Cursor | `POST /v1/chat/completions` + `X-Cursor-Checksum` header |
+| Kiro (AWS) | `POST /v1/chat/completions` + `X-Kiro-Version` header |
+
+Previously, each client format was handled ad hoc inside its own handler function with no shared abstraction. Cross-format translation (e.g. an Anthropic client routed to a Groq provider) went through the Rig agent string extraction path, which loses structured tool-call information and multi-turn context.
+
+### Decision
+
+Introduce `src/formats/` as a ports-and-adapters layer for client wire formats:
+
+- **`types.rs`** — canonical `InternalRequest`, `InternalResponse`, `InternalChunk`, `InternalMessage`, `InternalContent`, `InternalTool`  
+- **`mod.rs`** — `ApiFormat` trait: `parse_request`, `build_response`, `cache_namespace`, `name`  
+- **`openai.rs`** — reference implementation; also exports `internal_to_openai_body`  
+- **`anthropic.rs`** — Anthropic Messages API; also exports `internal_to_anthropic_body`  
+- **`gemini.rs`** — Gemini GenerateContent; also exports `internal_to_gemini_body`  
+- **`cursor.rs`** — thin wrapper over OpenAI adapter; separate cache namespace  
+- **`kiro.rs`** — thin wrapper over OpenAI adapter; separate cache namespace  
+- **`translate.rs`** — `ProviderWireFormat` enum + `translate_request(req, provider)` → bytes
+
+Format detection (`formats::detect_format`) checks path first, then headers. `formats::cache_namespace` (header-aware) replaces the path-only `cache_namespace_for_path` in the cache middleware.
+
+### Cache namespace invariant
+
+Each client format owns its cache namespace:
+
+| Format | Namespace |
+|--------|-----------|
+| OpenAI | `openai` |
+| Anthropic | `anthropic` |
+| Gemini | `gemini` |
+| Cursor | `cursor` |
+| Kiro | `kiro` |
+| Native | `native` |
+
+Cursor and Kiro are now isolated from the generic OpenAI namespace so IDE-specific prompts do not collide with generic API traffic.
+
+### SSE streaming
+
+Handlers always return canonical JSON. The cache middleware (`src/middleware/cache.rs`) converts JSON → SSE at the boundary when `is_streaming` is true. `streaming_cache_response` is extended to handle `"cursor"` and `"kiro"` namespaces (both use OpenAI SSE format).
+
+### Consequences
+
+- `cache_namespace_for_path` is no longer used in `cache.rs`; it remains in `prompt.rs` for other callers but is superseded by `formats::cache_namespace` in the middleware.
+- Adding a new client format requires: one new `src/formats/<name>.rs` file implementing `ApiFormat`, one entry in `formats::detect_format`, one entry in `formats::cache_namespace`, and one entry in `streaming_cache_response`.
+- The Rig-based extract-text path remains as the fallback for all formats; the format module provides infrastructure for future passthrough-with-translation.
+
+## ADR-024: Generalized Provider Authentication and Encrypted Local Credential Storage
+
+**Status:** Accepted  
+**Date:** 2026-04-07
+
+### Context
+
+Before this change, Isartor handled provider authentication in two disconnected ways:
+
+- most providers expected a static `api_key` in `isartor.toml` or environment variables
+- GitHub Copilot had bespoke device-flow logic embedded directly in `src/providers/copilot.rs`
+
+That made interactive authentication inconsistent across providers and encouraged operators to keep long-lived credentials in config files even when an OAuth-style login flow existed.
+
+### Decision
+
+Introduce a shared `src/auth/` module with:
+
+- **`OAuthProvider` trait** — common interface for device-flow login, token polling, refresh, and manual API-key capture
+- **`TokenStore`** — AES-256-GCM encrypted credential files under `~/.isartor/tokens/`
+- **`device_flow.rs`** — shared RFC 8628 polling loop and terminal instructions
+- **provider implementations** for Copilot, Gemini, Kiro, Anthropic, and OpenAI
+- **CLI entry point**: `isartor auth <provider>`, `isartor auth status`, `isartor auth logout <provider>`
+
+Layer 3 provider resolution now does a best-effort lookup in the token store when a provider has no explicit configured `api_key`, so authenticated local credentials can be reused without copying them into `isartor.toml`.
+
+### Consequences
+
+- OAuth-capable providers now share one authentication framework instead of embedding login logic inside a single provider adapter.
+- Stored credentials are kept outside the main config file and encrypted at rest on disk.
+- Static `set-key` configuration remains supported for service accounts, CI, and headless deployments.
+- Providers without a public device flow (currently Anthropic and OpenAI) still participate via the same encrypted store, but use secure terminal key entry instead of browser/device auth.
+
+## ADR-025: Optional End-to-End Encrypted Cloud Config Sync
+
+**Status:** Accepted  
+**Date:** 2026-04-07
+
+### Context
+
+Operators who use Isartor across multiple machines needed a way to share provider/model configuration without manually copying `isartor.toml` and without uploading plaintext API keys to a hosted control plane.
+
+The key constraints were:
+
+- sync must be strictly opt-in
+- the server must never see plaintext config
+- self-hosting must be possible with the same binary
+- OAuth tokens, cache contents, and usage history must remain local-only
+
+### Decision
+
+Introduce `src/sync/` plus the `isartor sync` CLI:
+
+- **`isartor sync init`** — saves a local sync profile (`~/.isartor/sync-profile.json`)
+- **`isartor sync push`** — filters the shareable subset of `isartor.toml`, encrypts it client-side with PBKDF2-derived AES-256-GCM, and uploads the encrypted blob
+- **`isartor sync pull`** — downloads, decrypts, and merges only the syncable keys/tables back into the local config
+- **`isartor sync serve`** — runs a self-hostable zero-knowledge blob server with `GET/PUT /sync/{user_hash}`
+
+The sync server stores only `{ user_hash, salt_hex, encrypted_blob_hex, updated_at }`. Conflict detection is timestamp-based: push checks whether the remote record changed since the last local sync, and pull checks for concurrent local edits since the last pull. Manual override is explicit via `--force`.
+
+### Consequences
+
+- Config sync remains off by default; nothing leaves the machine unless the operator runs `isartor sync ...`.
+- The synced subset is intentionally narrower than the full runtime config: provider settings, aliases, fallback chain, and quota/pricing preferences are included; OAuth tokens, cache contents, usage history, bind addresses, and local log/cache paths are excluded.
+- The same Isartor binary can act as either a sync client or a self-hosted sync server, so no separate control-plane service is required for small deployments.

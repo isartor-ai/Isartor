@@ -15,6 +15,8 @@ Supported client surfaces:
 - Native API: `POST /api/chat`
 - OpenAI-compatible API: `POST /v1/chat/completions`
 - Anthropic-compatible API: `POST /v1/messages`
+- Gemini-compatible API: `POST /v1beta/models/*:generateContent`
+- Cursor / Kiro compatibility on `/v1/chat/completions` via header-based format detection
 - CONNECT proxy for Copilot-style traffic: `src/proxy/connect.rs`
 - MCP server for tool integrations: `isartor mcp`
 
@@ -79,6 +81,8 @@ Provider selection is config-driven in `AppState::new()`.
 ### Runtime state / providers
 
 - `src/state.rs` — `AppState`, `AppLlmAgent`, provider construction
+- `src/auth/` — provider auth flows, encrypted token store, `isartor auth`
+- `src/sync/` — encrypted config sync, conflict detection, blob-server routes, `isartor sync`
 - `src/providers/` — L3 providers
 - `src/providers/copilot.rs` — GitHub Copilot-backed L3 provider
 - `src/core/prompt.rs` — stable prompt extraction for cache keys
@@ -154,6 +158,13 @@ Isartor intentionally namespaces cache keys by API surface to avoid returning th
 - anthropic
 
 Do not make cache entries shared across these formats.
+
+### Stored credentials and sync boundaries
+
+- `isartor auth <provider>` stores encrypted credentials under `~/.isartor/tokens/`
+- if no explicit provider API key is configured, Layer 3 does a best-effort lookup in that token store
+- `isartor sync ...` only syncs the portable subset of `isartor.toml`
+- OAuth tokens, cache contents, usage history, and other local runtime state do **not** sync
 
 ### L3 stale / compatibility safety
 

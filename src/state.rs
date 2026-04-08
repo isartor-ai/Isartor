@@ -556,13 +556,19 @@ fn openai_compatible_base_url(endpoint: &str) -> String {
 pub fn resolved_provider_chain(config: &AppConfig) -> Vec<ResolvedProviderConfig> {
     let primary_provider_keys =
         effective_provider_keys(&config.external_llm_api_key, &config.provider_keys);
+
+    // Attempt to inject an OAuth token for the primary provider if no API key is configured.
+    let primary_api_key = primary_provider_keys
+        .first()
+        .map(|entry| entry.key.clone())
+        .unwrap_or_else(|| config.external_llm_api_key.clone());
+    let primary_api_key =
+        inject_oauth_token_if_empty(primary_api_key, &config.llm_provider.to_string());
+
     let mut providers = vec![ResolvedProviderConfig {
         provider: config.llm_provider.clone(),
         model: config.external_llm_model.clone(),
-        api_key: primary_provider_keys
-            .first()
-            .map(|entry| entry.key.clone())
-            .unwrap_or_else(|| config.external_llm_api_key.clone()),
+        api_key: primary_api_key,
         provider_keys: primary_provider_keys,
         key_rotation_strategy: config.key_rotation_strategy.clone(),
         key_cooldown_secs: config.key_cooldown_secs,
@@ -581,14 +587,16 @@ pub fn resolved_provider_chain(config: &AppConfig) -> Vec<ResolvedProviderConfig
             provider.url.clone()
         };
         let provider_keys = effective_provider_keys(&provider.api_key, &provider.provider_keys);
+        let api_key = provider_keys
+            .first()
+            .map(|entry| entry.key.clone())
+            .unwrap_or_else(|| provider.api_key.clone());
+        let api_key = inject_oauth_token_if_empty(api_key, &provider.provider.to_string());
 
         ResolvedProviderConfig {
             provider: provider.provider.clone(),
             model: provider.model.clone(),
-            api_key: provider_keys
-                .first()
-                .map(|entry| entry.key.clone())
-                .unwrap_or_else(|| provider.api_key.clone()),
+            api_key,
             provider_keys,
             key_rotation_strategy: provider.key_rotation_strategy.clone(),
             key_cooldown_secs: provider.key_cooldown_secs,
@@ -600,6 +608,72 @@ pub fn resolved_provider_chain(config: &AppConfig) -> Vec<ResolvedProviderConfig
     }));
 
     providers
+}
+
+/// If `api_key` is empty, attempt to load a stored OAuth token for `provider_name`.
+///
+/// This is a synchronous best-effort read — if the token store is unavailable or
+/// the token is missing/expired, the original (empty) key is returned unchanged.
+fn inject_oauth_token_if_empty(api_key: String, provider_name: &str) -> String {
+    if !api_key.trim().is_empty() {
+        return api_key;
+    }
+    match load_stored_oauth_token(provider_name) {
+        Some(token) => token,
+        None => api_key,
+    }
+}
+
+fn load_stored_oauth_token(provider_name: &str) -> Option<String> {
+    let store = crate::auth::TokenStore::open().ok()?;
+    let token = store.load(provider_name).ok()??;
+
+    if token.access_token.trim().is_empty() {
+        return None;
+    }
+
+    if !token.is_expired() {
+        tracing::debug!(
+            provider = provider_name,
+            "using stored OAuth token as provider API key"
+        );
+        return Some(token.access_token.clone());
+    }
+
+    token.refresh_token.as_deref()?;
+    let http = reqwest::Client::builder().build().ok()?;
+    let refresh_future = store.load_refreshed(provider_name, &http);
+    let refreshed = match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(|| handle.block_on(refresh_future))
+                .ok()?
+                .filter(|token| !token.is_expired())
+        }
+        Ok(_) => {
+            tracing::debug!(
+                provider = provider_name,
+                "stored OAuth token is expired and refresh is unavailable on the current-thread runtime"
+            );
+            return None;
+        }
+        Err(_) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?
+            .block_on(refresh_future)
+            .ok()?
+            .filter(|token| !token.is_expired()),
+    }?;
+
+    if refreshed.access_token.trim().is_empty() {
+        return None;
+    }
+
+    tracing::debug!(
+        provider = provider_name,
+        "using refreshed OAuth token as provider API key"
+    );
+    Some(refreshed.access_token.clone())
 }
 
 fn provider_status_endpoint(config: &ResolvedProviderConfig) -> String {

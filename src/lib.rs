@@ -7,6 +7,7 @@
 
 pub mod adapters;
 pub mod anthropic_sse;
+pub mod auth;
 pub mod cli;
 pub mod clients;
 pub mod compression;
@@ -17,6 +18,7 @@ pub mod demo;
 pub mod errors;
 pub mod factory;
 pub mod first_run;
+pub mod formats;
 pub mod gemini_sse;
 pub mod handler;
 pub mod health;
@@ -32,6 +34,7 @@ pub mod proxy;
 #[cfg(feature = "embedded-inference")]
 pub mod services;
 pub mod state;
+pub mod sync;
 pub mod telemetry;
 pub mod tool_identity;
 pub mod vector_cache;

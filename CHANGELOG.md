@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.3] - 2026-04-08
+
+### Added
+- **Generalized OAuth framework** — new `src/auth/` module with a shared `OAuthProvider` trait, AES-256-GCM encrypted token storage under `~/.isartor/tokens/`, provider registry lookup, and shared RFC 8628 device-flow polling.
+- **`isartor auth` CLI** — `isartor auth <provider>`, `isartor auth status`, and `isartor auth logout <provider>` manage encrypted local credentials for Copilot, Gemini, Kiro, OpenAI, and Anthropic.
+- **Stored-credential provider fallback** — if a provider has no explicit `api_key` configured in `isartor.toml`, the resolved Layer 3 provider chain now reuses a non-expired credential from the local token store.
+- **Optional encrypted config sync** — new `src/sync/` module adds end-to-end encrypted config export/import for the syncable subset of `isartor.toml`, using PBKDF2-derived AES-256-GCM encryption before any upload.
+- **`isartor sync` CLI** — `isartor sync init`, `push`, `pull`, `status`, and `serve` provide opt-in config sync plus a self-hostable zero-knowledge sync server.
+- **Conflict-aware sync flow** — push/pull commands track the last seen remote timestamp and detect local-vs-remote divergence before overwriting config, with `--force` for manual resolution after review.
+- **Format translation matrix** — `src/formats/` module with a full 5-format × N-provider translation layer: OpenAI, Anthropic, Gemini, Cursor, and Kiro adapters all implement the `ApiFormat` trait. Canonical `InternalRequest`/`InternalResponse` types decouple parsing from response building. Provider-side `translate_request(req, provider)` serialises any internal request into the provider's wire format (OpenAI, Anthropic, or Gemini).
+- **Cursor IDE isolation** — Cursor requests (`X-Cursor-Checksum` / `X-Cursor-Client-Version` / `X-Ghost-Mode` headers) are fingerprinted at the cache middleware and given their own `cursor` cache namespace, preventing IDE-specific prompts from poisoning the generic `openai` cache.
+- **Kiro (AWS AI IDE) isolation** — Same as Cursor; `X-Kiro-Version` / `X-Kiro-Client-Id` headers produce the `kiro` namespace.
+- **Header-aware cache namespace** — `formats::cache_namespace(path, headers)` replaces the path-only `cache_namespace_for_path` in the cache middleware. New client formats can be added by extending `detect_format` + `cache_namespace` without touching handler code.
+- **SSE streaming for Cursor/Kiro** — `streaming_cache_response` extended to handle `cursor` and `kiro` namespaces (both use OpenAI SSE format).
+- **Client format logged** — `openai_chat_completions_handler` now records `client_format` in its trace span so Cursor/Kiro/OpenAI traffic is distinguishable in logs and metrics.
+- **25 new unit tests** — `tests/unit/format_tests.rs` covers parse, round-trip, cross-format translation, provider wire-format selection, cache namespace isolation, and `detect_format` header detection.
+- **4 new auth unit tests** — `tests/unit/auth_tests.rs` covers encrypted token round-trip, credential listing/deletion, expiry grace-period behaviour, and provider registry lookup.
+
+### Fixed
+- **Dashboard logo** — removed `filter:brightness(0) invert(1)` CSS rule that was converting the full-colour RGBA logo PNG to a solid white rectangle. Logo now renders with natural colours on both the login screen and the app header.
+
+### Changed
+- **Docs and screenshots refreshed** — README, CONTRIBUTING guide, assistant guide, docs-site architecture pages, and release documentation now cover the new auth/sync/dashboard capabilities and include a live dashboard screenshot.
+
+### Security
+- **Sync exclusions are explicit** — OAuth tokens, cache contents, usage history, and other local runtime state are never included in synced blobs; only the selected shareable config keys/tables are encrypted and uploaded.
+
 ## [2026.4.2] - 2026-04-07
 
 ### Added

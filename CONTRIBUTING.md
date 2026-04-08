@@ -16,17 +16,31 @@ contribution land quickly.
 git clone https://github.com/isartor-ai/Isartor.git
 cd Isartor
 cargo build
-cargo test
+cargo test --all-features
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 Requirements: Rust 1.75+, Docker (for integration tests)
 
 ## PR Checklist
 
-- [ ] `cargo test` passes
-- [ ] `cargo clippy` has no new warnings
-- [ ] `cargo fmt` applied
+- [ ] `cargo test --all-features` passes
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes
+- [ ] `cargo fmt --all` applied
 - [ ] PR description explains WHY, not just WHAT
+- [ ] README / docs / published docs updated if behavior, config, CLI, or architecture changed
+
+## Documentation Expectations
+
+If your change ships new behavior, update the matching docs in the same PR:
+
+- `README.md` for user-facing features and CLI changes
+- `docs/` for supplementary reference and architecture notes
+- `docs-site/src/` for the published documentation site
+
+If the change affects long-lived system structure or trade-offs, update
+`docs/architecture-decisions.md` too.
 
 ## What Gets Merged Quickly
 
