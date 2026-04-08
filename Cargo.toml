@@ -104,7 +104,7 @@ time = "0.3"
 # Self-update (archive extraction)
 flate2 = "1"
 tar = "0.4"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "7", default-features = false, features = ["deflate"] }
 tempfile = "3"
 
 # Progress bars (first-run UX)
