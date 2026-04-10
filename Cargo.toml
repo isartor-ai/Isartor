@@ -95,7 +95,7 @@ rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
-dirs = "5"
+dirs = "6"
 rpassword = "5"
 toml_edit = "0.22"
 uuid = { version = "1", features = ["v4"] }
