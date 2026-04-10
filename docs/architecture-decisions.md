@@ -774,3 +774,61 @@ The sync server stores only `{ user_hash, salt_hex, encrypted_blob_hex, updated_
 - Config sync remains off by default; nothing leaves the machine unless the operator runs `isartor sync ...`.
 - The synced subset is intentionally narrower than the full runtime config: provider settings, aliases, fallback chain, and quota/pricing preferences are included; OAuth tokens, cache contents, usage history, bind addresses, and local log/cache paths are excluded.
 - The same Isartor binary can act as either a sync client or a self-hosted sync server, so no separate control-plane service is required for small deployments.
+
+## ADR-026: Provider Health Includes Manual Tests and Optional Background Pings
+
+**Status:** Accepted  
+**Date:** 2026-04-08
+
+### Context
+
+The dashboard already showed provider health, but the signal only changed after real routed Layer 3 traffic succeeded or failed. That left two gaps:
+
+- operators could click **Test** and confirm a provider was reachable, but the badge still stayed `unknown`
+- quiet environments had stale health state for long periods because no request traffic exercised every configured provider
+
+### Decision
+
+Keep provider health in-memory, but allow two additional probe sources to update that same health snapshot:
+
+- **manual dashboard tests** via `POST /api/admin/providers/test`
+- **background periodic pings** driven by `provider_health_check_interval_secs` (default `300`, `0` disables)
+
+Probe results update last success/failure timestamps and healthy/failing status without inflating routed request or error counters. The runtime spawns the periodic loop only when offline mode is disabled.
+
+### Consequences
+
+- Dashboard badges reflect successful manual tests immediately.
+- Operators can keep provider status warm even during idle periods without sending full chat traffic through each provider.
+- Health counters continue to represent real routed traffic, while probe events affect only liveness-oriented status fields.
+
+## ADR-027: MiniLM Multi-Head Classifier Runs Before Cache and Layer 3 Routing
+
+**Status:** Accepted  
+**Date:** 2026-04-08
+
+### Context
+
+Issue #99 adds a second kind of local classification problem: not just "can Layer 2 answer this prompt locally?" but also "which provider/model should receive this request if it reaches Layer 3?" The codebase already loads `all-MiniLM-L6-v2` for L1b semantic cache, so introducing a second embedding model would add startup cost, memory pressure, and another source of drift.
+
+Routing also cannot safely happen after Layer 1 cache lookup, because provider-directed routing changes which upstream answer is valid for a given request. Reusing the old cache key would let a classifier-routed request return a cached response created for a different provider path.
+
+### Decision
+
+Add an optional **Layer 0.5 MiniLM classifier-routing middleware** between auth and cache:
+
+- reuse the existing in-process MiniLM embedder already loaded for L1b
+- load a JSON artifact containing four lightweight linear heads: `task_type`, `complexity`, `persona`, and `domain`
+- classify buffered request context via `extract_classifier_context()`
+- match ordered config rules that can prefer a provider and/or override the request model before Layer 1 and Layer 3
+- prefix exact/semantic cache material with the selected provider fragment when routing changes the provider
+- support two operating modes:
+  - **fallback mode** (`fallback_to_existing_routing = true`) — classifier failures or no-match results fall through to the old routing path
+  - **fail-closed mode** (`fallback_to_existing_routing = false`) — classifier failures or no-match results return `503`
+
+### Consequences
+
+- The same MiniLM embedding now feeds both L1b semantic cache and classifier-guided Layer 3 routing, avoiding a second encoder.
+- Classifier-selected provider/model choices become part of cache safety, so cache behavior is provider-aware when routing rules apply.
+- Operators can roll the feature out gradually with fallback enabled, then tighten it to fail closed once artifacts and rules are trusted.
+- A **model matrix** shorthand (`[classifier_routing.matrix]`) provides a visual 2D grid mapping `complexity × task_type` to `"provider/model"` targets, compiled into rules at startup. Explicit `rules` always take priority. The `"local"` target keeps a cell on the cache/SLM path. The `"default"` key in either dimension acts as a wildcard.

@@ -268,23 +268,43 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Layer 2 SLM router disabled — requests skip L2 triage");
     }
 
-    // Initialize the in-process sentence embedder for Layer 1 semantic cache.
-    // This blocks during startup (~2s) to load the candle BertModel into RAM (~90 MB).
-    // When cache_mode=exact, semantic matching is not used so we skip the download.
-    let text_embedder = Arc::new(
-        if matches!(config.cache_mode, isartor::config::CacheMode::Exact) {
-            tracing::info!("cache_mode=exact — skipping semantic embedder download (L1b disabled)");
-            isartor::layer1::embeddings::TextEmbedder::new_noop()
-        } else {
-            isartor::layer1::embeddings::TextEmbedder::new().map_err(|e| {
+    // Initialize the in-process sentence embedder for Layer 1 semantic cache and
+    // optional MiniLM classifier routing. When both are disabled we can skip the
+    // download and use a no-op embedder.
+    let require_minilm_embedder = !matches!(config.cache_mode, isartor::config::CacheMode::Exact)
+        || config.classifier_routing.enabled;
+    let text_embedder = Arc::new(if !require_minilm_embedder {
+        tracing::info!(
+            "cache_mode=exact and classifier routing disabled — skipping semantic embedder download"
+        );
+        isartor::layer1::embeddings::TextEmbedder::new_noop()
+    } else {
+        isartor::layer1::embeddings::TextEmbedder::new().map_err(|e| {
                 anyhow::anyhow!(
                     "Failed to initialize candle TextEmbedder (all-MiniLM-L6-v2): {e:#}. Hint: set HF_HOME=/tmp/huggingface (or ISARTOR_HF_CACHE_DIR) to a writable path. In Docker: -e HF_HOME=/tmp/huggingface -v isartor-hf:/tmp/huggingface"
                 )
             })?
-        },
-    );
+    });
 
     let app_state = Arc::new(isartor::state::AppState::new(config.clone(), text_embedder));
+
+    if !config.offline_mode && config.provider_health_check_interval_secs > 0 {
+        let health_state = app_state.clone();
+        let interval_secs = config.provider_health_check_interval_secs;
+        tracing::info!(interval_secs, "Background provider health checks enabled");
+        tokio::spawn(async move {
+            let interval = std::time::Duration::from_secs(interval_secs);
+            let start = tokio::time::Instant::now() + interval;
+            let mut ticker = tokio::time::interval_at(start, interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                isartor::dashboard::refresh_provider_health(health_state.clone()).await;
+            }
+        });
+    } else if config.provider_health_check_interval_secs == 0 {
+        tracing::info!("Background provider health checks disabled");
+    }
 
     // Mark boot time for the /health uptime counter.
     health::mark_boot_time();
@@ -297,7 +317,8 @@ async fn main() -> anyhow::Result<()> {
     //    `.layer()` call is the *outermost* (first to run).
     //
     //    We want execution order:
-    //      Layer 0 (Auth) → Layer 1 (Cache) → Layer 2 (SLM) → Layer 2.5 (Context Optimizer) → Handler
+    //      Layer 0 (Auth) → Layer 0.5 (Classifier Routing) → Layer 1 (Cache)
+    //      → Layer 2 (SLM) → Layer 2.5 (Context Optimizer) → Handler
     //
     //    Therefore we add them in reverse:
     //      .layer(Layer 0)     ← outermost, added last
@@ -331,6 +352,10 @@ async fn main() -> anyhow::Result<()> {
         ))
         // Layer 1 – Cache (exact / semantic / both).
         .layer(axum_mw::from_fn(middleware::cache::cache_middleware))
+        // Layer 0.5 – MiniLM classifier-based provider/model routing.
+        .layer(axum_mw::from_fn(
+            middleware::classifier_routing::classifier_routing_middleware,
+        ))
         // Layer 0 – Authentication.
         .layer(axum_mw::from_fn(middleware::auth::auth_middleware))
         // Root monitoring – request-level tracing span.

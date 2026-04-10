@@ -214,7 +214,7 @@ input[type=checkbox]{width:16px;height:16px;accent-color:#238636}
           <div class="grid grid-2">
             <div class="form-row"><label>Provider</label>
               <select id="cfg-llm_provider">
-                <option value="openai">openai</option><option value="anthropic">anthropic</option>
+                <option value="openai">openai</option><option value="azure">azure</option><option value="anthropic">anthropic</option>
                 <option value="groq">groq</option><option value="gemini">gemini</option>
                 <option value="openrouter">openrouter</option><option value="copilot">copilot</option>
                 <option value="vllm">vllm</option><option value="ollama">ollama</option>
@@ -222,6 +222,8 @@ input[type=checkbox]{width:16px;height:16px;accent-color:#238636}
             </div>
             <div class="form-row"><label>Model</label><input type="text" id="cfg-external_llm_model" placeholder="gpt-4o-mini"></div>
             <div class="form-row"><label>Endpoint URL</label><input type="text" id="cfg-external_llm_url" placeholder="https://api.openai.com/v1"></div>
+            <div class="form-row"><label>Azure Deployment ID</label><input type="text" id="cfg-azure_deployment_id" placeholder="gpt-4o-mini"><div class="form-hint">Required when provider is set to azure</div></div>
+            <div class="form-row"><label>Azure API Version</label><input type="text" id="cfg-azure_api_version" placeholder="2024-08-01-preview"></div>
           </div>
         </div>
         <div class="config-section">
@@ -254,6 +256,42 @@ input[type=checkbox]{width:16px;height:16px;accent-color:#238636}
           <div class="grid grid-2">
             <div class="form-row"><label>Log Path</label><input type="text" id="cfg-request_log_path" placeholder="~/.isartor/logs"></div>
             <div class="form-row"><label>Usage Window (hours)</label><input type="number" id="cfg-usage_window_hours" min="1"></div>
+            <div class="form-row"><label>Provider Health Ping Interval (sec)</label><input type="number" id="cfg-provider_health_check_interval_secs" min="0"><div class="form-hint">Default 300. Set to 0 to disable background provider pings.</div></div>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Layer 0.5 &mdash; Classifier Routing</h3>
+          <div class="toggle-row"><input type="checkbox" id="cfg-classifier_routing_enabled"><label for="cfg-classifier_routing_enabled">Enable MiniLM classifier routing</label></div>
+          <div class="grid grid-2">
+            <div class="form-row"><label>Artifacts Path</label><input type="text" id="cfg-classifier_routing_artifacts_path" placeholder="./minilm-routing-artifact.json"><div class="form-hint">Path to the JSON classifier artifact</div></div>
+            <div class="form-row"><label>Confidence Threshold (0&ndash;1)</label><input type="number" id="cfg-classifier_routing_confidence_threshold" min="0" max="1" step="0.01" placeholder="0.55"></div>
+          </div>
+          <div class="toggle-row"><input type="checkbox" id="cfg-classifier_routing_fallback_to_existing_routing"><label for="cfg-classifier_routing_fallback_to_existing_routing">Fallback to existing routing on no match</label></div>
+
+          <div style="margin-top:1rem">
+            <h4 style="font-size:.82rem;color:#8b949e;margin-bottom:.6rem">Model Matrix <span style="font-weight:400;font-size:.75rem">(complexity &times; task_type &rarr; provider/model)</span></h4>
+            <div id="matrix-editor" style="overflow-x:auto">
+              <table id="matrix-table" style="min-width:100%">
+                <thead><tr id="matrix-header-row"><th style="width:120px">Complexity &darr;</th></tr></thead>
+                <tbody id="matrix-body"></tbody>
+              </table>
+            </div>
+            <div style="display:flex;gap:.5rem;margin-top:.6rem;flex-wrap:wrap">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="matrixAddRow()">+ Add Row</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="matrixAddCol()">+ Add Column</button>
+            </div>
+            <div class="form-hint" style="margin-top:.4rem">
+              Cell format: <code>provider/model</code> &mdash; Use <strong>local</strong> to stay on cache/SLM. Leave empty to skip.
+            </div>
+          </div>
+
+          <div style="margin-top:1.2rem">
+            <h4 style="font-size:.82rem;color:#8b949e;margin-bottom:.6rem">Explicit Rules <span style="font-weight:400;font-size:.75rem">(take priority over matrix)</span></h4>
+            <table style="width:100%;font-size:.82rem" id="rules-table">
+              <thead><tr><th>Name</th><th>Task Type</th><th>Complexity</th><th>Persona</th><th>Domain</th><th>Provider</th><th>Model</th><th></th></tr></thead>
+              <tbody id="rules-body"></tbody>
+            </table>
+            <button type="button" class="btn btn-secondary btn-sm" style="margin-top:.5rem" onclick="addClassifierRule()">+ Add Rule</button>
           </div>
         </div>
         <div style="display:flex;gap:.7rem;align-items:center;margin-top:.5rem">
@@ -270,22 +308,24 @@ input[type=checkbox]{width:16px;height:16px;accent-color:#238636}
 <!-- Add Provider Modal -->
 <div class="modal-backdrop" id="add-provider-modal">
   <div class="modal">
-    <h2>Add Fallback Provider</h2>
+    <h2 id="provider-modal-title">Add Fallback Provider</h2>
     <div class="form-row"><label>Provider</label>
       <select id="ap-provider">
-        <option value="openai">openai</option><option value="anthropic">anthropic</option>
+        <option value="openai">openai</option><option value="azure">azure</option><option value="anthropic">anthropic</option>
         <option value="groq">groq</option><option value="gemini">gemini</option>
-        <option value="openrouter">openrouter</option><option value="vllm">vllm</option><option value="ollama">ollama</option>
+        <option value="openrouter">openrouter</option><option value="copilot">copilot</option><option value="vllm">vllm</option><option value="ollama">ollama</option>
       </select>
     </div>
     <div class="form-row"><label>Model</label><input type="text" id="ap-model" placeholder="gpt-4o-mini"></div>
-    <div class="form-row"><label>API Key</label><input type="password" id="ap-key" placeholder="sk-..."></div>
+    <div class="form-row"><label>API Key</label><input type="password" id="ap-key" placeholder="sk-..."><div class="form-hint">Leave blank while editing to keep the current key.</div></div>
     <div class="form-row"><label>Endpoint URL (optional)</label><input type="text" id="ap-url" placeholder="https://api.openai.com/v1"></div>
+    <div class="form-row"><label>Azure Deployment ID</label><input type="text" id="ap-azure-deployment-id" placeholder="gpt-4o-mini"><div class="form-hint">Required when provider is set to azure.</div></div>
+    <div class="form-row"><label>Azure API Version</label><input type="text" id="ap-azure-api-version" placeholder="2024-08-01-preview"></div>
     <div id="ap-test-result" style="margin-top:.5rem;font-size:.82rem;display:none"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('add-provider-modal')">Cancel</button>
       <button class="btn btn-secondary" onclick="testProviderFromModal()">Test Connection</button>
-      <button class="btn btn-primary" onclick="addProvider()">Add Provider</button>
+      <button class="btn btn-primary" id="provider-modal-submit" onclick="saveProvider()">Add Provider</button>
     </div>
   </div>
 </div>
@@ -294,6 +334,9 @@ input[type=checkbox]{width:16px;height:16px;accent-color:#238636}
 'use strict';
 var API = '/api/admin';
 var apiKey = sessionStorage.getItem('isartor_key') || '';
+var providerRows = [];
+var providerModalMode = 'add';
+var providerModalIndex = null;
 if (apiKey) showApp();
 
 function doLogin() {
@@ -430,34 +473,42 @@ function renderDeflChart(d) {
 function loadProviders() {
   api('/providers').then(function(r) { return r.json(); }).then(function(d) {
     var list = d.providers || [];
+    providerRows = list;
     var tbody = document.getElementById('providers-body');
     if (!list.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No providers configured</td></tr>'; return; }
     tbody.innerHTML = list.map(function(p, i) {
       var st = p.active ? '<span class="badge badge-green">primary</span>' : '<span class="badge badge-gray">fallback</span>';
-      var health = p.status === 'Healthy' ? '<span class="badge badge-green">healthy</span>'
-        : p.status === 'Degraded' ? '<span class="badge badge-yellow">degraded</span>'
-        : '<span class="badge badge-red">unhealthy</span>';
+      var status = String(p.status || '').toLowerCase();
+      var health = status === 'healthy' ? '<span class="badge badge-green">healthy</span>'
+        : status === 'failing' ? '<span class="badge badge-red">failing</span>'
+        : '<span class="badge badge-gray">unknown</span>';
       var keyCfg = p.api_key_configured ? '<span class="badge badge-green">\u2713</span>' : '<span class="badge badge-red">\u2717</span>';
       var keyCount = p.keys ? ' ' + p.keys.length + ' key(s)' : '';
-      var up = i > 0 ? '<button class="btn-icon" title="Move up" onclick="moveProvider('+i+',-1)">\u2191</button>' : '';
-      var dn = i < list.length-1 ? '<button class="btn-icon" title="Move down" onclick="moveProvider('+i+',1)">\u2193</button>' : '';
-      var rm = !p.active ? '<button class="btn-icon" style="color:#f85149;border-color:#f85149" title="Remove" onclick="removeProvider('+i+')">\u2715</button>' : '';
-      var ep = esc(p.endpoint || '');
-      var nm = esc(p.name || '');
+      var configIndex = p.config_index;
+      var up = (!p.active && configIndex > 0) ? '<button class="btn-icon" title="Move up" onclick="moveProvider('+configIndex+',-1)">\u2191</button>' : '';
+      var dn = (!p.active && configIndex != null && configIndex < list.filter(function(row) { return !row.active; }).length - 1) ? '<button class="btn-icon" title="Move down" onclick="moveProvider('+configIndex+',1)">\u2193</button>' : '';
+      var edit = !p.active ? '<button class="btn-icon" title="Edit" onclick="openEditProviderModal('+configIndex+')">Edit</button>' : '';
+      var rm = !p.active ? '<button class="btn-icon" style="color:#f85149;border-color:#f85149" title="Remove" onclick="removeProvider('+configIndex+')">\u2715</button>' : '';
       return '<tr>'
         + '<td>' + (i+1) + '</td>'
-        + '<td><strong>' + nm + '</strong></td>'
+        + '<td><strong>' + esc(p.name || '') + '</strong></td>'
         + '<td>' + esc(p.model || '&#x2014;') + '</td>'
         + '<td>' + st + ' ' + health + '</td>'
         + '<td>' + fmtNum(p.requests_total||0) + '</td>'
         + '<td>' + fmtNum(p.errors_total||0) + '</td>'
         + '<td>' + keyCfg + keyCount + '</td>'
-        + '<td><div class="actions"><button class="btn-icon" onclick="testProvider(\'' + ep + '\',\'' + nm + '\')">Test</button>' + up + dn + rm + '</div></td>'
+        + '<td><div class="actions"><button class="btn-icon" onclick="testProviderByRow('+i+')">Test</button>' + edit + up + dn + rm + '</div></td>'
         + '</tr>';
     }).join('');
   }).catch(function() {
     document.getElementById('providers-body').innerHTML = '<tr><td colspan="8" class="empty">Failed to load providers</td></tr>';
   });
+}
+
+function testProviderByRow(index) {
+  var provider = providerRows[index];
+  if (!provider) return;
+  testProvider(provider.config_url || provider.endpoint || '', provider.name || 'provider');
 }
 
 function testProvider(url, name) {
@@ -494,26 +545,104 @@ function testProviderFromModal() {
     }).catch(function(e) { res.style.color='#f85149'; res.textContent='\u2717 Error: '+e; });
 }
 
-function openAddProviderModal() { document.getElementById('add-provider-modal').classList.add('open'); }
+function resetProviderModal() {
+  providerModalIndex = null;
+  document.getElementById('ap-provider').value = 'openai';
+  document.getElementById('ap-model').value = '';
+  document.getElementById('ap-key').value = '';
+  document.getElementById('ap-url').value = '';
+  document.getElementById('ap-azure-deployment-id').value = '';
+  document.getElementById('ap-azure-api-version').value = '';
+  var res = document.getElementById('ap-test-result');
+  res.style.display = 'none';
+  res.textContent = '';
+}
+
+function openAddProviderModal() {
+  providerModalMode = 'add';
+  resetProviderModal();
+  document.getElementById('provider-modal-title').textContent = 'Add Fallback Provider';
+  document.getElementById('provider-modal-submit').textContent = 'Add Provider';
+  document.getElementById('add-provider-modal').classList.add('open');
+}
+
+function openEditProviderModal(index) {
+  var provider = providerRows.find(function(row) { return row.config_index === index; });
+  if (!provider) return;
+  providerModalMode = 'edit';
+  resetProviderModal();
+  providerModalIndex = index;
+  document.getElementById('provider-modal-title').textContent = 'Edit Fallback Provider';
+  document.getElementById('provider-modal-submit').textContent = 'Save Provider';
+  document.getElementById('ap-provider').value = provider.name || 'openai';
+  document.getElementById('ap-model').value = provider.raw_model || provider.model || '';
+  document.getElementById('ap-url').value = provider.config_url || '';
+  document.getElementById('ap-azure-deployment-id').value = provider.azure_deployment_id || '';
+  document.getElementById('ap-azure-api-version').value = provider.azure_api_version || '';
+  document.getElementById('add-provider-modal').classList.add('open');
+}
+
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
-function addProvider() {
+function providerModalPayload() {
   var prov = document.getElementById('ap-provider').value;
   var model = document.getElementById('ap-model').value.trim();
   var key = document.getElementById('ap-key').value.trim();
   var url = document.getElementById('ap-url').value.trim();
-  if (!model || !key) { alert('Model and API key are required.'); return; }
-  var snippet = '[[fallback_providers]]\nprovider = "' + prov + '"\nmodel = "' + model + '"\napi_key = "' + key + '"' + (url ? '\nurl = "' + url + '"' : '');
-  alert('Add this to isartor.toml and restart the gateway:\n\n' + snippet);
-  closeModal('add-provider-modal');
+  var azureDeploymentId = document.getElementById('ap-azure-deployment-id').value.trim();
+  var azureApiVersion = document.getElementById('ap-azure-api-version').value.trim();
+  var payload = {
+    provider: prov,
+    model: model,
+    url: url,
+    azure_deployment_id: azureDeploymentId,
+    azure_api_version: azureApiVersion
+  };
+  if (providerModalMode === 'edit') payload.index = providerModalIndex;
+  if (key) payload.api_key = key;
+  return payload;
+}
+
+function saveProvider() {
+  var payload = providerModalPayload();
+  if (!payload.model) { alert('Model is required.'); return; }
+  if (providerModalMode === 'add' && !payload.api_key) { alert('API key is required when adding a provider.'); return; }
+  if (payload.provider === 'azure' && !payload.azure_deployment_id) { alert('Azure deployment ID is required for Azure providers.'); return; }
+  var endpoint = providerModalMode === 'edit' ? '/providers/edit' : '/providers/add';
+  apiPost(endpoint, payload)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'save failed');
+      closeModal('add-provider-modal');
+      showBanner('provider-test-banner', 'success', '\u2713 ' + d.message);
+      loadProviders();
+    })
+    .catch(function(e) {
+      showBanner('provider-test-banner', 'error', '\u2717 ' + e);
+    });
 }
 
 function moveProvider(idx, dir) {
-  alert('To reorder the fallback chain, edit the [[fallback_providers]] array order in isartor.toml and restart the gateway.');
+  apiPost('/providers/move', {index: idx, direction: dir})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'move failed');
+      showBanner('provider-test-banner', 'success', '\u2713 ' + d.message);
+      loadProviders();
+    })
+    .catch(function(e) { showBanner('provider-test-banner', 'error', '\u2717 ' + e); });
 }
 
 function removeProvider(idx) {
-  alert('To remove a fallback provider, delete the [[fallback_providers]] entry from isartor.toml and restart the gateway.');
+  if (!confirm('Remove this fallback provider from isartor.toml?')) return;
+  apiPost('/providers/remove', {index: idx})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'remove failed');
+      showBanner('provider-test-banner', 'success', '\u2713 ' + d.message);
+      loadProviders();
+    })
+    .catch(function(e) { showBanner('provider-test-banner', 'error', '\u2717 ' + e); });
 }
 
 // ── Usage ─────────────────────────────────────────────────────────────
@@ -616,6 +745,12 @@ function toggleExpand(id) {
 }
 
 // ── Configuration ─────────────────────────────────────────────────────
+
+// In-memory state for the matrix editor and rules editor.
+var matrixCols = [];    // task_type column names
+var matrixRows = [];    // { complexity: string, cells: { col_name: string } }
+var classifierRules = []; // array of rule objects
+
 function loadConfig() {
   api('/config').then(function(r) { return r.json(); }).then(function(d) {
     function set(id, val) {
@@ -627,13 +762,23 @@ function loadConfig() {
     set('host_port', d.host_port); set('proxy_port', d.proxy_port);
     set('offline_mode', d.offline_mode); set('llm_provider', d.llm_provider);
     set('external_llm_model', d.external_llm_model); set('external_llm_url', d.external_llm_url);
+    set('azure_deployment_id', d.azure_deployment_id); set('azure_api_version', d.azure_api_version);
     set('cache_mode', d.cache_mode); set('cache_ttl_secs', d.cache_ttl_secs);
     set('cache_max_capacity', d.cache_max_capacity); set('similarity_threshold', d.similarity_threshold);
     set('enable_slm_router', d.enable_slm_router); set('local_slm_url', d.local_slm_url);
     set('local_slm_model', d.local_slm_model); set('layer2_sidecar_url', d.layer2_sidecar_url);
     set('layer2_model_name', d.layer2_model_name); set('layer2_timeout_seconds', d.layer2_timeout_seconds);
     set('enable_request_logs', d.enable_request_logs); set('request_log_path', d.request_log_path);
-    set('usage_window_hours', d.usage_window_hours);
+    set('usage_window_hours', d.usage_window_hours); set('provider_health_check_interval_secs', d.provider_health_check_interval_secs);
+    set('classifier_routing_enabled', d.classifier_routing_enabled);
+    set('classifier_routing_artifacts_path', d.classifier_routing_artifacts_path);
+    set('classifier_routing_confidence_threshold', d.classifier_routing_confidence_threshold);
+    set('classifier_routing_fallback_to_existing_routing', d.classifier_routing_fallback_to_existing_routing);
+    // Load matrix
+    loadMatrixFromData(d.classifier_routing_matrix || {});
+    // Load rules
+    classifierRules = (d.classifier_routing_rules || []).map(function(r) { return Object.assign({}, r); });
+    renderClassifierRules();
     hideBanner('config-banner');
   }).catch(function(e) { showBanner('config-banner','error','Failed to load config: '+e); });
 }
@@ -650,12 +795,20 @@ function saveConfig(evt) {
   var payload = {
     host_port: get('host_port'), proxy_port: get('proxy_port'), offline_mode: get('offline_mode'),
     llm_provider: get('llm_provider'), external_llm_model: get('external_llm_model'), external_llm_url: get('external_llm_url'),
+    azure_deployment_id: get('azure_deployment_id'), azure_api_version: get('azure_api_version'),
     cache_mode: get('cache_mode'), cache_ttl_secs: get('cache_ttl_secs'), cache_max_capacity: get('cache_max_capacity'),
     similarity_threshold: get('similarity_threshold'), enable_slm_router: get('enable_slm_router'),
     local_slm_url: get('local_slm_url'), local_slm_model: get('local_slm_model'),
     layer2_sidecar_url: get('layer2_sidecar_url'), layer2_model_name: get('layer2_model_name'),
     layer2_timeout_seconds: get('layer2_timeout_seconds'), enable_request_logs: get('enable_request_logs'),
-    request_log_path: get('request_log_path'), usage_window_hours: get('usage_window_hours')
+    request_log_path: get('request_log_path'), usage_window_hours: get('usage_window_hours'),
+    provider_health_check_interval_secs: get('provider_health_check_interval_secs'),
+    classifier_routing_enabled: get('classifier_routing_enabled'),
+    classifier_routing_artifacts_path: get('classifier_routing_artifacts_path'),
+    classifier_routing_confidence_threshold: get('classifier_routing_confidence_threshold'),
+    classifier_routing_fallback_to_existing_routing: get('classifier_routing_fallback_to_existing_routing'),
+    classifier_routing_matrix: collectMatrixData(),
+    classifier_routing_rules: collectClassifierRules()
   };
   apiPost('/config', payload)
     .then(function(r) { return r.json(); })
@@ -664,6 +817,217 @@ function saveConfig(evt) {
       else showBanner('config-banner','error','\u2717 ' + d.error);
     }).catch(function(e) { showBanner('config-banner','error','\u2717 Save failed: ' + e); });
 }
+
+// ── Matrix Editor ──────────────────────────────────────────────────────
+
+function loadMatrixFromData(data) {
+  matrixCols = [];
+  matrixRows = [];
+  var colSet = {};
+  // Gather all unique task_type column names across all complexity rows.
+  Object.keys(data).forEach(function(complexity) {
+    Object.keys(data[complexity]).forEach(function(taskType) {
+      if (!colSet[taskType]) { colSet[taskType] = true; matrixCols.push(taskType); }
+    });
+  });
+  // Build row data.
+  Object.keys(data).forEach(function(complexity) {
+    var cells = {};
+    matrixCols.forEach(function(col) { cells[col] = data[complexity][col] || ''; });
+    matrixRows.push({ complexity: complexity, cells: cells });
+  });
+  renderMatrix();
+}
+
+function renderMatrix() {
+  var headerRow = document.getElementById('matrix-header-row');
+  var body = document.getElementById('matrix-body');
+  // Header: Complexity | col1 | col2 | ... | (remove col buttons)
+  headerRow.innerHTML = '<th style="width:130px;font-size:.78rem">Complexity &#8595;</th>';
+  matrixCols.forEach(function(col, ci) {
+    headerRow.innerHTML +=
+      '<th style="font-size:.78rem;position:relative">' +
+        '<span contenteditable="true" class="matrix-col-name" data-ci="' + ci + '" ' +
+        'style="cursor:text;outline:none;border-bottom:1px dashed #30363d;padding:0 2px" ' +
+        'onblur="matrixRenameCol(' + ci + ',this.textContent)">' + escHtml(col) + '</span>' +
+        '<button type="button" class="btn-icon" style="position:absolute;top:-2px;right:0;font-size:.65rem;padding:1px 4px" ' +
+        'onclick="matrixRemoveCol(' + ci + ')" title="Remove column">&times;</button>' +
+      '</th>';
+  });
+  // Body rows
+  body.innerHTML = '';
+  matrixRows.forEach(function(row, ri) {
+    var tr = '<tr>';
+    tr += '<td style="font-size:.82rem;font-weight:600;position:relative">' +
+      '<span contenteditable="true" class="matrix-row-name" ' +
+      'style="cursor:text;outline:none;border-bottom:1px dashed #30363d;padding:0 2px" ' +
+      'onblur="matrixRenameRow(' + ri + ',this.textContent)">' + escHtml(row.complexity) + '</span>' +
+      '<button type="button" class="btn-icon" style="position:absolute;top:4px;right:4px;font-size:.65rem;padding:1px 4px" ' +
+      'onclick="matrixRemoveRow(' + ri + ')" title="Remove row">&times;</button>' +
+      '</td>';
+    matrixCols.forEach(function(col) {
+      var val = row.cells[col] || '';
+      var cellClass = '';
+      if (val.toLowerCase() === 'local') cellClass = 'color:#3fb950';
+      else if (val) cellClass = 'color:#58a6ff';
+      tr += '<td><input type="text" data-ri="' + ri + '" data-col="' + escAttr(col) + '" ' +
+        'value="' + escAttr(val) + '" placeholder="provider/model" ' +
+        'style="font-size:.8rem;padding:.35rem .5rem;' + cellClass + '" ' +
+        'oninput="matrixCellChanged(this)" onchange="matrixCellChanged(this)"></td>';
+    });
+    tr += '</tr>';
+    body.innerHTML += tr;
+  });
+}
+
+function matrixCellChanged(el) {
+  var ri = parseInt(el.getAttribute('data-ri'));
+  var col = el.getAttribute('data-col');
+  matrixRows[ri].cells[col] = el.value.trim();
+  // Color hint
+  var v = el.value.trim().toLowerCase();
+  if (v === 'local') el.style.color = '#3fb950';
+  else if (v) el.style.color = '#58a6ff';
+  else el.style.color = '';
+}
+
+function matrixAddRow() {
+  var name = prompt('Complexity label (e.g., complex, simple, moderate):');
+  if (!name || !name.trim()) return;
+  name = name.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (matrixRows.some(function(r) { return r.complexity === name; })) { alert('Row already exists.'); return; }
+  var cells = {};
+  matrixCols.forEach(function(c) { cells[c] = ''; });
+  matrixRows.push({ complexity: name, cells: cells });
+  renderMatrix();
+}
+
+function matrixAddCol() {
+  var name = prompt('Task type label (e.g., code_generation, analysis, conversation):');
+  if (!name || !name.trim()) return;
+  name = name.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (matrixCols.indexOf(name) !== -1) { alert('Column already exists.'); return; }
+  matrixCols.push(name);
+  matrixRows.forEach(function(row) { row.cells[name] = ''; });
+  renderMatrix();
+}
+
+function matrixRemoveRow(ri) {
+  if (!confirm('Remove row "' + matrixRows[ri].complexity + '"?')) return;
+  matrixRows.splice(ri, 1);
+  renderMatrix();
+}
+
+function matrixRemoveCol(ci) {
+  var col = matrixCols[ci];
+  if (!confirm('Remove column "' + col + '"?')) return;
+  matrixCols.splice(ci, 1);
+  matrixRows.forEach(function(row) { delete row.cells[col]; });
+  renderMatrix();
+}
+
+function matrixRenameRow(ri, newName) {
+  newName = (newName || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!newName) { renderMatrix(); return; }
+  matrixRows[ri].complexity = newName;
+}
+
+function matrixRenameCol(ci, newName) {
+  newName = (newName || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!newName) { renderMatrix(); return; }
+  var oldName = matrixCols[ci];
+  if (oldName === newName) return;
+  matrixCols[ci] = newName;
+  matrixRows.forEach(function(row) {
+    row.cells[newName] = row.cells[oldName] || '';
+    delete row.cells[oldName];
+  });
+}
+
+function collectMatrixData() {
+  // Sync any live input values back into the model.
+  document.querySelectorAll('#matrix-body input[data-ri]').forEach(function(el) {
+    var ri = parseInt(el.getAttribute('data-ri'));
+    var col = el.getAttribute('data-col');
+    if (matrixRows[ri]) matrixRows[ri].cells[col] = el.value.trim();
+  });
+  var result = {};
+  matrixRows.forEach(function(row) {
+    var taskMap = {};
+    var hasEntry = false;
+    matrixCols.forEach(function(col) {
+      var v = (row.cells[col] || '').trim();
+      if (v) { taskMap[col] = v; hasEntry = true; }
+    });
+    if (hasEntry) result[row.complexity] = taskMap;
+  });
+  return result;
+}
+
+// ── Rules Editor ──────────────────────────────────────────────────────
+
+function renderClassifierRules() {
+  var tbody = document.getElementById('rules-body');
+  if (!classifierRules.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty" style="font-size:.8rem;padding:.8rem">No explicit rules defined. Use the matrix above or add a rule.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = classifierRules.map(function(r, i) {
+    return '<tr>' +
+      '<td><input type="text" value="' + escAttr(r.name || '') + '" data-ri="' + i + '" data-field="name" onchange="updateRule(this)" style="font-size:.78rem;padding:.3rem .4rem"></td>' +
+      '<td><input type="text" value="' + escAttr(r.task_type || '') + '" data-ri="' + i + '" data-field="task_type" onchange="updateRule(this)" style="font-size:.78rem;padding:.3rem .4rem" placeholder="*"></td>' +
+      '<td><input type="text" value="' + escAttr(r.complexity || '') + '" data-ri="' + i + '" data-field="complexity" onchange="updateRule(this)" style="font-size:.78rem;padding:.3rem .4rem" placeholder="*"></td>' +
+      '<td><input type="text" value="' + escAttr(r.persona || '') + '" data-ri="' + i + '" data-field="persona" onchange="updateRule(this)" style="font-size:.78rem;padding:.3rem .4rem" placeholder="*"></td>' +
+      '<td><input type="text" value="' + escAttr(r.domain || '') + '" data-ri="' + i + '" data-field="domain" onchange="updateRule(this)" style="font-size:.78rem;padding:.3rem .4rem" placeholder="*"></td>' +
+      '<td><input type="text" value="' + escAttr(r.provider || '') + '" data-ri="' + i + '" data-field="provider" onchange="updateRule(this)" style="font-size:.78rem;padding:.3rem .4rem"></td>' +
+      '<td><input type="text" value="' + escAttr(r.model || '') + '" data-ri="' + i + '" data-field="model" onchange="updateRule(this)" style="font-size:.78rem;padding:.3rem .4rem"></td>' +
+      '<td class="actions"><button type="button" class="btn-icon" onclick="removeRule(' + i + ')" title="Remove">&times;</button></td>' +
+      '</tr>';
+  }).join('');
+}
+
+function updateRule(el) {
+  var i = parseInt(el.getAttribute('data-ri'));
+  var field = el.getAttribute('data-field');
+  var v = el.value.trim();
+  classifierRules[i][field] = v || null;
+}
+
+function addClassifierRule() {
+  classifierRules.push({ name: '', task_type: null, complexity: null, persona: null, domain: null, provider: '', model: '' });
+  renderClassifierRules();
+}
+
+function removeRule(i) {
+  classifierRules.splice(i, 1);
+  renderClassifierRules();
+}
+
+function collectClassifierRules() {
+  // Sync live input values.
+  document.querySelectorAll('#rules-body input[data-ri]').forEach(function(el) {
+    var i = parseInt(el.getAttribute('data-ri'));
+    var field = el.getAttribute('data-field');
+    var v = el.value.trim();
+    if (classifierRules[i]) classifierRules[i][field] = v || null;
+  });
+  return classifierRules.filter(function(r) {
+    return (r.name && r.name.trim()) || (r.provider && r.provider.trim()) || (r.model && r.model.trim());
+  }).map(function(r) {
+    return {
+      name: r.name || '',
+      task_type: r.task_type || undefined,
+      complexity: r.complexity || undefined,
+      persona: r.persona || undefined,
+      domain: r.domain || undefined,
+      provider: r.provider || undefined,
+      model: r.model || undefined
+    };
+  });
+}
+
+function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function showBanner(id, type, msg) {
   var el = document.getElementById(id);

@@ -18,6 +18,7 @@ use tokio_stream::wrappers::IntervalStream;
 use tracing::{Instrument, info_span};
 
 use crate::anthropic_sse;
+use crate::classifier::ClassifierRouteDecision;
 use crate::config::{
     DEFAULT_OPENAI_CHAT_COMPLETIONS_URL, LlmProvider, default_chat_completions_url,
 };
@@ -79,6 +80,13 @@ fn configured_openai_model_id(state: &AppState) -> String {
     state.config.configured_model_id()
 }
 
+fn classifier_provider_cache_prefix(route: Option<&ClassifierRouteDecision>) -> String {
+    route
+        .and_then(|route| route.cache_key_provider_fragment())
+        .map(|provider| format!("provider:{provider}\n"))
+        .unwrap_or_default()
+}
+
 fn resolved_request_model_for_path(state: &AppState, body_bytes: &[u8], path: &str) -> String {
     extract_request_model(body_bytes)
         .or_else(|| extract_route_model(path))
@@ -96,6 +104,58 @@ fn canonicalize_request_body_model(
         override_request_model(body_bytes, &resolved_model),
         resolved_model,
     )
+}
+
+fn preferred_provider_name(route: Option<&ClassifierRouteDecision>) -> Option<&str> {
+    route.and_then(|route| route.selected_provider.as_deref())
+}
+
+fn ordered_provider_chain(
+    state: &AppState,
+    preferred_provider: Option<&str>,
+    passthrough_only: bool,
+) -> Vec<ResolvedProviderConfig> {
+    let mut chain = state
+        .provider_chain
+        .iter()
+        .filter(|provider| !passthrough_only || supports_openai_passthrough(&provider.provider))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if let Some(preferred_provider) = preferred_provider
+        && let Some(index) = chain.iter().position(|provider| {
+            provider
+                .provider_name()
+                .eq_ignore_ascii_case(preferred_provider)
+        })
+    {
+        let preferred = chain.remove(index);
+        chain.insert(0, preferred);
+    }
+
+    chain
+}
+
+fn routed_model_for_provider(
+    provider: &ResolvedProviderConfig,
+    primary_model: &str,
+    route: Option<&ClassifierRouteDecision>,
+) -> String {
+    if let Some(route) = route
+        && preferred_provider_name(Some(route))
+            .is_some_and(|preferred| provider.provider_name().eq_ignore_ascii_case(preferred))
+    {
+        return route
+            .selected_model
+            .clone()
+            .unwrap_or_else(|| provider.configured_model_id().to_string());
+    }
+
+    if provider.active {
+        primary_model.to_string()
+    } else {
+        provider.configured_model_id().to_string()
+    }
 }
 
 fn gemini_error_response(status: StatusCode, message: String) -> Response {
@@ -356,6 +416,7 @@ async fn execute_prompt_provider_chain(
     state: Arc<AppState>,
     prompt: String,
     primary_model: String,
+    route_decision: Option<&ClassifierRouteDecision>,
     operation: &'static str,
     tool: &'static str,
 ) -> Result<ProviderExecutionResult, GatewayError> {
@@ -365,15 +426,15 @@ async fn execute_prompt_provider_chain(
     let projected_completion_tokens =
         projected_total_tokens.saturating_sub(projected_prompt_tokens);
 
-    for provider in state.provider_chain.iter() {
+    for provider in ordered_provider_chain(&state, preferred_provider_name(route_decision), false) {
         if let Err(e) = check_provider_quota(
             &state,
-            provider,
+            &provider,
             projected_total_tokens,
             projected_prompt_tokens,
             projected_completion_tokens,
         ) {
-            record_provider_failure(&state, provider, &e);
+            record_provider_failure(&state, &provider, &e);
             if e.should_fallback_to_next_provider() {
                 last_error = Some(e);
                 continue;
@@ -381,11 +442,7 @@ async fn execute_prompt_provider_chain(
             return Err(e);
         }
 
-        let model = if provider.active {
-            primary_model.clone()
-        } else {
-            provider.configured_model_id().to_string()
-        };
+        let model = routed_model_for_provider(&provider, &primary_model, route_decision);
         let retry_cfg = RetryConfig::cloud_llm();
         let state_c = state.clone();
         let prompt_c = prompt.clone();
@@ -408,7 +465,7 @@ async fn execute_prompt_provider_chain(
         .await;
 
         if let Some(outcome) =
-            handle_provider_result(&state, provider, model, result, &mut last_error)
+            handle_provider_result(&state, &provider, model, result, &mut last_error)
         {
             return outcome;
         }
@@ -422,6 +479,7 @@ async fn execute_prompt_provider_chain(
 async fn execute_passthrough_provider_chain(
     state: Arc<AppState>,
     request: OpenAiChatRequest,
+    route_decision: Option<&ClassifierRouteDecision>,
     tool: &'static str,
 ) -> Result<ProviderExecutionResult, GatewayError> {
     let mut last_error = None;
@@ -432,19 +490,15 @@ async fn execute_passthrough_provider_chain(
     let projected_completion_tokens =
         projected_total_tokens.saturating_sub(projected_prompt_tokens);
 
-    for provider in state.provider_chain.iter() {
-        if !supports_openai_passthrough(&provider.provider) {
-            continue;
-        }
-
+    for provider in ordered_provider_chain(&state, preferred_provider_name(route_decision), true) {
         if let Err(e) = check_provider_quota(
             &state,
-            provider,
+            &provider,
             projected_total_tokens,
             projected_prompt_tokens,
             projected_completion_tokens,
         ) {
-            record_provider_failure(&state, provider, &e);
+            record_provider_failure(&state, &provider, &e);
             if e.should_fallback_to_next_provider() {
                 last_error = Some(e);
                 continue;
@@ -454,10 +508,12 @@ async fn execute_passthrough_provider_chain(
 
         let retry_cfg = RetryConfig::cloud_llm();
         let state_c = state.clone();
-        let request_c = request.clone();
+        let mut request_for_provider = request.clone();
+        let model = routed_model_for_provider(&provider, &request.model, route_decision);
+        request_for_provider.model = model.clone();
+        let request_c = request_for_provider.clone();
         let provider_c = provider.clone();
         let provider_name = provider.provider_name().to_string();
-        let model = provider.configured_model_id().to_string();
         let result = execute_with_retry(&retry_cfg, "L3_OpenAIToolPassthrough", tool, move || {
             let state = state_c.clone();
             let request = request_c.clone();
@@ -472,7 +528,7 @@ async fn execute_passthrough_provider_chain(
         .await;
 
         if let Some(outcome) =
-            handle_provider_result(&state, provider, model, result, &mut last_error)
+            handle_provider_result(&state, &provider, model, result, &mut last_error)
         {
             return outcome;
         }
@@ -559,15 +615,23 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
             }
         };
 
-        let (canonical_body, resolved_model) = canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
+        let route_decision = request.extensions().get::<ClassifierRouteDecision>().cloned();
+        let (canonical_body, resolved_model) =
+            canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
         let session_cache_scope = extract_session_cache_scope(request.headers(), &canonical_body);
         let prompt = extract_prompt(&canonical_body);
-        let cache_key_material = crate::core::prompt::extract_cache_key(&canonical_body);
+        let cache_key_material = format!(
+            "{}{}",
+            classifier_provider_cache_prefix(route_decision.as_ref()),
+            crate::core::prompt::extract_cache_key(&canonical_body)
+        );
 
         tracing::Span::current().record("ai.prompt.length_bytes", prompt.len() as u64);
 
-        let provider_name = state.primary_provider().provider_name();
-        tracing::Span::current().record("provider.name", provider_name);
+        let provider_name = preferred_provider_name(route_decision.as_ref())
+            .unwrap_or(state.primary_provider().provider_name())
+            .to_string();
+        tracing::Span::current().record("provider.name", provider_name.as_str());
         tracing::Span::current().record("model", resolved_model.as_str());
         tracing::info!(prompt = %prompt, provider = provider_name, "Layer 3: Forwarding to LLM via Rig");
 
@@ -575,6 +639,7 @@ pub async fn chat_handler(request: Request) -> impl IntoResponse {
             state.clone(),
             prompt.clone(),
             resolved_model.clone(),
+            route_decision.as_ref(),
             "L3_Cloud_LLM",
             tool,
         )
@@ -725,10 +790,16 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             }
         };
 
+        let route_decision = request
+            .extensions()
+            .get::<ClassifierRouteDecision>()
+            .cloned();
         let (canonical_body, resolved_model) =
             canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
         let client_format = crate::formats::detect_format(request.uri().path(), request.headers());
-        let provider_name = state.primary_provider().provider_name();
+        let provider_name = preferred_provider_name(route_decision.as_ref())
+            .unwrap_or(state.primary_provider().provider_name())
+            .to_string();
         tracing::info!(
             provider = provider_name,
             client_format = client_format.name(),
@@ -751,7 +822,13 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
                 }
             };
 
-            let result = execute_passthrough_provider_chain(state.clone(), request, tool).await;
+            let result = execute_passthrough_provider_chain(
+                state.clone(),
+                request,
+                route_decision.as_ref(),
+                tool,
+            )
+            .await;
 
             match result {
                 Ok(result) => {
@@ -806,6 +883,7 @@ pub async fn openai_chat_completions_handler(request: Request) -> impl IntoRespo
             state.clone(),
             prompt.clone(),
             resolved_model.clone(),
+            route_decision.as_ref(),
             "L3_OpenAICompat",
             tool,
         )
@@ -941,16 +1019,23 @@ pub async fn gemini_generate_content_handler(request: Request) -> impl IntoRespo
             }
         };
 
+        let route_decision = request
+            .extensions()
+            .get::<ClassifierRouteDecision>()
+            .cloned();
         let (canonical_body, resolved_model) =
             canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
         let prompt = extract_prompt(&canonical_body);
-        let provider_name = state.primary_provider().provider_name();
+        let provider_name = preferred_provider_name(route_decision.as_ref())
+            .unwrap_or(state.primary_provider().provider_name())
+            .to_string();
         let is_streaming = is_gemini_streaming_path(request.uri().path());
 
         let result = execute_prompt_provider_chain(
             state.clone(),
             prompt,
             resolved_model.clone(),
+            route_decision.as_ref(),
             if is_streaming {
                 "L3_GeminiStreamCompat"
             } else {
@@ -1054,11 +1139,17 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
             }
         };
 
+        let route_decision = request
+            .extensions()
+            .get::<ClassifierRouteDecision>()
+            .cloned();
         let (canonical_body, resolved_model) =
             canonicalize_request_body_model(&state, &body_bytes, request.uri().path());
         let prompt = extract_prompt(&canonical_body);
 
-        let provider_name = state.primary_provider().provider_name();
+        let provider_name = preferred_provider_name(route_decision.as_ref())
+            .unwrap_or(state.primary_provider().provider_name())
+            .to_string();
         tracing::info!(
             provider = provider_name,
             "Anthropic compat: forwarding to LLM"
@@ -1068,6 +1159,7 @@ pub async fn anthropic_messages_handler(request: Request) -> impl IntoResponse {
             state.clone(),
             prompt.clone(),
             resolved_model.clone(),
+            route_decision.as_ref(),
             "L3_AnthropicCompat",
             tool,
         )
@@ -1711,8 +1803,16 @@ mod tests {
     use http_body_util::BodyExt;
     use sha2::{Digest, Sha256};
     use tower::ServiceExt;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{body_partial_json, method, path},
+    };
 
-    use crate::config::{AppConfig, FallbackProviderConfig, ProviderQuotaConfig, QuotaLimitAction};
+    use crate::classifier::{ClassificationHeadArtifact, MultiHeadClassifierArtifact};
+    use crate::config::{
+        AppConfig, ClassifierRoutingConfig, ClassifierRoutingRuleConfig, FallbackProviderConfig,
+        ProviderQuotaConfig, QuotaLimitAction,
+    };
     use crate::core::context_compress::InstructionCache;
     use crate::core::usage::UsageTracker;
     use crate::layer1::embeddings::shared_test_embedder;
@@ -1762,6 +1862,9 @@ mod tests {
             )
             .route("/v1/models", get(openai_models_handler))
             .route("/debug/providers", get(provider_status_handler))
+            .layer(axum_mw::from_fn(
+                crate::middleware::classifier_routing::classifier_routing_middleware,
+            ))
             .layer(axum_mw::from_fn(buffer_body_middleware))
             .layer(axum_mw::from_fn(
                 move |mut req: Request, next: axum_mw::Next| {
@@ -1772,6 +1875,37 @@ mod tests {
                     }
                 },
             ))
+    }
+
+    fn write_bias_only_classifier_artifact() -> std::path::PathBuf {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let path = file.into_temp_path().keep().unwrap();
+        let artifact = MultiHeadClassifierArtifact {
+            version: 1,
+            embedding_dim: 384,
+            task_type: ClassificationHeadArtifact {
+                labels: vec!["lookup".into(), "codegen".into()],
+                weights: vec![vec![0.0; 384], vec![0.0; 384]],
+                bias: vec![0.0, 10.0],
+            },
+            complexity: ClassificationHeadArtifact {
+                labels: vec!["simple".into(), "complex".into()],
+                weights: vec![vec![0.0; 384], vec![0.0; 384]],
+                bias: vec![0.0, 10.0],
+            },
+            persona: ClassificationHeadArtifact {
+                labels: vec!["analyst".into(), "builder".into()],
+                weights: vec![vec![0.0; 384], vec![0.0; 384]],
+                bias: vec![0.0, 10.0],
+            },
+            domain: ClassificationHeadArtifact {
+                labels: vec!["docs".into(), "code".into()],
+                weights: vec![vec![0.0; 384], vec![0.0; 384]],
+                bias: vec![0.0, 10.0],
+            },
+        };
+        std::fs::write(&path, serde_json::to_vec(&artifact).unwrap()).unwrap();
+        path
     }
 
     fn cache_app(state: Arc<AppState>) -> Router {
@@ -1908,6 +2042,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
@@ -1962,6 +2097,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
@@ -2014,6 +2150,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
@@ -2046,11 +2183,6 @@ mod tests {
 
     #[tokio::test]
     async fn openai_tool_request_passthrough_preserves_tool_calls() {
-        use wiremock::{
-            Mock, MockServer, ResponseTemplate,
-            matchers::{body_partial_json, method, path},
-        };
-
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
@@ -2119,6 +2251,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
@@ -2178,11 +2311,6 @@ mod tests {
 
     #[tokio::test]
     async fn openai_tool_request_passthrough_accepts_array_content_parts() {
-        use wiremock::{
-            Mock, MockServer, ResponseTemplate,
-            matchers::{body_partial_json, method, path},
-        };
-
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/v1/chat/completions"))
@@ -2247,6 +2375,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
@@ -2289,6 +2418,117 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn classifier_routing_can_prefer_a_fallback_provider_for_tool_requests() {
+        let primary = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("primary should not be used"))
+            .expect(0)
+            .mount(&primary)
+            .await;
+
+        let fallback = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_partial_json(serde_json::json!({
+                "model": "meta/llama-3.1-8b-instruct"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "chatcmpl-routed",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Routed to fallback provider"
+                    },
+                    "finish_reason": "stop"
+                }],
+                "model": "meta/llama-3.1-8b-instruct"
+            })))
+            .expect(1)
+            .mount(&fallback)
+            .await;
+
+        let classifier_artifact = write_bias_only_classifier_artifact();
+        let mut config = (*test_state(Arc::new(SuccessAgent)).config).clone();
+        config.llm_provider = LlmProvider::Groq;
+        config.external_llm_model = "llama-3.3-70b".into();
+        config.external_llm_api_key = "primary-key".into();
+        config.external_llm_url = format!("{}/v1/chat/completions", primary.uri());
+        config.classifier_routing = ClassifierRoutingConfig {
+            enabled: true,
+            artifacts_path: classifier_artifact.display().to_string(),
+            confidence_threshold: 0.0,
+            fallback_to_existing_routing: true,
+            rules: vec![ClassifierRoutingRuleConfig {
+                name: "codegen-to-nvidia".into(),
+                task_type: Some("codegen".into()),
+                complexity: Some("complex".into()),
+                persona: Some("builder".into()),
+                domain: Some("code".into()),
+                provider: Some("nvidia".into()),
+                model: Some("meta/llama-3.1-8b-instruct".into()),
+                min_confidence: None,
+            }],
+            matrix: Default::default(),
+        };
+        config.fallback_providers = vec![FallbackProviderConfig {
+            provider: LlmProvider::Nvidia,
+            model: "meta/llama-3.1-8b-instruct".into(),
+            api_key: "fallback-key".into(),
+            provider_keys: Vec::new(),
+            key_rotation_strategy: crate::config::KeyRotationStrategy::RoundRobin,
+            key_cooldown_secs: 60,
+            url: format!("{}/v1/chat/completions", fallback.uri()),
+            azure_deployment_id: String::new(),
+            azure_api_version: "2024-08-01-preview".into(),
+        }];
+
+        let app = handler_app(Arc::new(AppState::new(
+            Arc::new(config),
+            shared_test_embedder(),
+        )));
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "model": "llama-3.3-70b",
+            "messages": [{"role": "user", "content": "write rust middleware"}],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "lookup_weather",
+                    "parameters": {"type": "object"}
+                }
+            }]
+        }))
+        .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        let status = resp.status();
+        let provider_header = resp
+            .headers()
+            .get("x-isartor-provider")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let body_bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+
+        assert_eq!(status, StatusCode::OK, "unexpected response: {json}");
+        assert_eq!(provider_header.as_deref(), Some("nvidia"));
+        assert_eq!(
+            json["choices"][0]["message"]["content"],
+            "Routed to fallback provider"
+        );
+        assert_eq!(json["model"], "meta/llama-3.1-8b-instruct");
+    }
+
     #[test]
     fn groq_passthrough_uses_groq_default_when_config_still_points_to_openai() {
         let state = test_state(Arc::new(SuccessAgent));
@@ -2314,6 +2554,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
@@ -2733,6 +2974,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });
@@ -2780,6 +3022,7 @@ mod tests {
                 ),
             ),
             config: Arc::new(config),
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         });

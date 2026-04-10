@@ -15,6 +15,7 @@ use rig::providers::{
     mistral, moonshot, ollama, openai, openrouter, perplexity, together, xai,
 };
 
+use crate::classifier::MiniLmMultiHeadClassifier;
 use crate::clients::slm::SlmClient;
 use crate::config::{
     AppConfig, DEFAULT_OPENAI_CHAT_COMPLETIONS_URL, KeyRotationStrategy, LlmProvider,
@@ -409,6 +410,16 @@ struct ProviderHealthState {
     last_outcome: LastProviderOutcome,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ProviderHealthStateSnapshot {
+    pub requests_total: u64,
+    pub errors_total: u64,
+    pub last_success: Option<String>,
+    pub last_error: Option<String>,
+    pub last_error_message: Option<String>,
+    pub status: ProviderHealthStatus,
+}
+
 #[derive(Debug)]
 pub struct ProviderHealthTracker {
     active_provider: String,
@@ -466,6 +477,7 @@ impl ProviderHealthTracker {
         let provider_state = state.entry(provider.tracking_key()).or_default();
         provider_state.requests_total += 1;
         provider_state.last_success = Some(Utc::now().to_rfc3339());
+        provider_state.last_error_message = None;
         provider_state.last_outcome = LastProviderOutcome::Healthy;
     }
 
@@ -477,6 +489,46 @@ impl ProviderHealthTracker {
         provider_state.last_error = Some(Utc::now().to_rfc3339());
         provider_state.last_error_message = Some(compact_provider_error(error));
         provider_state.last_outcome = LastProviderOutcome::Failing;
+    }
+
+    pub fn record_probe_success(&self, provider: &ResolvedProviderConfig) {
+        let mut state = self.state.lock();
+        let provider_state = state.entry(provider.tracking_key()).or_default();
+        provider_state.last_success = Some(Utc::now().to_rfc3339());
+        provider_state.last_error_message = None;
+        provider_state.last_outcome = LastProviderOutcome::Healthy;
+    }
+
+    pub fn record_probe_failure(&self, provider: &ResolvedProviderConfig, error: Option<String>) {
+        let mut state = self.state.lock();
+        let provider_state = state.entry(provider.tracking_key()).or_default();
+        provider_state.last_error = Some(Utc::now().to_rfc3339());
+        provider_state.last_error_message = error.map(|message| compact_provider_error(&message));
+        provider_state.last_outcome = LastProviderOutcome::Failing;
+    }
+
+    pub fn health_state_snapshot(&self) -> HashMap<String, ProviderHealthStateSnapshot> {
+        let state = self.state.lock();
+        state
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.clone(),
+                    ProviderHealthStateSnapshot {
+                        requests_total: value.requests_total,
+                        errors_total: value.errors_total,
+                        last_success: value.last_success.clone(),
+                        last_error: value.last_error.clone(),
+                        last_error_message: value.last_error_message.clone(),
+                        status: match value.last_outcome {
+                            LastProviderOutcome::Healthy => ProviderHealthStatus::Healthy,
+                            LastProviderOutcome::Failing => ProviderHealthStatus::Failing,
+                            LastProviderOutcome::Unknown => ProviderHealthStatus::Unknown,
+                        },
+                    },
+                )
+            })
+            .collect()
     }
 
     pub fn snapshot(&self) -> ProviderStatusResponse {
@@ -504,9 +556,14 @@ impl ProviderHealthTracker {
                         LastProviderOutcome::Unknown => ProviderHealthStatus::Unknown,
                     },
                     model: provider.configured_model.clone(),
+                    raw_model: None,
                     endpoint: provider.endpoint.clone(),
+                    config_url: None,
                     api_key_configured: provider.api_key_configured,
                     endpoint_configured: provider.endpoint_configured,
+                    config_index: None,
+                    azure_deployment_id: None,
+                    azure_api_version: None,
                     requests_total: provider_state
                         .map(|entry| entry.requests_total)
                         .unwrap_or(0),
@@ -990,6 +1047,9 @@ pub struct AppState {
     /// Gateway start time — used by the dashboard to compute uptime.
     pub started_at: Instant,
 
+    /// Optional MiniLM multi-head classifier used for request routing.
+    pub minilm_classifier: Option<Arc<MiniLmMultiHeadClassifier>>,
+
     #[cfg(feature = "embedded-inference")]
     pub embedded_classifier: Option<Arc<crate::services::local_inference::EmbeddedClassifier>>,
 }
@@ -1035,6 +1095,30 @@ impl AppState {
         let usage_tracker = Arc::new(
             UsageTracker::new(config.clone()).expect("failed to initialize usage tracker"),
         );
+        let minilm_classifier = if config.classifier_routing.enabled {
+            if config.classifier_routing.artifacts_path.trim().is_empty() {
+                tracing::warn!(
+                    "Classifier routing enabled but classifier_routing.artifacts_path is empty; falling back to existing routing"
+                );
+                None
+            } else {
+                match MiniLmMultiHeadClassifier::from_path(
+                    &config.classifier_routing.artifacts_path,
+                ) {
+                    Ok(classifier) => Some(Arc::new(classifier)),
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            artifacts_path = %config.classifier_routing.artifacts_path,
+                            "Failed to load MiniLM classifier artifact; falling back to existing routing"
+                        );
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
 
         #[cfg(feature = "embedded-inference")]
         let embedded_classifier =
@@ -1080,6 +1164,7 @@ impl AppState {
             text_embedder,
             instruction_cache: Arc::new(InstructionCache::new()),
             started_at: Instant::now(),
+            minilm_classifier,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier,
         }
@@ -1405,12 +1490,24 @@ impl AppState {
 
     pub fn provider_status(&self) -> ProviderStatusResponse {
         let mut snapshot = self.provider_health.snapshot();
-        for (provider, entry) in self
+        for (index, (provider, entry)) in self
             .provider_chain
             .iter()
             .zip(snapshot.providers.iter_mut())
+            .enumerate()
         {
             entry.keys = self.provider_key_pools.snapshot_for_provider(provider);
+            entry.raw_model = Some(provider.model.clone());
+            entry.config_url = Some(provider.endpoint.clone());
+            entry.config_index = if provider.active {
+                None
+            } else {
+                Some(index - 1)
+            };
+            if provider.provider == LlmProvider::Azure {
+                entry.azure_deployment_id = Some(provider.azure_deployment_id.clone());
+                entry.azure_api_version = Some(provider.azure_api_version.clone());
+            }
         }
         snapshot
     }
@@ -1447,6 +1544,7 @@ impl AppState {
                 resolved_provider_chain(&config).as_slice(),
             )),
             config,
+            minilm_classifier: None,
             #[cfg(feature = "embedded-inference")]
             embedded_classifier: None,
         })

@@ -189,6 +189,143 @@ pub struct FallbackProviderConfig {
     pub azure_api_version: String,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+pub struct ClassifierRoutingRuleConfig {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub task_type: Option<String>,
+    #[serde(default)]
+    pub complexity: Option<String>,
+    #[serde(default)]
+    pub persona: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub min_confidence: Option<f32>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ClassifierRoutingConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub artifacts_path: String,
+    #[serde(default = "default_classifier_routing_confidence_threshold")]
+    pub confidence_threshold: f32,
+    #[serde(default = "default_classifier_routing_fallback_to_existing")]
+    pub fallback_to_existing_routing: bool,
+    #[serde(default)]
+    pub rules: Vec<ClassifierRoutingRuleConfig>,
+    /// Model matrix: a 2D mapping of `complexity → task_type → "provider/model"`.
+    ///
+    /// Provides a visual grid-style routing config that compiles into rules at
+    /// startup.  Explicit `rules` take priority; matrix-derived rules are
+    /// appended after, ordered most-specific first.
+    ///
+    /// Use the special value `"local"` to indicate that a cell should stay on
+    /// the local cache/SLM path (no L3 provider override).
+    ///
+    /// Example (TOML):
+    /// ```toml
+    /// [classifier_routing.matrix.complex]
+    /// code_generation = "groq/llama-3.3-70b-versatile"
+    /// analysis        = "anthropic/claude-sonnet-4-20250514"
+    /// default         = "openai/gpt-4o"
+    ///
+    /// [classifier_routing.matrix.simple]
+    /// code_generation = "groq/llama-3.1-8b-instant"
+    /// default         = "local"
+    /// ```
+    #[serde(default)]
+    pub matrix: HashMap<String, HashMap<String, String>>,
+}
+
+impl ClassifierRoutingConfig {
+    /// Returns the merged rule list: explicit `rules` first, then matrix-
+    /// derived rules sorted most-specific → least-specific.
+    ///
+    /// The `"default"` key in either dimension becomes a wildcard (None).
+    /// The `"local"` target value is skipped (means "no provider override").
+    pub fn effective_rules(&self) -> Vec<ClassifierRoutingRuleConfig> {
+        if self.matrix.is_empty() {
+            return self.rules.clone();
+        }
+
+        let mut matrix_rules: Vec<(u8, ClassifierRoutingRuleConfig)> = Vec::new();
+
+        for (complexity_key, task_map) in &self.matrix {
+            for (task_key, target) in task_map {
+                let target = target.trim();
+                if target.is_empty() || target.eq_ignore_ascii_case("local") {
+                    continue;
+                }
+
+                let (provider, model) = if let Some((p, m)) = target.split_once('/') {
+                    (Some(p.trim().to_string()), Some(m.trim().to_string()))
+                } else {
+                    (Some(target.to_string()), None)
+                };
+
+                let complexity_is_default = complexity_key.eq_ignore_ascii_case("default");
+                let task_is_default = task_key.eq_ignore_ascii_case("default");
+
+                let specificity = match (complexity_is_default, task_is_default) {
+                    (false, false) => 0, // most specific
+                    (true, false) | (false, true) => 1,
+                    (true, true) => 2, // least specific
+                };
+
+                matrix_rules.push((
+                    specificity,
+                    ClassifierRoutingRuleConfig {
+                        name: format!("matrix:{complexity_key}/{task_key}"),
+                        task_type: if task_is_default {
+                            None
+                        } else {
+                            Some(task_key.clone())
+                        },
+                        complexity: if complexity_is_default {
+                            None
+                        } else {
+                            Some(complexity_key.clone())
+                        },
+                        persona: None,
+                        domain: None,
+                        provider,
+                        model,
+                        min_confidence: None,
+                    },
+                ));
+            }
+        }
+
+        // Sort by specificity (more specific first), stable within each tier.
+        matrix_rules.sort_by_key(|(specificity, _)| *specificity);
+
+        let mut result = self.rules.clone();
+        result.extend(matrix_rules.into_iter().map(|(_, rule)| rule));
+        result
+    }
+}
+
+impl Default for ClassifierRoutingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            artifacts_path: String::new(),
+            confidence_threshold: default_classifier_routing_confidence_threshold(),
+            fallback_to_existing_routing: default_classifier_routing_fallback_to_existing(),
+            rules: Vec::new(),
+            matrix: HashMap::new(),
+        }
+    }
+}
+
 fn default_azure_api_version() -> String {
     "2024-08-01-preview".to_string()
 }
@@ -203,6 +340,18 @@ fn default_usage_retention_days() -> u64 {
 
 fn default_usage_window_hours() -> u64 {
     crate::core::usage::default_usage_window_hours()
+}
+
+fn default_provider_health_check_interval_secs() -> u64 {
+    300
+}
+
+fn default_classifier_routing_confidence_threshold() -> f32 {
+    0.55
+}
+
+fn default_classifier_routing_fallback_to_existing() -> bool {
+    true
 }
 
 impl std::fmt::Display for LlmProvider {
@@ -522,6 +671,10 @@ pub struct AppConfig {
     /// Azure OpenAI API version (only used when `llm_provider` = "azure").
     pub azure_api_version: String,
 
+    /// Optional MiniLM-based multi-head classifier and routing policy.
+    #[serde(default)]
+    pub classifier_routing: ClassifierRoutingConfig,
+
     // ── Layer 2 Feature Flag ────────────────────────────────────────
     /// Enable the Layer 2 SLM triage router (Qwen / llama.cpp sidecar).
     ///
@@ -563,6 +716,8 @@ pub struct AppConfig {
     pub usage_retention_days: u64,
     #[serde(default = "default_usage_window_hours")]
     pub usage_window_hours: u64,
+    #[serde(default = "default_provider_health_check_interval_secs")]
+    pub provider_health_check_interval_secs: u64,
     #[serde(default)]
     pub usage_pricing: HashMap<String, ProviderPricingConfig>,
     #[serde(default)]
@@ -674,6 +829,16 @@ impl AppConfig {
             // Azure
             .set_default("azure_deployment_id", "")?
             .set_default("azure_api_version", "2024-08-01-preview")?
+            .set_default("classifier_routing.enabled", false)?
+            .set_default("classifier_routing.artifacts_path", "")?
+            .set_default(
+                "classifier_routing.confidence_threshold",
+                default_classifier_routing_confidence_threshold() as f64,
+            )?
+            .set_default(
+                "classifier_routing.fallback_to_existing_routing",
+                default_classifier_routing_fallback_to_existing(),
+            )?
             // Observability
             .set_default("enable_slm_router", false)?
             .set_default("enable_context_optimizer", true)?
@@ -697,6 +862,10 @@ impl AppConfig {
             .set_default(
                 "usage_window_hours",
                 crate::core::usage::default_usage_window_hours() as i64,
+            )?
+            .set_default(
+                "provider_health_check_interval_secs",
+                default_provider_health_check_interval_secs() as i64,
             )?
             // Air-gap / offline mode
             .set_default("offline_mode", false)?
@@ -1106,6 +1275,7 @@ impl AppConfig {
             l3_timeout_secs: 120,
             azure_deployment_id: "".into(),
             azure_api_version: "".into(),
+            classifier_routing: ClassifierRoutingConfig::default(),
             enable_monitoring: false,
             enable_slm_router: false,
             otel_exporter_endpoint: "http://localhost:4317".into(),
@@ -1114,6 +1284,7 @@ impl AppConfig {
             usage_log_path: "~/.isartor".into(),
             usage_retention_days: 30,
             usage_window_hours: 24,
+            provider_health_check_interval_secs: default_provider_health_check_interval_secs(),
             usage_pricing: HashMap::new(),
             quota: HashMap::new(),
             offline_mode: false,
@@ -1214,6 +1385,7 @@ mod tests {
             "l3_timeout_secs":120,
             "azure_deployment_id":"",
             "azure_api_version":"2024-08-01-preview",
+            "classifier_routing":{"enabled":false,"artifacts_path":"","confidence_threshold":0.55,"fallback_to_existing_routing":true,"rules":[],"matrix":{}},
             "enable_slm_router":false,
             "enable_context_optimizer":true,
             "context_optimizer_dedup":true,
@@ -1222,6 +1394,7 @@ mod tests {
              "otel_exporter_endpoint":"http://localhost:4317",
              "enable_request_logs":false,
              "request_log_path":"~/.isartor/request_logs",
+             "provider_health_check_interval_secs":300,
              "offline_mode":false,
              "proxy_port":"0.0.0.0:8081",
              "model_aliases":{"fast":"gpt-4o-mini","smart":"gpt-4o"}

@@ -3,6 +3,9 @@
 This directory contains the reproducible benchmark harness and fixtures for
 measuring Isartor's deflection rate and latency characteristics.
 
+It also hosts the starter data scaffold for the MiniLM multi-head routing
+classifier introduced in issue #99.
+
 Two benchmark tracks are available:
 
 | Track | Script | Use case |
@@ -63,6 +66,7 @@ make benchmark-qwen
 | `fixtures/faq_loop.jsonl` | 1,000 | Simulates a repetitive FAQ / agent-loop workload. Covers returns, shipping, billing, account management, and more — all with semantic rephrasings. Designed to stress L1a (exact cache) and L1b (semantic cache). |
 | `fixtures/diverse_tasks.jsonl` | 500 | Genuine variety: code generation, summarisation, Q&A, data extraction, and creative writing. Represents a realistic mixed-workload with lower deflection than the FAQ loop corpus. |
 | `fixtures/claude_code_todo_app.jsonl` | 20 | Deterministic **Claude Code** workload — exact prompts for building a TypeScript todo app in five phases. Used by the Claude Code benchmark harness. |
+| `fixtures/minilm_multi_head_training.jsonl` | 24 | Synthetic starter corpus for MiniLM classifier routing. Each row carries `text`, `task_type`, `complexity`, `persona`, and `domain` labels. |
 
 Each file is in [JSONL](https://jsonlines.org/) format — one JSON object per line:
 
@@ -76,6 +80,21 @@ The `claude_code_todo_app.jsonl` fixture carries extra metadata fields:
 ```jsonl
 {"phase": "scaffold", "step": 1, "prompt": "Initialize a new TypeScript Node.js project…"}
 {"phase": "backend",  "step": 4, "prompt": "Define the Todo TypeScript interface…"}
+```
+
+The MiniLM routing fixture uses one labeled training example per line:
+
+```jsonl
+{"text":"Write an Axum middleware for API key auth","task_type":"codegen","complexity":"complex","persona":"builder","domain":"backend"}
+{"text":"Summarize the new configuration flags for the README","task_type":"summarization","complexity":"simple","persona":"analyst","domain":"docs"}
+```
+
+Bootstrap a routing artifact with:
+
+```bash
+python3 scripts/train_minilm_classifier.py \
+    --input benchmarks/fixtures/minilm_multi_head_training.jsonl \
+    --output ./minilm-routing-artifact.json
 ```
 
 ---

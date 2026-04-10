@@ -55,6 +55,13 @@ isartor init
 | usage_log_path           | ISARTOR__USAGE_LOG_PATH          | string  | ~/.isartor             | Directory that stores `usage.jsonl` for usage stats and quotas |
 | usage_retention_days     | ISARTOR__USAGE_RETENTION_DAYS    | u64     | 30                     | Retention window for persisted usage events          |
 | usage_window_hours       | ISARTOR__USAGE_WINDOW_HOURS      | u64     | 24                     | Default reporting window for `isartor stats --usage` |
+| provider_health_check_interval_secs | ISARTOR__PROVIDER_HEALTH_CHECK_INTERVAL_SECS | u64 | 300 | Background provider ping cadence for dashboard and health status (`0` disables) |
+| classifier_routing.enabled | ISARTOR__CLASSIFIER_ROUTING__ENABLED | bool | false | Enable the MiniLM multi-head routing pass before Layer 1 cache |
+| classifier_routing.artifacts_path | ISARTOR__CLASSIFIER_ROUTING__ARTIFACTS_PATH | string | (empty) | Path to the JSON artifact containing MiniLM routing heads |
+| classifier_routing.confidence_threshold | ISARTOR__CLASSIFIER_ROUTING__CONFIDENCE_THRESHOLD | float | 0.55 | Minimum overall confidence required before routing rules can match |
+| classifier_routing.fallback_to_existing_routing | ISARTOR__CLASSIFIER_ROUTING__FALLBACK_TO_EXISTING_ROUTING | bool | true | When false, fail closed with `503` instead of falling back to the normal routing path |
+| classifier_routing.rules | ISARTOR__CLASSIFIER_ROUTING__RULES | JSON array | [] | Ordered routing rules matching classifier labels to provider/model targets |
+| classifier_routing.matrix | ISARTOR__CLASSIFIER_ROUTING__MATRIX | TOML table | {} | Model matrix: 2D grid of `complexity → task_type → "provider/model"` (compiled to rules at startup) |
 | quota.<provider>.*       | ISARTOR__QUOTA__<PROVIDER>__*    | mixed   | (none)                 | Per-provider token/cost quota policy and action      |
 
 ---
@@ -87,6 +94,62 @@ isartor init
 - `slm_router.classifier_mode`: `tiered` (default — TEMPLATE/SNIPPET/COMPLEX) or `binary` (legacy SIMPLE/COMPLEX)
 - `slm_router.max_answer_tokens`: Max tokens the SLM may generate for a local answer (default 2048)
 
+### Layer 0.5: MiniLM classifier routing
+
+- `classifier_routing.enabled`: Enables the pre-cache MiniLM routing pass.
+- `classifier_routing.artifacts_path`: JSON artifact path loaded at startup. The artifact contains four heads: `task_type`, `complexity`, `persona`, and `domain`.
+- `classifier_routing.confidence_threshold`: Global minimum for `overall_confidence` before any rule matches.
+- `classifier_routing.fallback_to_existing_routing`: Default `true`. When `false`, requests fail closed with `503` if the classifier artifact is missing, classification fails, or no rule matches.
+- `classifier_routing.rules`: Ordered rule list. Each rule may match any subset of `task_type`, `complexity`, `persona`, and `domain`, and must supply at least one route target: `provider` and/or `model`.
+- `classifier_routing.matrix`: Optional model matrix — a 2D grid mapping `complexity × task_type` to `"provider/model"` targets. Matrix entries compile into rules at startup. Explicit `rules` take priority. Use `"local"` for cells that should stay on the cache/SLM path. Use `"default"` in either dimension as a wildcard.
+
+Example:
+
+```toml
+[classifier_routing]
+enabled = true
+artifacts_path = "./minilm-routing-artifact.json"
+confidence_threshold = 0.60
+fallback_to_existing_routing = true
+
+[[classifier_routing.rules]]
+name = "codegen-backend-builder"
+task_type = "codegen"
+complexity = "complex"
+persona = "builder"
+domain = "backend"
+provider = "groq"
+model = "llama-3.3-70b-versatile"
+```
+
+#### Model matrix example
+
+```toml
+[classifier_routing.matrix.complex]
+code_generation = "groq/llama-3.3-70b-versatile"
+analysis        = "anthropic/claude-sonnet-4-20250514"
+conversation    = "openai/gpt-4o"
+default         = "groq/llama-3.3-70b-versatile"
+
+[classifier_routing.matrix.simple]
+code_generation = "groq/llama-3.1-8b-instant"
+analysis        = "groq/llama-3.1-8b-instant"
+default         = "local"
+```
+
+- **Rows** = `complexity` labels, **columns** = `task_type` labels.
+- `"provider/model"` pins both; `"provider"` alone pins only the provider.
+- `"local"` = stay on the cache/SLM path (no L3 provider override).
+- `"default"` in either dimension acts as a wildcard.
+- More-specific cells are tried first: `complex/codegen` → `complex/default` → `default/default`.
+
+Monitor classifier-guided routing with:
+
+- `x-isartor-provider` response header
+- `isartor stats` / `isartor stats --by-tool`
+- `GET /debug/providers`
+- opt-in request logs via `enable_request_logs`
+
 ### Layer 2.5: Context Optimiser
 
 L2.5 compresses repeated instruction payloads (CLAUDE.md, copilot-instructions.md, skills blocks) before they reach the cloud, reducing input tokens on every L3 call.
@@ -103,6 +166,7 @@ Isartor can optionally record request and response payloads to a separate JSONL 
 
 - `enable_request_logs`: Default `false`. Set to `true` only while debugging.
 - `request_log_path`: Directory where rotating request log files are written. Default `~/.isartor/request_logs`.
+- `provider_health_check_interval_secs`: Default `300`. Controls the dashboard/runtime background provider ping loop. Set to `0` to disable periodic pings.
 
 Important behavior:
 
@@ -110,6 +174,7 @@ Important behavior:
 - sensitive headers such as `Authorization`, `api-key`, and `x-api-key` are redacted automatically
 - bodies are truncated to a bounded size per entry to keep logs manageable
 - `isartor logs --requests` shows or follows the request log stream
+- dashboard `Test` actions also update the in-memory provider health badge immediately, while the background ping loop keeps it fresh between real routed requests
 
 ### Layer 3: Cloud Fallbacks
 

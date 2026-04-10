@@ -1,0 +1,24 @@
+{"text":"Write an Axum middleware that validates an X-API-Key header and returns 401 on failure.","task_type":"codegen","complexity":"complex","persona":"builder","domain":"backend"}
+{"text":"Generate Rust code for a retry wrapper with exponential backoff and jitter around an HTTP call.","task_type":"codegen","complexity":"complex","persona":"builder","domain":"backend"}
+{"text":"Create a React settings panel that edits provider keys, model aliases, and save buttons.","task_type":"codegen","complexity":"moderate","persona":"builder","domain":"frontend"}
+{"text":"Build a responsive dashboard card that shows latency percentiles and cache hit ratio.","task_type":"codegen","complexity":"moderate","persona":"builder","domain":"frontend"}
+{"text":"Debug why the OpenAI-compatible handler is returning 502 after a timeout from Groq.","task_type":"debugging","complexity":"complex","persona":"reviewer","domain":"backend"}
+{"text":"Find the bug causing Anthropic SSE streaming to stop after the first event.","task_type":"debugging","complexity":"complex","persona":"reviewer","domain":"backend"}
+{"text":"Investigate why the dashboard provider modal loses the edited endpoint after reload.","task_type":"debugging","complexity":"moderate","persona":"reviewer","domain":"frontend"}
+{"text":"Review the CSS and explain why the overview sparkline overflows on narrow screens.","task_type":"debugging","complexity":"moderate","persona":"reviewer","domain":"frontend"}
+{"text":"Summarize the new classifier_routing configuration options for the README.","task_type":"summarization","complexity":"simple","persona":"analyst","domain":"docs"}
+{"text":"Rewrite the installation page to explain offline mode and what does not sync.","task_type":"summarization","complexity":"simple","persona":"analyst","domain":"docs"}
+{"text":"Draft architecture notes describing how cache namespacing prevents cross-format collisions.","task_type":"summarization","complexity":"moderate","persona":"analyst","domain":"docs"}
+{"text":"Prepare release notes describing provider health pings and fail-closed routing.","task_type":"summarization","complexity":"moderate","persona":"analyst","domain":"docs"}
+{"text":"Plan a rollout for classifier-guided provider routing across staging and production.","task_type":"planning","complexity":"complex","persona":"analyst","domain":"infra"}
+{"text":"Design a migration plan for moving from a single provider to a fallback chain with quotas.","task_type":"planning","complexity":"complex","persona":"analyst","domain":"infra"}
+{"text":"Outline a smoke-test checklist for the dashboard, provider checks, and auth flows.","task_type":"planning","complexity":"simple","persona":"analyst","domain":"infra"}
+{"text":"Create a runbook for rotating provider keys and validating cooldown behavior.","task_type":"planning","complexity":"moderate","persona":"analyst","domain":"infra"}
+{"text":"Write a script that extracts classifier labels from benchmark fixtures and exports JSON.","task_type":"codegen","complexity":"moderate","persona":"builder","domain":"infra"}
+{"text":"Implement a small Python utility that trains centroid heads from labeled prompts.","task_type":"codegen","complexity":"moderate","persona":"builder","domain":"infra"}
+{"text":"Review the routing rules and suggest safer defaults when no classifier rule matches.","task_type":"review","complexity":"moderate","persona":"reviewer","domain":"infra"}
+{"text":"Audit the fallback chain so a quota failure on the primary provider still reaches the backup.","task_type":"review","complexity":"complex","persona":"reviewer","domain":"infra"}
+{"text":"Explain the expected classifier output JSON shape and confidence fields for the docs.","task_type":"summarization","complexity":"simple","persona":"analyst","domain":"docs"}
+{"text":"Debug why a code-generation request is hitting the default provider instead of the routed one.","task_type":"debugging","complexity":"complex","persona":"reviewer","domain":"infra"}
+{"text":"Create a TypeScript form that lets operators reorder routing rules by drag and drop.","task_type":"codegen","complexity":"complex","persona":"builder","domain":"frontend"}
+{"text":"Review the README example config and make sure the provider/model names are consistent.","task_type":"review","complexity":"simple","persona":"reviewer","domain":"docs"}

@@ -86,6 +86,76 @@ Operators can now also define per-provider quota policies under `[quota.<provide
 
 If you work across multiple machines, `isartor sync` provides **optional**, end-to-end encrypted config sync for the shareable parts of `isartor.toml`. The sync server only stores encrypted blobs plus timestamps; it never sees plaintext provider keys or structured config. OAuth tokens, cache contents, usage history, and other local runtime state are explicitly excluded.
 
+Isartor can also add an **optional MiniLM routing pass** ahead of cache lookup. It reuses the same in-process `all-MiniLM-L6-v2` embedder already loaded for L1b, runs lightweight heads for `task_type`, `complexity`, `persona`, and `domain`, and can pin specific request shapes to a preferred provider/model before Layer 3 execution. When classifier-selected routing changes the provider, the cache key is prefixed with that provider fragment so routed requests do not collide with the default-provider cache path.
+
+## MiniLM Classifier Routing
+
+Enable the feature with a classifier artifact plus one or more routing rules:
+
+```toml
+[classifier_routing]
+enabled = true
+artifacts_path = "./minilm-routing-artifact.json"
+confidence_threshold = 0.60
+fallback_to_existing_routing = true
+
+[[classifier_routing.rules]]
+name = "codegen-backend-builder"
+task_type = "codegen"
+complexity = "complex"
+persona = "builder"
+domain = "backend"
+provider = "groq"
+model = "llama-3.3-70b-versatile"
+```
+
+### Model Matrix (visual grid shorthand)
+
+Instead of (or alongside) flat rules, you can use a **model matrix** — a 2D grid that maps `complexity × task_type` to a `provider/model` target. Matrix entries compile into rules at startup; explicit `rules` always take priority.
+
+```toml
+[classifier_routing.matrix.complex]
+code_generation = "groq/llama-3.3-70b-versatile"
+analysis        = "anthropic/claude-sonnet-4-20250514"
+conversation    = "openai/gpt-4o"
+default         = "groq/llama-3.3-70b-versatile"
+
+[classifier_routing.matrix.simple]
+code_generation = "groq/llama-3.1-8b-instant"
+analysis        = "groq/llama-3.1-8b-instant"
+default         = "local"
+```
+
+- **Rows** = `complexity` labels, **columns** = `task_type` labels.
+- `"provider/model"` pins both; `"provider"` alone pins only the provider.
+- `"local"` = stay on the cache/SLM path (no L3 provider override).
+- `"default"` in either dimension acts as a wildcard (matches any label).
+- More-specific cells are tried first: `complex/codegen` → `complex/default` → `default/default`.
+
+The runtime classification contract is:
+
+```json
+{
+  "task_type": { "label": "codegen", "confidence": 0.97 },
+  "complexity": { "label": "complex", "confidence": 0.91 },
+  "persona": { "label": "builder", "confidence": 0.94 },
+  "domain": { "label": "backend", "confidence": 0.89 },
+  "overall_confidence": 0.93
+}
+```
+
+Input is extracted from the buffered request body: native `prompt`, OpenAI/Anthropic/Gemini user messages, and surrounding agent/tool context via `extract_classifier_context()`. If `fallback_to_existing_routing = false`, Isartor fails closed with `503` when the classifier artifact is unavailable, classification fails, or no rule matches.
+
+Bootstrap a starter artifact with the included scaffold:
+
+```bash
+python3 scripts/train_minilm_classifier.py \
+  --input benchmarks/fixtures/minilm_multi_head_training.jsonl \
+  --output ./minilm-routing-artifact.json
+```
+
+Watch `x-isartor-provider`, `isartor stats`, `GET /debug/providers`, and opt-in request logs to confirm the selected route in production.
+
 ## See Isartor in the Terminal
 
 <p align="center">
@@ -163,17 +233,18 @@ The result: **lower costs, lower latency, and less data leaving your perimeter.*
 
 ## The Deflection Stack
 
-Every request passes through five layers. Only prompts that survive the full stack reach the cloud.
+Every request passes through the deflection stack. Only prompts that survive the full stack reach the cloud.
 
 ```
-Request ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM Router ──► L2.5 Context Optimiser ──► L3 Cloud
-                 │ hit                │ hit                 │ simple             │ compressed               │
-                 ▼                    ▼                     ▼                    ▼                          ▼
-              Instant             Instant             Local Answer      Smaller Prompt             Cloud Answer
+Request ──► L0.5 MiniLM Router ──► L1a Exact Cache ──► L1b Semantic Cache ──► L2 SLM Router ──► L2.5 Context Optimiser ──► L3 Cloud
+                   │ route                  │ hit                │ hit                 │ simple             │ compressed               │
+                   ▼                        ▼                    ▼                     ▼                    ▼                          ▼
+            Provider / Model           Instant             Instant             Local Answer      Smaller Prompt             Cloud Answer
 ```
 
 | Layer | What It Does | How | Latency |
 |:------|:-------------|:----|:--------|
+| **L0.5** MiniLM Router | Classifies task shape for route hints | `all-MiniLM-L6-v2` embedder + lightweight linear heads | 2–10 ms |
 | **L1a** Exact Cache | Traps duplicate prompts and agent loops | `ahash` deterministic hashing | < 1 ms |
 | **L1b** Semantic Cache | Catches paraphrases ("Price?" ≈ "Cost?") | Cosine similarity via pure-Rust `candle` embeddings | 1–5 ms |
 | **L2** SLM Router | Resolves simple queries locally | Embedded Small Language Model (Qwen-1.5B via `candle` GGUF) | 50–200 ms |
@@ -353,7 +424,7 @@ isartor update                 Self-update to the latest release
 isartor connect <tool>         Connect an AI tool (see integrations above)
 ```
 
-Open the **web dashboard** at `http://localhost:8080/dashboard` for a full browser-based management UI — five tabs covering Overview (deflection rate sparkline, uptime, cache stats, quota warnings), Providers (health, connectivity test, add provider), Usage (per-provider/model breakdown, quota status), Request Log (expandable rows), and Configuration (edit `isartor.toml` with validation). Sign in with your gateway API key.
+Open the **web dashboard** at `http://localhost:8080/dashboard` for a full browser-based management UI — five tabs covering Overview (deflection rate sparkline, uptime, cache stats, quota warnings), Providers (health, connectivity test, add/edit/remove/reorder provider, manual test updates health immediately), Usage (per-provider/model breakdown, quota status), Request Log (expandable rows), and Configuration (edit `isartor.toml` with validation, including the background provider-health ping interval). Sign in with your gateway API key.
 
 ![Isartor dashboard overview](docs/dashboard-screenshot.png)
 

@@ -50,11 +50,12 @@ For a detailed breakdown of the deflection layers, see the [Deflection Stack](de
 flowchart TD
     A[Request] --> B[Body Buffer + Monitoring]
     B --> C[Auth — L0]
-    C --> D[Cache — L1a Exact / L1b Semantic]
-    D --> E[SLM Router — L2]
-    E --> F[Context Optimiser — L2.5]
-    F --> G[Cloud Fallback Chain — L3]
-    G --> H[Response]
+    C --> D[MiniLM Router — L0.5]
+    D --> E[Cache — L1a Exact / L1b Semantic]
+    E --> F[SLM Router — L2]
+    F --> G[Context Optimiser — L2.5]
+    G --> H[Cloud Fallback Chain — L3]
+    H --> I[Response]
 
     subgraph F_detail [L2.5 CompressionPipeline]
         direction LR
@@ -72,6 +73,24 @@ Layer 0 is the operational defense perimeter. It runs before any cache lookup or
 - **Monitoring:** Root request-level OpenTelemetry tracing span, optional JSONL request logging.
 
 Public health routes (`/health`, `/healthz`) and the MCP endpoint (`/mcp/`) bypass Layer 0 and the entire deflection stack.
+
+## Layer 0.5 — MiniLM Classifier Routing
+
+An optional pre-cache routing pass can reuse the same in-process `all-MiniLM-L6-v2` embedder used by L1b. Instead of running a second encoder, Isartor generates one embedding and scores four lightweight linear heads:
+
+- `task_type`
+- `complexity`
+- `persona`
+- `domain`
+
+The classifier reads the buffered request body through `extract_classifier_context()`, which keeps enough agent/tool context to route coding-agent traffic even when the last user turn is short. Matched rules can:
+
+- prefer a specific provider earlier in the Layer 3 fallback chain
+- override the request model before cache-key generation and Layer 3 execution
+
+Because provider-directed routing changes the semantics of the downstream answer, the cache key is prefixed with the selected provider fragment before L1 lookup and writeback. That prevents a classifier-routed provider response from colliding with the default-provider cache entry for the same prompt.
+
+If `classifier_routing.fallback_to_existing_routing = true`, any classifier miss, load failure, or no-match path simply falls through to the existing routing behavior. If it is `false`, the gateway fails closed with `503` instead.
 
 ## Layer 1 — Cache
 
@@ -178,6 +197,12 @@ The sync server only stores `{ user_hash, salt, encrypted_blob, updated_at }`. I
 
 A small in-memory provider-health snapshot tracks request/error counts, last success/failure, and masked key-pool entries for the entire configured chain. Exposed via `GET /debug/providers` and `isartor providers`.
 
+Health state now advances from three sources:
+
+- real routed Layer 3 successes/failures
+- manual dashboard connectivity tests (`POST /api/admin/providers/test`)
+- an optional background ping loop driven by `provider_health_check_interval_secs` (default `300`, `0` disables)
+
 ### Web Management Dashboard
 
 An embedded single-page application (SPA) is served at `/dashboard`. The HTML, CSS, JavaScript, and logo PNG are compiled directly into the binary via `include_str!` / `include_bytes!` — no separate static-file directory or CDN required.
@@ -187,10 +212,10 @@ The dashboard has five tabs, each backed by authenticated JSON admin endpoints:
 | Tab | Route(s) | Key features |
 |:--|:--|:--|
 | **Overview** | `GET /api/admin/overview` | Deflection rate sparkline (7-day SVG), uptime pill, L1a/L1b cache counts, quota-warning banner, provider/model cards, cost/savings |
-| **Providers** | `GET /api/admin/providers`<br>`POST /api/admin/providers/test` | Health per provider, key-pool status, connectivity test (latency + HTTP status), Add Provider modal |
+| **Providers** | `GET /api/admin/providers`<br>`POST /api/admin/providers/test` | Health per provider, key-pool status, connectivity test (latency + HTTP status), Add/Edit/Remove/Reorder modal flows, manual test updates health immediately |
 | **Usage** | `GET /api/admin/usage`<br>`GET /api/admin/usage/breakdown` | Window summary, daily request bar chart, per-provider/model breakdown table, per-provider quota status |
 | **Request Log** | `GET /api/admin/requests` | Last 100 JSONL request-log entries, expandable rows showing full JSON details |
-| **Configuration** | `GET /api/admin/config`<br>`POST /api/admin/config` | Form-based editor for all `isartor.toml` settings; `toml_edit` write preserves comments; restart-required banner |
+| **Configuration** | `GET /api/admin/config`<br>`POST /api/admin/config` | Form-based editor for all `isartor.toml` settings, including provider-health ping cadence; `toml_edit` write preserves comments; restart-required banner |
 
 All `/api/admin/*` routes require the gateway API key (`X-API-Key` header). The SPA stores the key in `sessionStorage` and never transmits it to any third party. Static assets (`/dashboard/`, `/dashboard/logo.png`) are served without authentication.
 

@@ -8,6 +8,7 @@
 pub mod adapters;
 pub mod anthropic_sse;
 pub mod auth;
+pub mod classifier;
 pub mod cli;
 pub mod clients;
 pub mod compression;

@@ -215,9 +215,19 @@ pub struct ProviderStatusEntry {
     pub active: bool,
     pub status: ProviderHealthStatus,
     pub model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_model: Option<String>,
     pub endpoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_url: Option<String>,
     pub api_key_configured: bool,
     pub endpoint_configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub azure_deployment_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub azure_api_version: Option<String>,
     pub requests_total: u64,
     pub errors_total: u64,
     pub key_rotation_strategy: String,

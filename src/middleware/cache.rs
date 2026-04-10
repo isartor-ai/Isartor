@@ -12,6 +12,7 @@ use axum::{
 use http_body_util::BodyExt;
 
 use crate::anthropic_sse;
+use crate::classifier::ClassifierRouteDecision;
 use crate::config::CacheMode;
 use crate::core::cache_scope::{
     build_exact_cache_key, extract_session_cache_scope, namespaced_semantic_cache_input,
@@ -47,6 +48,13 @@ fn streaming_cache_response(
         )),
         _ => None,
     }
+}
+
+fn classifier_provider_cache_prefix(route: Option<&ClassifierRouteDecision>) -> String {
+    route
+        .and_then(|route| route.cache_key_provider_fragment())
+        .map(|provider| format!("provider:{provider}\n"))
+        .unwrap_or_default()
 }
 
 /// Layer 1 — Cache middleware with configurable strategy.
@@ -103,6 +111,10 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
                 .into_response();
         }
     };
+    let route_decision = request
+        .extensions()
+        .get::<ClassifierRouteDecision>()
+        .cloned();
 
     let route_model = extract_route_model(request.uri().path());
     let resolved_model = extract_request_model(body_bytes.as_ref())
@@ -110,7 +122,8 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
         .map(|model| state.config.resolve_model_alias(&model))
         .unwrap_or_else(|| state.config.configured_model_id());
     let canonical_body = override_request_model(body_bytes.as_ref(), &resolved_model);
-    let cache_key_material = extract_cache_key(&canonical_body);
+    let route_cache_prefix = classifier_provider_cache_prefix(route_decision.as_ref());
+    let cache_key_material = format!("{route_cache_prefix}{}", extract_cache_key(&canonical_body));
     let has_tooling = has_tooling(&canonical_body);
     let session_cache_scope = extract_session_cache_scope(request.headers(), &canonical_body);
 
@@ -118,7 +131,7 @@ pub async fn cache_middleware(request: Request, next: Next) -> Response {
     // captures the actual question rather than a large system prompt that
     // dominates the vector and causes unrelated questions to match.
     let semantic_prompt = format!(
-        "model: {resolved_model}\n{}",
+        "{route_cache_prefix}model: {resolved_model}\n{}",
         extract_semantic_key(&canonical_body)
     );
 

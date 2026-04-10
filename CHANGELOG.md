@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.4] - 2026-04-10
+
+### Added
+- **Dashboard-driven provider health refresh** — manual provider tests now update the in-memory health badge immediately, and the runtime can keep provider health warm with configurable background pings.
+- **`provider_health_check_interval_secs` config** — new `ISARTOR__PROVIDER_HEALTH_CHECK_INTERVAL_SECS` / `isartor.toml` setting controls periodic provider pings for dashboard/provider health (default `300`, `0` disables).
+- **MiniLM multi-head classifier routing** — optional `classifier_routing` config reuses the in-process `all-MiniLM-L6-v2` embedder to classify `task_type`, `complexity`, `persona`, and `domain`, then map those labels to provider/model routing rules before Layer 1 cache and Layer 3 execution.
+- **Classifier training scaffold** — added `scripts/train_minilm_classifier.py` and `benchmarks/fixtures/minilm_multi_head_training.jsonl` so operators can bootstrap routing artifacts in the JSON format loaded by the Rust runtime.
+- **Model matrix config** — new `[classifier_routing.matrix]` section provides a visual 2D grid mapping `complexity × task_type` to `"provider/model"` targets. Matrix entries compile to routing rules at startup; explicit `rules` take priority. Use `"local"` for cells that should stay on the cache/SLM path.
+
+### Changed
+- **Dashboard configuration UI** — the Configuration tab now exposes Layer 0.5 classifier-routing controls, a visual model-matrix editor, and inline explicit-rule editing so operators can configure Copilot-style routing without hand-editing TOML.
+
 ## [2026.4.3] - 2026-04-08
 
 ### Added

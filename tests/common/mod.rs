@@ -132,6 +132,7 @@ pub fn build_state(
             isartor::state::resolved_provider_chain(&config).as_slice(),
         )),
         config,
+        minilm_classifier: None,
         #[cfg(feature = "embedded-inference")]
         embedded_classifier: None,
     })
