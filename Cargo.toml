@@ -68,7 +68,7 @@ pbkdf2 = "0.12"
 aes-gcm = "0.10"
 zeroize = { version = "1", features = ["derive"] }
 rand = { version = "0.8", features = ["std"] }
-rig-core = "0.32.0"
+rig-core = "0.34.0"
 async-trait = "0.1.89"
 opentelemetry = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio"] }
