@@ -91,7 +91,7 @@ redis = { version = "0.25", features = ["tokio-comp"] }
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2"
-rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
+rcgen = { version = "0.14", features = ["pem", "x509-parser"] }
 
 # CLI
 clap = { version = "4", features = ["derive", "env"] }
