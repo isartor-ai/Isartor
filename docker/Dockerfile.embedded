@@ -17,7 +17,7 @@
 # ============================================================================
 
 # ── Stage 1: Builder ────────────────────────────────────────────────────────
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 
 # cmake and g++ are needed by aws-lc-sys (TLS crypto) and tokenizers.
 RUN apt-get update \
